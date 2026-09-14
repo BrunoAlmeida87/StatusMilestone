@@ -89,3 +89,73 @@ Página aberta por duplo clique (`file://`):
 1. **Cópia de segurança no navegador (IndexedDB).** Você escolheu "HTML standalone + pasta escolhida" sem a cópia extra. Como a base ficará **na rede**, uma queda de conexão no meio da gravação pode corromper o arquivo. **Vou propor somar essa proteção** — é barata e elimina o pior cenário. Decisão sua.
 2. **Controle de concorrência na rede.** Com 2-4 pessoas e base compartilhada, preciso de trava/versionamento. Vou apresentar a mecânica na Etapa 6 para você aprovar.
 3. **Reconciliação da Etapa 11 terá 1 diferença intencional:** por causa de C3, Shipyard Prerequisites vai de 22/21 para 21/20. Todos os outros números batem 100%.
+
+---
+
+## 🔴 Decisão adicional — precedência em questão de status
+
+> **"Nessa questão de status o que vale é o arquivo SafetyMilestoneJ08."**
+
+### O que isso já significava antes de qualquer ação
+
+| Verificação | Resultado |
+|---|---|
+| `Actual Status` do Arq.1 ≡ `Actual Status` do Arq.2 | **428 / 428** — os dois arquivos já concordam |
+| Origem do histórico (29/07, 09/09, 10/09) | **100% SafetyMilestoneJ08** (o baseline do Arq.2 foi descartado em C5) |
+
+→ **Para o campo `status` a regra já valia integralmente.** Não havia nada a mudar.
+
+### Onde a regra teve efeito
+
+Os conflitos em aberto eram de `Updated Status Obs` (26) e `Bigram` (3) — textos *sobre* o status.
+Medi as duas leituras possíveis antes de aplicar:
+
+| Alcance | Itens que ficariam com observação **contradizendo** o status |
+|---|---|
+| SafetyMilestone nos 26 | **20** |
+| Manter o Resumo Fluxo | **6** |
+
+**Decisão tomada: aplicar a regra apenas aos 6 itens incoerentes.**
+
+| Item | Status | Texto aplicado (Arq.1) | Texto descartado (Arq.2) |
+|---|---|---|---|
+| 623 | 7 - Missing Vacuum Test or Sign | `Do B05 paper.` | `B05 done, without pendencies.` |
+| 638 | 7 - Missing Vacuum Test or Sign | `Do B05 paper.` | `B05 done, without pendencies.` |
+| 646 | 7 - Missing Vacuum Test or Sign | `Do B05 paper.` | `B05 done, without pendencies.` |
+| 673 | 3 - Blocking | `Waiting B05` | `B05 done, without pendencies.` |
+| 733 | 3 - Blocking | `Do B05 paper.` | `Waiver Accepted` |
+| 1102 | 3 - Blocking | `Waiting B05` | `B05 done, without pendencies.` |
+
+Nos outros 20 a regra **não** foi estendida: ali o texto do SafetyMilestone é anterior à validação
+(`Do B05 paper` / `Waiting B05` em itens já `1 - Validated by ICN`) e passaria a ser a incoerência.
+Esses 20 continuam como conflitos em aberto, para decisão na tela.
+
+A regra ficou codificada em `migracao/migrar.py` (`DECISOES_CONFLITO`), então qualquer nova
+migração reproduz exatamente este resultado.
+
+**Resultado:** conflitos em aberto caíram de 29 para **23** (20 `Updated Status Obs` + 3 `Bigram`).
+Os 6 itens deixaram de ser incoerentes e nenhum valor foi perdido — o texto descartado continua
+registrado em cada conflito e visível na tela.
+
+### ⚠️ Pendência que essa decisão deixou em aberto
+
+Os itens **624, 625, 628 e 629** têm no SafetyMilestone `New intervention Ficha 339/340/341/342` —
+informação que **não existe em nenhum outro lugar**. Eles continuam como conflito em aberto.
+Se forem resolvidos em lote pelo Resumo Fluxo, essa informação sai do campo (segue registrada no
+conflito, mas some do item). O botão **Combinar os dois** preserva as duas partes.
+
+### Achado separado: 18 incoerências que não são conflito
+
+Além dos conflitos, há **18 itens em que os dois arquivos concordavam** mas a observação contradiz
+o status. Não são divergência entre fontes — são inconsistências que já existiam na planilha:
+
+- **`B05 done, without pendencies.`** em itens `Missing Vacuum Test` ou `Blocking`: 636, 645, 719, 743
+- **`WAIVER ACCEPTED`** em itens `3 - Blocking`: 764, 765
+- **`Registration correction for JXCer`** em itens já `Validated`: 662, 663, 707, 750
+- **`ICN sent the evidence for analysis.`** em itens já `Validated`: 1073, 1134
+- **`J08 - Corrected Pressure is not filled...`** em itens já `Validated`: 890, 899
+- Outros: 657, 809, 1027, 3158
+
+O verificador de integridade lista todos, e o relatório *Inconsistências status × observação* os
+filtra na tela. Nenhuma ação foi tomada sobre eles — é material para revisão com quem acompanha
+cada item.

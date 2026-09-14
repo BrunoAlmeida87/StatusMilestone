@@ -43,6 +43,35 @@ IDENTICOS      = ["Evidence","HullPassageParts","InspType","Position AC"]
 # Campos em conflito que vao para decisao do usuario
 CONFLITANTES   = ["Updated Status Obs","Bigram"]
 
+# Conflitos já decididos pelo usuário (ver analise/02_DECISOES.md).
+# Chave "item:campo", ou "*:campo" para valer em todo o campo.
+# Valor: "arquivo1" | "arquivo2" | um texto literal.
+DECISOES_CONFLITO = {
+    # C3/C4 — OriginalJx é o marco de ORIGEM. O Arquivo 2 preserva J06/J07;
+    # o Arquivo 1 achatou tudo para J08.
+    "*:OriginalJx": "arquivo2",
+    # "Nessa questão de status o que vale é o SafetyMilestoneJ08" — aplicado aos
+    # 6 itens em que o texto do Arquivo 2 CONTRADIZ o status que ficou (diz
+    # "B05 done" / "Waiver Accepted" num item Missing Vacuum Test ou Blocking).
+    # Nos outros 20 o texto do Arquivo 1 é anterior à validação e ficaria incoerente,
+    # por isso a regra não foi estendida a eles.
+    "623:Updated Status Obs":  "arquivo1",
+    "638:Updated Status Obs":  "arquivo1",
+    "646:Updated Status Obs":  "arquivo1",
+    "673:Updated Status Obs":  "arquivo1",
+    "733:Updated Status Obs":  "arquivo1",
+    "1102:Updated Status Obs": "arquivo1",
+}
+
+JUSTIFICATIVAS = {
+    "OriginalJx:arquivo2": ("Decisão C3/C4: OriginalJx é o marco de origem; o Arquivo 2 "
+                            "preserva J06/J07 e o Arquivo 1 achatou tudo para J08."),
+    "Updated Status Obs:arquivo1": ("Em questão de status vale o SafetyMilestoneJ08: o texto do "
+                                    "Arquivo 2 contradizia o status que ficou neste item."),
+    "Updated Status Obs:arquivo2": "Decisão do usuário",
+    "Bigram:arquivo2": "O Arquivo 2 preserva todos os códigos; o Arquivo 1 perdeu parte deles.",
+}
+
 MODE_NORM = {
     "local": "Local",
     "remote": "Remote",
@@ -188,21 +217,34 @@ def migrar(p1, p2, saida, autor="Migração"):
         # ---- conflitos entre os dois arquivos (C2: nada sobrescrito)
         for campo in ["OriginalJx"] + CONFLITANTES:
             va, vb = limpar(a.get(campo, "")), limpar(b.get(campo, ""))
-            if va and vb and va != vb:
-                resolvido = campo == "OriginalJx"   # C3/C4: decidido na analise
-                conflitos.append({
-                    "id": novo_id(it, campo),
-                    "item": it, "campo": campo,
-                    "valorArquivo1": va, "valorArquivo2": vb,
-                    "valorAplicado": vb,
-                    "resolvido": resolvido,
-                    "resolvidoPor": autor if resolvido else None,
-                    "resolvidoEm": agora if resolvido else None,
-                    "justificativa": ("Decisão C3/C4: OriginalJx é o marco de origem; "
-                                      "o Arquivo 2 preserva J06/J07 e o Arquivo 1 achatou para J08.")
-                                     if resolvido else None,
-                })
-                relatorio["campos_conflitantes"][campo] = relatorio["campos_conflitantes"].get(campo, 0) + 1
+            if not (va and vb and va != vb):
+                continue
+            decisao = DECISOES_CONFLITO.get(f"{it}:{campo}") or DECISOES_CONFLITO.get(f"*:{campo}")
+            if decisao in ("arquivo1", "arquivo2"):
+                aplicado = va if decisao == "arquivo1" else vb
+                just = JUSTIFICATIVAS.get(f"{campo}:{decisao}", "Decisão do usuário")
+            elif decisao:
+                aplicado, just = decisao, "Valor definido pelo usuário"
+            else:
+                aplicado, just = vb, None      # provisório, aguarda decisão na tela
+            conflitos.append({
+                "id": novo_id(it, campo),
+                "item": it, "campo": campo,
+                "valorArquivo1": va, "valorArquivo2": vb,
+                "valorAplicado": aplicado,
+                "resolvido": bool(decisao),
+                "resolvidoPor": autor if decisao else None,
+                "resolvidoEm": agora if decisao else None,
+                "justificativa": just,
+            })
+            relatorio["campos_conflitantes"][campo] = relatorio["campos_conflitantes"].get(campo, 0) + 1
+
+        def aplicado_de(campo, padrao):
+            """Se houve conflito neste item/campo, o item recebe o valor aplicado."""
+            for c in conflitos:
+                if c["item"] == it and c["campo"] == campo:
+                    return c["valorAplicado"]
+            return padrao
 
         itens.append({
             "item": it,
@@ -226,7 +268,8 @@ def migrar(p1, p2, saida, autor="Migração"):
             "isB05": is_b05,
             # --- editaveis (I8)
             "status": status_atual,
-            "updatedStatusObs": limpar(b.get("Updated Status Obs", "")) or limpar(a.get("Updated Status Obs", "")),
+            "updatedStatusObs": aplicado_de("Updated Status Obs",
+                limpar(b.get("Updated Status Obs", "")) or limpar(a.get("Updated Status Obs", ""))),
             "generalObs": pega("General Obs"),
             "ncr": pega("NCR's"),
             "tests": limpar(a.get("Tests", "")),      # I6: so existe no Arquivo 1
