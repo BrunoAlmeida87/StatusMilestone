@@ -92,70 +92,80 @@ Página aberta por duplo clique (`file://`):
 
 ---
 
-## 🔴 Decisão adicional — precedência em questão de status
+## 🔴 Decisão final — precedência do SafetyMilestoneJ08
 
 > **"Nessa questão de status o que vale é o arquivo SafetyMilestoneJ08."**
+> **"Para todo o resto, considere a planilha J08 como a correta."**
 
-### O que isso já significava antes de qualquer ação
+### Correção de regra de negócio (informada pelo usuário)
+
+> **"Missing Vacuum Test e B05 done não são excludentes. Você faz o B05 e aguarda o teste a vácuo."**
+
+Eu havia criado um verificador que tratava `7 - Missing Vacuum Test or Sign` + observação de
+conclusão como contradição. **Estava errado**: é a sequência normal do processo — executa-se o B05
+e depois aguarda-se o teste a vácuo ou a assinatura.
+
+A regra foi corrigida e o conceito virou um **parâmetro configurável**,
+`config.statusPosExecucao`, editável na tela de Configurações:
+
+```json
+"statusPosExecucao": ["7 - Missing Vacuum Test or Sign"]
+```
+
+Nos status dessa lista, uma observação de conclusão **não** é sinalizada como incoerente.
+Se outros status tiverem a mesma natureza, basta acrescentá-los ali — sem tocar no código.
+
+### O que o campo `status` já cumpria
 
 | Verificação | Resultado |
 |---|---|
-| `Actual Status` do Arq.1 ≡ `Actual Status` do Arq.2 | **428 / 428** — os dois arquivos já concordam |
-| Origem do histórico (29/07, 09/09, 10/09) | **100% SafetyMilestoneJ08** (o baseline do Arq.2 foi descartado em C5) |
+| `Actual Status` do Arq.1 ≡ `Actual Status` do Arq.2 | **428 / 428** |
+| Origem do histórico (29/07, 09/09, 10/09) | **100% SafetyMilestoneJ08** |
 
-→ **Para o campo `status` a regra já valia integralmente.** Não havia nada a mudar.
+Para o campo `status` a regra já valia integralmente. Não havia o que mudar.
 
-### Onde a regra teve efeito
+### O que a regra mudou
 
-Os conflitos em aberto eram de `Updated Status Obs` (26) e `Bigram` (3) — textos *sobre* o status.
-Medi as duas leituras possíveis antes de aplicar:
+| Campo | Decisão | Conflitos |
+|---|---|---|
+| `Updated Status Obs` | **SafetyMilestoneJ08 vence, sem exceção** | 26 resolvidos |
+| `OriginalJx` | Arquivo 2 vence — decisão C3/C4 do usuário, que é mais específica e prevalece: o J08 achatou o marco de origem para J08, e o usuário confirmou que a origem é J06/J07 | 11 resolvidos |
+| `Bigram` | **Deixado em aberto** — ver abaixo | 3 pendentes |
 
-| Alcance | Itens que ficariam com observação **contradizendo** o status |
-|---|---|
-| SafetyMilestone nos 26 | **20** |
-| Manter o Resumo Fluxo | **6** |
+**Conflitos em aberto: 29 → 3.**
 
-**Decisão tomada: aplicar a regra apenas aos 6 itens incoerentes.**
+Efeito colateral positivo: os itens **624, 625, 628 e 629** ficaram com
+`New intervention Ficha 339/340/341/342`, informação que só existe no SafetyMilestoneJ08 e que
+seria perdida do campo por qualquer outra escolha.
 
-| Item | Status | Texto aplicado (Arq.1) | Texto descartado (Arq.2) |
-|---|---|---|---|
-| 623 | 7 - Missing Vacuum Test or Sign | `Do B05 paper.` | `B05 done, without pendencies.` |
-| 638 | 7 - Missing Vacuum Test or Sign | `Do B05 paper.` | `B05 done, without pendencies.` |
-| 646 | 7 - Missing Vacuum Test or Sign | `Do B05 paper.` | `B05 done, without pendencies.` |
-| 673 | 3 - Blocking | `Waiting B05` | `B05 done, without pendencies.` |
-| 733 | 3 - Blocking | `Do B05 paper.` | `Waiver Accepted` |
-| 1102 | 3 - Blocking | `Waiting B05` | `B05 done, without pendencies.` |
+### Por que `Bigram` ficou de fora
 
-Nos outros 20 a regra **não** foi estendida: ali o texto do SafetyMilestone é anterior à validação
-(`Do B05 paper` / `Waiting B05` em itens já `1 - Validated by ICN`) e passaria a ser a incoerência.
-Esses 20 continuam como conflitos em aberto, para decisão na tela.
+Ali o Arquivo 1 é um **subconjunto** do Arquivo 2, não uma versão diferente:
 
-A regra ficou codificada em `migracao/migrar.py` (`DECISOES_CONFLITO`), então qualquer nova
-migração reproduz exatamente este resultado.
+| Item | SafetyMilestoneJ08 | Resumo Fluxo |
+|---|---|---|
+| 809 | `HG` | `HG;HP` |
+| 1027 | `DM` | `DA;DM;DN` |
+| 3102 | `-` | `Several` |
 
-**Resultado:** conflitos em aberto caíram de 29 para **23** (20 `Updated Status Obs` + 3 `Bigram`).
-Os 6 itens deixaram de ser incoerentes e nenhum valor foi perdido — o texto descartado continua
-registrado em cada conflito e visível na tela.
+Aplicar o J08 **apagaria códigos** (`HP`, `DA`, `DN`) em vez de corrigir um valor. Como isso é
+perda de informação e não uma questão de status, os três seguem como conflito em aberto,
+aguardando confirmação.
 
-### ⚠️ Pendência que essa decisão deixou em aberto
+### Consequência medida
 
-Os itens **624, 625, 628 e 629** têm no SafetyMilestone `New intervention Ficha 339/340/341/342` —
-informação que **não existe em nenhum outro lugar**. Eles continuam como conflito em aberto.
-Se forem resolvidos em lote pelo Resumo Fluxo, essa informação sai do campo (segue registrada no
-conflito, mas some do item). O botão **Combinar os dois** preserva as duas partes.
+Itens em que a observação contradiz o status, pela regra já corrigida:
+**36** (antes da decisão: 18). Os 20 novos são os que eu havia sinalizado no aviso anterior —
+itens `1 - Validated by ICN` cuja observação no J08 é `Do B05 paper.` ou `Waiting B05`.
 
-### Achado separado: 18 incoerências que não são conflito
+Isso pode significar duas coisas, e só quem acompanha o processo sabe qual:
+1. são textos anteriores à validação que nunca foram atualizados naquela coluna; ou
+2. é uma combinação legítima, como `Missing Vacuum Test` + `B05 done` — e nesse caso basta
+   acrescentar o tratamento em `statusPosExecucao` e os 20 deixam de ser sinalizados.
 
-Além dos conflitos, há **18 itens em que os dois arquivos concordavam** mas a observação contradiz
-o status. Não são divergência entre fontes — são inconsistências que já existiam na planilha:
+**Nenhuma ação foi tomada sobre eles.** O relatório *Inconsistências status × observação* e o
+verificador de integridade apenas os listam.
 
-- **`B05 done, without pendencies.`** em itens `Missing Vacuum Test` ou `Blocking`: 636, 645, 719, 743
-- **`WAIVER ACCEPTED`** em itens `3 - Blocking`: 764, 765
-- **`Registration correction for JXCer`** em itens já `Validated`: 662, 663, 707, 750
-- **`ICN sent the evidence for analysis.`** em itens já `Validated`: 1073, 1134
-- **`J08 - Corrected Pressure is not filled...`** em itens já `Validated`: 890, 899
-- Outros: 657, 809, 1027, 3158
-
-O verificador de integridade lista todos, e o relatório *Inconsistências status × observação* os
-filtra na tela. Nenhuma ação foi tomada sobre eles — é material para revisão com quem acompanha
-cada item.
+A precedência ficou codificada em `migracao/migrar.py` (`DECISOES_CONFLITO`), com a justificativa
+gravada em cada conflito, de modo que qualquer nova migração reproduz exatamente este resultado.
+Nenhum valor foi perdido: o texto descartado continua registrado em cada conflito e visível na tela.

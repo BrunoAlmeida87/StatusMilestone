@@ -1152,10 +1152,7 @@ const RELATORIOS = [
      f:i=>{const s=new Set((S.db.observacoes||[]).map(o=>o.item)); return s.has(i.item);}},
   {id:"ncr",     pt:"Com NCR", en:"With NCR", f:i=>!!i.ncr},
   {id:"inconsist", pt:"Inconsistências status x observação", en:"Status vs note inconsistencies",
-     f:i=>{const o=(i.updatedStatusObs||"").toLowerCase();
-       if(!o) return false;
-       const conc = o.includes("done")||o.includes("conform")||o.includes("accepted");
-       return (i.status==="1 - Validated by ICN" && !conc) || (R.aberto(i.status) && conc);}},
+     f:i=>incoerente(i.status,i.updatedStatusObs)},
   {id:"conflito", pt:"Itens com conflito não resolvido", en:"Items with unresolved conflict",
      f:i=>{const s=new Set((S.db.conflitos||[]).filter(c=>!c.resolvido).map(c=>c.item)); return s.has(i.item);}},
 ];
@@ -1202,8 +1199,16 @@ function textoDizConcluido(t){
   t=(t||"").toLowerCase();
   return /done|conform|accepted|waiver|aceito|conclu/.test(t);
 }
+/* Alguns status sao POSTERIORES a execucao: fazer o B05 e depois aguardar o teste
+   a vacuo ou a assinatura e o fluxo normal, entao "B05 done" neles nao e
+   contradicao. A lista fica em config, ajustavel sem mexer no codigo. */
+function statusAceitaTextoConcluido(st){
+  const l = S.db?.config?.statusPosExecucao ?? ["7 - Missing Vacuum Test or Sign"];
+  return l.includes(st);
+}
 function incoerente(status,texto){
   if(!texto) return false;
+  if(statusAceitaTextoConcluido(status)) return false;
   const c=textoDizConcluido(texto);
   return (R.aberto(status) && c) || (status==="1 - Validated by ICN" && !c);
 }
@@ -1306,6 +1311,10 @@ Render.config = function(){
         <input type="number" id="cAge" min="1" value="${c.diasAlertaAging??60}"></label>
       <label class="fld"><span>${LANG==="pt"?"Seu nome (autor do histórico)":"Your name (history author)"}</span>
         <input type="text" id="cAutor" value="${esc(Usuario.nome())}"></label>
+      <label class="fld"><span>${LANG==="pt"
+        ? "Status posteriores à execução (um por linha) — neles, observação de conclusão não é contradição"
+        : "Post-execution statuses (one per line) — a completion note here is not a contradiction"}</span>
+        <textarea id="cPos" rows="2">${esc((c.statusPosExecucao||[]).join("\n"))}</textarea></label>
       <div><button class="btn pri" id="cSalvar">${T("salvar")}</button></div>
     </div></div>
 
@@ -1369,6 +1378,7 @@ Render.config = function(){
   $("#cSalvar").onclick=()=>{
     c.minutosConsolidacao=+$("#cCons").value; c.diasSemAtualizacao=+$("#cSem").value;
     c.diasAlertaAging=+$("#cAge").value;
+    c.statusPosExecucao=$("#cPos").value.split("\n").map(x=>x.trim()).filter(Boolean);
     const a=$("#cAutor").value.trim(); if(a) localStorage.setItem("sm.autor",a);
     Pend.agendarAutosave(); toast(LANG==="pt"?"Configurações salvas":"Settings saved","ok"); Render.atual();};
   $$("input[data-st]").forEach(cb=>cb.onchange=()=>{
@@ -1417,9 +1427,7 @@ function verificarIntegridade(){
   if(orf) p.push([`${orf} ${LANG==="pt"?"eventos de histórico órfãos":"orphan history events"}`,"warn"]);
   const conf=(S.db.conflitos||[]).filter(c=>!c.resolvido).length;
   if(conf) p.push([`${conf} ${LANG==="pt"?"conflitos aguardando decisão":"conflicts awaiting decision"}`,"warn"]);
-  const incoer=itens.filter(i=>{const o=(i.updatedStatusObs||"").toLowerCase(); if(!o) return false;
-    const c=o.includes("done")||o.includes("conform")||o.includes("accepted");
-    return (i.status==="1 - Validated by ICN"&&!c)||(R.aberto(i.status)&&c);}).length;
+  const incoer=itens.filter(i=>incoerente(i.status,i.updatedStatusObs)).length;
   if(incoer) p.push([`${incoer} ${LANG==="pt"?"itens com status incoerente com a observação":"items whose status conflicts with their note"}`,"warn"]);
   if(!p.length) return `<div class="rowflex" style="color:var(--ok)"><b>✓ ${LANG==="pt"?"Nenhum problema encontrado":"No problems found"}</b></div>`;
   return p.map(([t,k])=>`<div class="rowflex" style="gap:7px;padding:3px 0;color:var(--${k==="bad"?"bad":"warn"})">
@@ -1809,6 +1817,7 @@ function normalizar(db){
   const c=db.config;
   c.minutosConsolidacao ??= 10; c.diasSemAtualizacao ??= 30; c.diasAlertaAging ??= 60;
   c.status ??= []; c.familias ??= []; c.inspTypesFuncionais ??= [];
+  c.statusPosExecucao ??= ["7 - Missing Vacuum Test or Sign"];
   if(!c.familias.length) c.familias=[
     {id:"pendente",pt:"Pendente",en:"Pending",cor:"#8a8f98",ordem:1},
     {id:"prova",pt:"Em prova",en:"Waiting Proof",cor:"#b8860b",ordem:2},

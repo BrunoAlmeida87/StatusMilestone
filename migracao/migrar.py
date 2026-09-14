@@ -50,24 +50,19 @@ DECISOES_CONFLITO = {
     # C3/C4 — OriginalJx é o marco de ORIGEM. O Arquivo 2 preserva J06/J07;
     # o Arquivo 1 achatou tudo para J08.
     "*:OriginalJx": "arquivo2",
-    # "Nessa questão de status o que vale é o SafetyMilestoneJ08" — aplicado aos
-    # 6 itens em que o texto do Arquivo 2 CONTRADIZ o status que ficou (diz
-    # "B05 done" / "Waiver Accepted" num item Missing Vacuum Test ou Blocking).
-    # Nos outros 20 o texto do Arquivo 1 é anterior à validação e ficaria incoerente,
-    # por isso a regra não foi estendida a eles.
-    "623:Updated Status Obs":  "arquivo1",
-    "638:Updated Status Obs":  "arquivo1",
-    "646:Updated Status Obs":  "arquivo1",
-    "673:Updated Status Obs":  "arquivo1",
-    "733:Updated Status Obs":  "arquivo1",
-    "1102:Updated Status Obs": "arquivo1",
+    # "Para todo o resto, considere a planilha J08 como a correta":
+    # o SafetyMilestoneJ08 é a fonte oficial de Updated Status Obs, sem exceção.
+    # Efeito colateral positivo: preserva "New intervention Ficha 339/340/341/342"
+    # (itens 624, 625, 628 e 629), que só existe nesse arquivo.
+    "*:Updated Status Obs": "arquivo1",
+    # Bigram fica de fora: ali o Arquivo 1 é um SUBCONJUNTO do Arquivo 2
+    # (HG vs HG;HP), então aplicar o J08 apagaria códigos. Segue em aberto.
 }
 
 JUSTIFICATIVAS = {
     "OriginalJx:arquivo2": ("Decisão C3/C4: OriginalJx é o marco de origem; o Arquivo 2 "
                             "preserva J06/J07 e o Arquivo 1 achatou tudo para J08."),
-    "Updated Status Obs:arquivo1": ("Em questão de status vale o SafetyMilestoneJ08: o texto do "
-                                    "Arquivo 2 contradizia o status que ficou neste item."),
+    "Updated Status Obs:arquivo1": ("O SafetyMilestoneJ08 é a fonte oficial em questão de status."),
     "Updated Status Obs:arquivo2": "Decisão do usuário",
     "Bigram:arquivo2": "O Arquivo 2 preserva todos os códigos; o Arquivo 1 perdeu parte deles.",
 }
@@ -304,6 +299,9 @@ def migrar(p1, p2, saida, autor="Migração"):
             "status": [{"codigo": c, "familia": f, "ativo": at, "ordem": o} for c, f, at, o in STATUS_DEF],
             "familias": FAMILIAS,
             "statusAbertoExcecoes": ["1 - Validated by ICN", "2 - Not Blocking", "2 - Not Available Jx"],
+            # Status posteriores a execucao: fazer o B05 e depois aguardar o teste a vacuo
+            # ou a assinatura e o fluxo normal, entao "B05 done" neles nao e contradicao.
+            "statusPosExecucao": ["7 - Missing Vacuum Test or Sign"],
             "inspTypesFuncionais": INSPTYPES_FUNCIONAIS,
             "colunasRecolhidas": [],
         },
