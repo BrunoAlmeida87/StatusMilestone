@@ -1,0 +1,10 @@
+# NUNCA versionar dados do projeto neste repositorio publico
+*.csv
+*.xlsx
+*.xlsb
+*.xls
+database.json
+database*.json
+/dados/
+/database/
+/backups/
