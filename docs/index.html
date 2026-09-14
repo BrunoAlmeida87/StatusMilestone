@@ -1,0 +1,1777 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>StatusMilestone</title>
+<style>
+:root{
+  --bg:#f6f7f9; --panel:#ffffff; --panel-2:#fbfcfd; --line:#e2e5ea; --line-2:#eef0f4;
+  --fg:#1c1f26; --fg-2:#5b6472; --fg-3:#8a929e;
+  --accent:#2f5fa8; --accent-fg:#fff; --accent-soft:#e8eef8;
+  --ok:#2f7a4f; --warn:#b8860b; --bad:#b3403a; --info:#3d6fa8; --neutral:#8a8f98; --orange:#c2703d;
+  --chg:#f5d76e; --chg-line:#c9a227;
+  --radius:8px; --shadow:0 1px 2px rgba(16,24,40,.05),0 1px 3px rgba(16,24,40,.06);
+  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#12151a; --panel:#181c23; --panel-2:#1d222a; --line:#2b313b; --line-2:#232831;
+  --fg:#e6e9ee; --fg-2:#a3acba; --fg-3:#737d8c;
+  --accent:#5b8fd6; --accent-fg:#0d1117; --accent-soft:#1e2937;
+  --ok:#4fa87a; --warn:#d4a53a; --bad:#d9645e; --info:#6a9dd8; --neutral:#7b828d; --orange:#d68c58;
+  --chg:#6b5a1e; --chg-line:#c9a227;
+  --shadow:0 1px 2px rgba(0,0,0,.3);
+}}
+:root[data-theme="dark"]{
+  --bg:#12151a; --panel:#181c23; --panel-2:#1d222a; --line:#2b313b; --line-2:#232831;
+  --fg:#e6e9ee; --fg-2:#a3acba; --fg-3:#737d8c;
+  --accent:#5b8fd6; --accent-fg:#0d1117; --accent-soft:#1e2937;
+  --ok:#4fa87a; --warn:#d4a53a; --bad:#d9645e; --info:#6a9dd8; --neutral:#7b828d; --orange:#d68c58;
+  --chg:#6b5a1e; --chg-line:#c9a227;
+  --shadow:0 1px 2px rgba(0,0,0,.3);
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:13px/1.5 var(--sans);-webkit-font-smoothing:antialiased}
+h1,h2,h3,h4{margin:0;font-weight:620;letter-spacing:-.01em}
+button,input,select,textarea{font:inherit;color:inherit}
+a{color:var(--accent)}
+
+/* ---------- layout ---------- */
+#app{display:grid;grid-template-columns:200px 1fr;min-height:100vh}
+#side{background:var(--panel);border-right:1px solid var(--line);display:flex;flex-direction:column;position:sticky;top:0;height:100vh}
+.brand{padding:14px 16px 12px;border-bottom:1px solid var(--line-2)}
+.brand b{display:block;font-size:14px;letter-spacing:-.02em}
+.brand span{font-size:11px;color:var(--fg-3)}
+nav{padding:8px;display:flex;flex-direction:column;gap:2px;flex:1;overflow:auto}
+nav button{display:flex;align-items:center;gap:9px;width:100%;padding:7px 10px;border:0;border-radius:6px;
+  background:transparent;color:var(--fg-2);cursor:pointer;text-align:left;font-size:13px}
+nav button:hover{background:var(--line-2);color:var(--fg)}
+nav button.on{background:var(--accent-soft);color:var(--accent);font-weight:600}
+nav button .ic{width:15px;text-align:center;opacity:.85;font-size:13px}
+nav button .cnt{margin-left:auto;font:600 10px/1.6 var(--mono);background:var(--bad);color:#fff;
+  padding:0 5px;border-radius:9px;min-width:17px;text-align:center}
+.sidefoot{padding:9px;border-top:1px solid var(--line-2);display:flex;flex-direction:column;gap:6px}
+#main{min-width:0;display:flex;flex-direction:column}
+header{position:sticky;top:0;z-index:30;background:var(--panel);border-bottom:1px solid var(--line);
+  padding:9px 18px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+header h2{font-size:15px;margin-right:auto}
+main{padding:16px 18px 60px;min-width:0}
+
+/* ---------- controles ---------- */
+.btn{border:1px solid var(--line);background:var(--panel-2);padding:5px 11px;border-radius:6px;cursor:pointer;
+  color:var(--fg-2);white-space:nowrap;font-size:12.5px}
+.btn:hover{background:var(--line-2);color:var(--fg)}
+.btn.pri{background:var(--accent);border-color:var(--accent);color:var(--accent-fg);font-weight:600}
+.btn.pri:hover{filter:brightness(1.08)}
+.btn.warn{border-color:var(--chg-line);color:var(--chg-line)}
+.btn.danger{border-color:var(--bad);color:var(--bad)}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.btn.sm{padding:3px 8px;font-size:11.5px}
+input[type=text],input[type=search],input[type=date],input[type=number],select,textarea{
+  background:var(--panel-2);border:1px solid var(--line);border-radius:6px;padding:5px 9px;outline:0;min-width:0}
+input:focus,select:focus,textarea:focus{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft)}
+textarea{resize:vertical;font:inherit;width:100%}
+label.fld{display:flex;flex-direction:column;gap:3px;font-size:11px;color:var(--fg-3)}
+label.fld>span{font-weight:600;text-transform:uppercase;letter-spacing:.04em;font-size:10px}
+
+/* ---------- cards ---------- */
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow)}
+.panel>h3{padding:10px 14px;border-bottom:1px solid var(--line-2);font-size:12px;text-transform:uppercase;
+  letter-spacing:.05em;color:var(--fg-2);display:flex;align-items:center;gap:8px}
+.panel>h3 .sub{margin-left:auto;font:500 11px/1 var(--sans);text-transform:none;letter-spacing:0;color:var(--fg-3)}
+.pad{padding:14px}
+.grid{display:grid;gap:14px}
+.kpis{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}
+.kpi{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:11px 13px;box-shadow:var(--shadow)}
+.kpi .lab{font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--fg-3);font-weight:600}
+.kpi .val{font:650 25px/1.15 var(--sans);letter-spacing:-.025em;margin-top:3px}
+.kpi .dlt{font-size:11.5px;margin-top:2px;color:var(--fg-3)}
+.up{color:var(--ok)} .down{color:var(--bad)} .flat{color:var(--fg-3)}
+
+/* ---------- tabela ---------- */
+.tblwrap{overflow:auto;max-height:calc(100vh - 230px)}
+table{border-collapse:separate;border-spacing:0;width:100%;font-size:12.5px}
+th,td{padding:6px 9px;text-align:left;border-bottom:1px solid var(--line-2);vertical-align:top}
+thead th{position:sticky;top:0;z-index:2;background:var(--panel-2);font-size:10.5px;text-transform:uppercase;
+  letter-spacing:.04em;color:var(--fg-3);font-weight:650;cursor:pointer;white-space:nowrap;border-bottom:1px solid var(--line)}
+thead th:hover{color:var(--fg)}
+tbody tr:hover{background:var(--panel-2)}
+tbody tr.sel{background:var(--accent-soft)}
+td.num{font:500 12px/1.5 var(--mono)}
+.trunc{max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block}
+
+/* ---------- pills ---------- */
+.pill{display:inline-flex;align-items:center;gap:5px;padding:1px 8px;border-radius:11px;font-size:11px;
+  font-weight:600;white-space:nowrap;border:1px solid transparent;line-height:1.7}
+.dot{width:7px;height:7px;border-radius:50%;flex:none}
+.tag{display:inline-block;padding:0 6px;border-radius:4px;background:var(--line-2);color:var(--fg-2);
+  font:600 10.5px/1.7 var(--mono);margin:1px 3px 1px 0;border:1px solid var(--line)}
+.chgmark{background:var(--chg);border-left:3px solid var(--chg-line)!important}
+
+/* ---------- kanban ---------- */
+.kb{display:flex;gap:11px;align-items:flex-start;overflow-x:auto;padding-bottom:14px}
+.col{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);min-width:250px;
+  flex:1 1 250px;display:flex;flex-direction:column;max-height:calc(100vh - 195px);box-shadow:var(--shadow)}
+.col.collapsed{min-width:44px;flex:0 0 44px}
+.col.collapsed .colbody,.col.collapsed .colh .nm{display:none}
+.col.collapsed .colh{writing-mode:vertical-rl;height:100%;justify-content:flex-start;padding:10px 4px}
+.colh{display:flex;align-items:center;gap:7px;padding:9px 11px;border-bottom:1px solid var(--line-2);cursor:pointer}
+.colh .nm{font-weight:650;font-size:12px}
+.colh .n{font:600 11px/1.6 var(--mono);color:var(--fg-3);margin-left:auto}
+.colbody{overflow-y:auto;padding:8px;display:flex;flex-direction:column;gap:7px;min-height:70px}
+.col.over .colbody{background:var(--accent-soft)}
+.card{background:var(--panel-2);border:1px solid var(--line);border-left-width:3px;border-radius:6px;
+  padding:8px 9px;cursor:grab;font-size:12px}
+.card:hover{border-color:var(--accent)}
+.card.dragging{opacity:.4}
+.card .cid{font:650 12px/1.4 var(--mono)}
+.card .cdesc{color:var(--fg-2);font-size:11.5px;margin-top:3px;display:-webkit-box;-webkit-line-clamp:2;
+  -webkit-box-orient:vertical;overflow:hidden}
+.card .cmeta{display:flex;gap:4px;flex-wrap:wrap;margin-top:6px}
+
+/* ---------- modal ---------- */
+.ov{position:fixed;inset:0;background:rgba(10,13,18,.55);display:flex;align-items:center;justify-content:center;
+  z-index:100;padding:20px;backdrop-filter:blur(2px)}
+.modal{background:var(--panel);border:1px solid var(--line);border-radius:10px;max-width:920px;width:100%;
+  max-height:88vh;display:flex;flex-direction:column;box-shadow:0 12px 40px rgba(0,0,0,.3)}
+.modal>header{border-radius:10px 10px 0 0}
+.modal .body{overflow:auto;padding:16px}
+.modal footer{padding:11px 16px;border-top:1px solid var(--line-2);display:flex;gap:8px;justify-content:flex-end}
+.tabs{display:flex;gap:2px;border-bottom:1px solid var(--line);margin-bottom:14px}
+.tabs button{border:0;background:transparent;padding:7px 12px;cursor:pointer;color:var(--fg-3);
+  border-bottom:2px solid transparent;font-size:12.5px}
+.tabs button.on{color:var(--accent);border-bottom-color:var(--accent);font-weight:620}
+
+/* ---------- diversos ---------- */
+.flow{display:grid;gap:8px;grid-template-columns:repeat(auto-fit,minmax(135px,1fr))}
+.fbox{border:1px solid var(--line);border-left-width:3px;border-radius:6px;padding:8px 10px;background:var(--panel-2)}
+.fbox .fn{font:650 21px/1.1 var(--sans)}
+.fbox .fl{font-size:10.5px;color:var(--fg-2);margin-top:3px;line-height:1.35}
+.fbox .fp{font:500 11px/1 var(--mono);color:var(--fg-3);margin-top:4px}
+.bar{height:7px;border-radius:4px;background:var(--line-2);overflow:hidden;display:flex}
+.empty{text-align:center;padding:50px 20px;color:var(--fg-3)}
+.empty h3{font-size:15px;color:var(--fg-2);margin-bottom:6px}
+.toast{position:fixed;bottom:16px;right:16px;z-index:200;display:flex;flex-direction:column;gap:7px;align-items:flex-end}
+.toast div{background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--accent);
+  padding:9px 13px;border-radius:7px;box-shadow:0 6px 20px rgba(0,0,0,.18);animation:sl .2s;max-width:340px}
+.toast div.ok{border-left-color:var(--ok)} .toast div.bad{border-left-color:var(--bad)}
+@keyframes sl{from{opacity:0;transform:translateY(8px)}}
+.rowflex{display:flex;gap:9px;align-items:center;flex-wrap:wrap}
+.muted{color:var(--fg-3)}
+.mono{font-family:var(--mono)}
+.sep{height:1px;background:var(--line-2);margin:12px 0}
+dl.kv{display:grid;grid-template-columns:150px 1fr;gap:5px 12px;margin:0;font-size:12.5px}
+dl.kv dt{color:var(--fg-3);font-size:11px;text-transform:uppercase;letter-spacing:.03em;font-weight:600;padding-top:2px}
+dl.kv dd{margin:0;white-space:pre-wrap;word-break:break-word}
+.chips{display:flex;gap:5px;flex-wrap:wrap}
+.chip{border:1px solid var(--line);background:var(--panel-2);border-radius:13px;padding:2px 9px;cursor:pointer;font-size:11.5px}
+.chip.on{background:var(--accent);border-color:var(--accent);color:var(--accent-fg);font-weight:600}
+@media(max-width:860px){#app{grid-template-columns:1fr}#side{position:static;height:auto;flex-direction:row;
+  align-items:center;overflow-x:auto}nav{flex-direction:row}.brand,.sidefoot{display:none}}
+@media print{#side,header,.noprint{display:none!important}#app{display:block}main{padding:0}}
+</style>
+</head>
+<body>
+<div id="app">
+  <aside id="side">
+    <div class="brand"><b>StatusMilestone</b><span id="brandsub">J08 &middot; Fluxo de Evid&ecirc;ncias</span></div>
+    <nav id="nav"></nav>
+    <div class="sidefoot">
+      <button class="btn sm" id="btnTheme">◐ <span data-i="tema">Tema</span></button>
+      <button class="btn sm" id="btnLang">🌐 PT / EN</button>
+      <div class="muted" style="font-size:10px" id="whoami"></div>
+    </div>
+  </aside>
+  <div id="main">
+    <header>
+      <h2 id="pageTitle">Dashboard</h2>
+      <div id="headerExtra" class="rowflex noprint"></div>
+      <div class="rowflex noprint">
+        <span id="pendBadge" class="pill" style="display:none;background:var(--chg);color:#4a3d00;border-color:var(--chg-line)"></span>
+        <button class="btn" id="btnSaveNow" style="display:none" data-i="salvarAgora">Salvar altera&ccedil;&otilde;es agora</button>
+        <span id="saveState" class="muted" style="font-size:11px"></span>
+      </div>
+    </header>
+    <main id="view"></main>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+<script>
+"use strict";
+/* ==========================================================================
+   StatusMilestone - sistema local de acompanhamento do fluxo de evidencias
+   Interface HTML standalone. Os dados vivem num database.json numa pasta
+   escolhida pelo usuario (local ou de rede) - nunca dentro deste arquivo.
+   ========================================================================== */
+
+/* ------------------------------- i18n ---------------------------------- */
+const I18N = {
+ pt:{dashboard:"Dashboard",itens:"Itens",kanban:"Kanban",historico:"Histórico",relatorios:"Relatórios",
+   conflitos:"Conflitos",config:"Configurações",tema:"Tema",salvarAgora:"Salvar alterações agora",
+   total:"Total de itens",emAberto:"Em aberto",validados:"Validados",conclusao:"Conclusão",
+   alterados:"Alterados no ciclo",selecionarPasta:"Selecionar pasta da base",
+   semBase:"Nenhuma base carregada",semBaseTxt:"Selecione a pasta onde fica o arquivo database.json. Pode ser uma pasta no seu computador ou na rede compartilhada.",
+   buscar:"Buscar item, descrição, observação...",status:"Status",todos:"Todos",limpar:"Limpar filtros",
+   detalhes:"Detalhes",observacoes:"Observações",dados:"Dados",salvar:"Salvar",cancelar:"Cancelar",fechar:"Fechar",
+   pendentes:"pendentes",descartar:"Descartar pendentes",exportar:"Exportar",imprimir:"Imprimir",backup:"Backup",
+   restaurar:"Restaurar",periodo:"Período",de:"De",ate:"Até",comparar:"Comparar",
+   melhoraram:"Melhoraram",pioraram:"Pioraram",iguais:"Sem alteração",novos:"Novos itens",
+   nenhumItem:"Nenhum item encontrado",obsNova:"Nova observação...",adicionar:"Adicionar",
+   b05:"B05",naoB05:"Não B05",tipoInsp:"Tipo de inspeção",funcaoVital:"Função vital",
+   origem:"Marco de origem",aging:"Aging",semAtualizacao:"Sem atualização",dias:"dias",
+   evolucao:"Evolução",distribuicao:"Distribuição",campo:"Campo",anterior:"Anterior",novo:"Novo",
+   data:"Data",autor:"Autor",item:"Item",acoes:"Ações",resolver:"Resolver",
+   arquivo1:"SafetyMilestoneJ08",arquivo2:"Resumo Fluxo Evidências",manter:"Manter este"},
+ en:{dashboard:"Dashboard",itens:"Items",kanban:"Kanban",historico:"History",relatorios:"Reports",
+   conflitos:"Conflicts",config:"Settings",tema:"Theme",salvarAgora:"Save changes now",
+   total:"Total items",emAberto:"Open",validados:"Validated",conclusao:"Completion",
+   alterados:"Changed in cycle",selecionarPasta:"Select database folder",
+   semBase:"No database loaded",semBaseTxt:"Select the folder holding database.json. It can be a local folder or a shared network folder.",
+   buscar:"Search item, description, note...",status:"Status",todos:"All",limpar:"Clear filters",
+   detalhes:"Details",observacoes:"Notes",dados:"Data",salvar:"Save",cancelar:"Cancel",fechar:"Close",
+   pendentes:"pending",descartar:"Discard pending",exportar:"Export",imprimir:"Print",backup:"Backup",
+   restaurar:"Restore",periodo:"Period",de:"From",ate:"To",comparar:"Compare",
+   melhoraram:"Improved",pioraram:"Worsened",iguais:"Unchanged",novos:"New items",
+   nenhumItem:"No items found",obsNova:"New note...",adicionar:"Add",
+   b05:"B05",naoB05:"Non-B05",tipoInsp:"Inspection type",funcaoVital:"Vital function",
+   origem:"Origin milestone",aging:"Aging",semAtualizacao:"No update for",dias:"days",
+   evolucao:"Trend",distribuicao:"Distribution",campo:"Field",anterior:"Previous",novo:"New",
+   data:"Date",autor:"Author",item:"Item",acoes:"Actions",resolver:"Resolve",
+   arquivo1:"SafetyMilestoneJ08",arquivo2:"Evidence Flow Summary",manter:"Keep this"}
+};
+let LANG = localStorage.getItem("sm.lang") || "pt";
+const T = k => (I18N[LANG][k] ?? I18N.pt[k] ?? k);
+
+/* ------------------------------ utilitarios ---------------------------- */
+const $  = (s,r=document)=>r.querySelector(s);
+const $$ = (s,r=document)=>[...r.querySelectorAll(s)];
+const esc = s => String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const hoje = () => new Date().toISOString().slice(0,10);
+const agora = () => new Date().toISOString();
+const fmtD = d => !d?"":(LANG==="pt"?d.slice(0,10).split("-").reverse().join("/"):d.slice(0,10));
+const fmtDT = d => !d?"":fmtD(d)+" "+String(d).slice(11,16);
+const diasEntre = (a,b)=>Math.round((new Date(b)-new Date(a))/864e5);
+const uid = ()=>Math.random().toString(36).slice(2,10)+Date.now().toString(36).slice(-4);
+
+function toast(msg,kind=""){
+  const d=document.createElement("div"); d.className=kind; d.textContent=msg;
+  $("#toast").append(d); setTimeout(()=>{d.style.opacity=0;setTimeout(()=>d.remove(),250)},3800);
+}
+function confirmar(msg){ return window.confirm(msg); }
+function dl(nome,conteudo,mime){
+  const b=new Blob([conteudo],{type:mime||"text/plain;charset=utf-8"});
+  const a=document.createElement("a"); a.href=URL.createObjectURL(b); a.download=nome;
+  document.body.append(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href),1500);
+}
+
+/* ------------------- IndexedDB: handle + copia de seguranca ------------- */
+const IDB = (()=>{
+  let dbp;
+  const open = ()=> dbp ??= new Promise((res,rej)=>{
+    const r = indexedDB.open("statusmilestone",1);
+    r.onupgradeneeded = ()=>{ const d=r.result;
+      if(!d.objectStoreNames.contains("kv")) d.createObjectStore("kv"); };
+    r.onsuccess=()=>res(r.result); r.onerror=()=>rej(r.error);
+  });
+  const tx = async (mode,fn)=>{ const d=await open(); return new Promise((res,rej)=>{
+      const t=d.transaction("kv",mode), s=t.objectStore("kv"); const rq=fn(s);
+      rq.onsuccess=()=>res(rq.result); rq.onerror=()=>rej(rq.error); }); };
+  return {
+    get:k=>tx("readonly",s=>s.get(k)).catch(()=>null),
+    set:(k,v)=>tx("readwrite",s=>s.put(v,k)).catch(()=>null),
+    del:k=>tx("readwrite",s=>s.delete(k)).catch(()=>null),
+  };
+})();
+
+/* --------------------------- camada de dados --------------------------- */
+const Store = {
+  dirHandle:null, fileHandle:null, revisaoCarregada:0, suportado:"showDirectoryPicker" in window,
+
+  async restaurarHandle(){
+    const h = await IDB.get("dirHandle"); if(!h) return false;
+    try{
+      if(await h.queryPermission({mode:"readwrite"}) === "granted"){ this.dirHandle=h; return true; }
+      this.dirHandlePendente = h; return false;
+    }catch{ return false; }
+  },
+  async pedirPermissaoSalva(){
+    const h=this.dirHandlePendente; if(!h) return false;
+    if(await h.requestPermission({mode:"readwrite"}) === "granted"){ this.dirHandle=h; return true; }
+    return false;
+  },
+  async escolherPasta(){
+    this.dirHandle = await showDirectoryPicker({mode:"readwrite", id:"statusmilestone"});
+    await IDB.set("dirHandle", this.dirHandle);
+    return this.dirHandle;
+  },
+  async lerArquivo(nome="database.json"){
+    const fh = await this.dirHandle.getFileHandle(nome);
+    return JSON.parse(await (await fh.getFile()).text());
+  },
+  async carregar(){
+    if(!this.dirHandle) throw new Error("sem pasta");
+    let db;
+    try{ db = await this.lerArquivo(); }
+    catch(e){
+      if(e.name==="NotFoundError") throw new Error("NAO_ENCONTRADO");
+      throw new Error("CORROMPIDO: "+e.message);
+    }
+    this.revisaoCarregada = db?.meta?.revisao ?? 0;
+    await IDB.set("espelho", db);
+    return db;
+  },
+  /* Controle de concorrencia: rele o arquivo e compara a revisao antes de gravar. */
+  async gravar(db,{forcar=false}={}){
+    if(!this.dirHandle) throw new Error("sem pasta");
+    if(!forcar){
+      try{
+        const disco = await this.lerArquivo();
+        const rd = disco?.meta?.revisao ?? 0;
+        if(rd !== this.revisaoCarregada){
+          const err = new Error("CONFLITO_REVISAO"); err.revisaoDisco = rd;
+          err.autorDisco = disco?.meta?.ultimoAutor; err.disco = disco; throw err;
+        }
+      }catch(e){ if(e.message==="CONFLITO_REVISAO") throw e; /* arquivo novo: segue */ }
+    }
+    db.meta.revisao = (db.meta.revisao||0)+1;
+    db.meta.atualizadoEm = agora();
+    db.meta.ultimoAutor = Usuario.nome();
+    const fh = await this.dirHandle.getFileHandle("database.json",{create:true});
+    const w = await fh.createWritable();
+    await w.write(JSON.stringify(db,null,1)); await w.close();
+    this.revisaoCarregada = db.meta.revisao;
+    await IDB.set("espelho", db);
+    return db.meta.revisao;
+  },
+  async backup(db,rotulo="manual"){
+    const bdir = await this.dirHandle.getDirectoryHandle("backups",{create:true});
+    const nome = `database-${agora().replace(/[:.]/g,"-").slice(0,19)}-${rotulo}.json`;
+    const fh = await bdir.getFileHandle(nome,{create:true});
+    const w = await fh.createWritable(); await w.write(JSON.stringify(db,null,1)); await w.close();
+    await this.limparBackupsAntigos(bdir);
+    return nome;
+  },
+  async listarBackups(){
+    try{
+      const bdir = await this.dirHandle.getDirectoryHandle("backups");
+      const out=[]; for await (const [nome,h] of bdir.entries())
+        if(h.kind==="file" && nome.endsWith(".json")){ const f=await h.getFile();
+          out.push({nome,tamanho:f.size,data:new Date(f.lastModified).toISOString()}); }
+      return out.sort((a,b)=>b.nome.localeCompare(a.nome));
+    }catch{ return []; }
+  },
+  async limparBackupsAntigos(bdir,manter=30){
+    const lista=[]; for await (const [nome,h] of bdir.entries()) if(nome.endsWith(".json")) lista.push(nome);
+    lista.sort().reverse().slice(manter).forEach(n=>bdir.removeEntry(n).catch(()=>{}));
+  },
+  async restaurarBackup(nome){
+    const bdir = await this.dirHandle.getDirectoryHandle("backups");
+    const fh = await bdir.getFileHandle(nome);
+    return JSON.parse(await (await fh.getFile()).text());
+  },
+};
+
+/* ------------------------------ usuario -------------------------------- */
+const Usuario = {
+  nome(){ return localStorage.getItem("sm.autor") || ""; },
+  garantir(){
+    let n = this.nome();
+    while(!n){ n = (prompt(LANG==="pt"
+      ? "Identifique-se (seu nome aparecerá no histórico das alterações):"
+      : "Please identify yourself (your name is recorded in the change history):")||"").trim(); }
+    localStorage.setItem("sm.autor", n); return n;
+  },
+};
+</script>
+<script>
+"use strict";
+/* ============================== estado ================================= */
+const S = {
+  db:null, rota:"dashboard", filtros:filtrosVazios(), ordenacao:{campo:"item",dir:1},
+  selecionado:null, salvando:false, sujo:false,
+  recolhidas:new Set(JSON.parse(localStorage.getItem("sm.recolhidas")||'["validado"]')),
+};
+function filtrosVazios(){
+  return {busca:"",status:[],familia:[],inspType:[],origem:[],b05:"",bigram:[],funcao:[],
+          aging:"",alteradas:false,comObs:false,dataDe:"",dataAte:""};
+}
+
+/* --------------------------- regras de dominio ------------------------- */
+const R = {
+  cfg(){ return S.db?.config ?? {}; },
+  statusDefs(){ return this.cfg().status ?? []; },
+  familias(){ return this.cfg().familias ?? []; },
+  familiaDe(st){ return this.statusDefs().find(s=>s.codigo===st)?.familia ?? "pendente"; },
+  familiaObj(id){ return this.familias().find(f=>f.id===id) ?? {id,pt:id,en:id,cor:"#888",ordem:0}; },
+  nomeFamilia(id){ const f=this.familiaObj(id); return LANG==="pt"?f.pt:f.en; },
+  corDe(st){ return this.familiaObj(this.familiaDe(st)).cor; },
+  ordemDe(st){ return this.familiaObj(this.familiaDe(st)).ordem; },
+  statusAtivos(){ const a=this.statusDefs().filter(s=>s.ativo).map(s=>s.codigo);
+    const usados=[...new Set((S.db?.itens??[]).map(i=>i.status))];
+    return [...new Set([...a,...usados])].sort((x,y)=>this.ordemDe(x)-this.ordemDe(y)||x.localeCompare(y)); },
+  /* Definicao canonica de "em aberto", identica a usada nos dois Excel. */
+  aberto(st){ if(!st) return false;
+    return !(st==="1 - Validated by ICN" || st.startsWith("2 - Not Blocking") || st==="2 - Not Available Jx"); },
+  /* Reconstroi o status de um item numa data (event sourcing). */
+  statusEm(item,data){
+    const evs = this.histStatus()[item]; if(!evs) return null;
+    let st=null; for(const e of evs){ if(e.dataEfetiva<=data) st=e.valorNovo; else break; } return st;
+  },
+  _hs:null, _hsRev:-1,
+  histStatus(){
+    if(this._hsRev === S.db?.meta?.revisao && this._hs) return this._hs;
+    const m={}; for(const h of (S.db?.historico??[])) if(h.campo==="status") (m[h.item] ??= []).push(h);
+    for(const k in m) m[k].sort((a,b)=>a.dataEfetita<b.dataEfetiva?-1:a.dataEfetiva>b.dataEfetiva?1:0);
+    for(const k in m) m[k].sort((a,b)=>a.dataEfetiva.localeCompare(b.dataEfetiva));
+    this._hs=m; this._hsRev=S.db?.meta?.revisao; return m;
+  },
+  marcos(){ return [...(S.db?.marcos??[])].sort((a,b)=>a.data.localeCompare(b.data)); },
+  marcoAnterior(){ const m=this.marcos(); return m.length>1?m[m.length-2]:m[0]; },
+  marcoAtual(){ const m=this.marcos(); return m[m.length-1]; },
+  /* Um item "mudou no ciclo" se o status hoje difere do status no marco anterior. */
+  mudouNoCiclo(it){ const ma=this.marcoAnterior(); if(!ma) return false;
+    const antes=this.statusEm(it.item,ma.data); return antes && antes!==it.status; },
+  diasSemAtualizacao(it){ return diasEntre(it.ultimaAlteracaoStatus||it.criadoEm, hoje()); },
+  valoresDe(campo){ return [...new Set((S.db?.itens??[]).map(i=>i[campo]).filter(Boolean))].sort(); },
+  bigrams(){ const s=new Set(); (S.db?.itens??[]).forEach(i=>(i.bigram||[]).forEach(b=>s.add(b)));
+    return [...s].sort(); },
+};
+
+/* ----------------------------- filtragem ------------------------------- */
+function itensFiltrados(){
+  const f=S.filtros, itens=S.db?.itens??[];
+  const q=f.busca.trim().toLowerCase();
+  const obsPorItem = new Set((S.db?.observacoes??[]).map(o=>o.item));
+  return itens.filter(i=>{
+    if(f.status.length && !f.status.includes(i.status)) return false;
+    if(f.familia.length && !f.familia.includes(R.familiaDe(i.status))) return false;
+    if(f.inspType.length && !f.inspType.includes(i.inspType)) return false;
+    if(f.origem.length && !f.origem.includes(i.originalJx)) return false;
+    if(f.funcao.length && !f.funcao.includes(i.numAndDescription)) return false;
+    if(f.b05==="sim" && !i.isB05) return false;
+    if(f.b05==="nao" && i.isB05) return false;
+    if(f.bigram.length && !(i.bigram||[]).some(b=>f.bigram.includes(b))) return false;
+    if(f.aging && R.diasSemAtualizacao(i) < +f.aging) return false;
+    if(f.alteradas && !R.mudouNoCiclo(i)) return false;
+    if(f.comObs && !obsPorItem.has(i.item)) return false;
+    if(f.dataDe && (i.ultimaAlteracaoStatus||"") < f.dataDe) return false;
+    if(f.dataAte && (i.ultimaAlteracaoStatus||"") > f.dataAte) return false;
+    if(q){
+      const alvo=[i.item,i.evidence,i.description,i.updatedStatusObs,i.generalObs,i.ncr,i.performance,
+                  i.numAndDescription,i.inspType,i.insp,i.tests,(i.bigram||[]).join(" ")].join(" ").toLowerCase();
+      if(!alvo.includes(q)) return false;
+    }
+    return true;
+  });
+}
+function ordenar(lista){
+  const {campo,dir}=S.ordenacao;
+  return [...lista].sort((a,b)=>{
+    let x=a[campo], y=b[campo];
+    if(campo==="item"){ x=+x; y=+y; }
+    if(campo==="status"){ x=R.ordemDe(a.status); y=R.ordemDe(b.status); }
+    if(campo==="aging"){ x=R.diasSemAtualizacao(a); y=R.diasSemAtualizacao(b); }
+    if(Array.isArray(x)) x=x.join(","); if(Array.isArray(y)) y=y.join(",");
+    x=x??""; y=y??"";
+    return (x>y?1:x<y?-1:0)*dir;
+  });
+}
+
+/* ==================== motor de alterações pendentes ===================
+   Fluxo:  edição -> autosave (3s) -> pending change -> janela de
+   consolidação (config, padrão 10 min) -> histórico definitivo.
+   Agrupa várias mudanças no mesmo campo e descarta ida-e-volta.        */
+const Pend = {
+  timerAuto:null, timerCons:null,
+
+  campoEditavel:["status","updatedStatusObs","generalObs","ncr","tests"],
+
+  alterar(itemId, campo, valorNovo, {dataEfetiva=null, motivo=""}={}){
+    if(!this.campoEditavel.includes(campo)) return toast("Campo somente leitura","bad");
+    const it = S.db.itens.find(i=>i.item===itemId); if(!it) return;
+    const atual = it[campo] ?? "";
+    if(String(atual) === String(valorNovo)) return;
+
+    let p = S.db.pendentes.find(x=>x.item===itemId && x.campo===campo);
+    if(!p){
+      p = {id:uid(), item:itemId, campo, valorOriginal:atual, valorAtual:valorNovo,
+           primeiraAlteracaoEm:agora(), ultimaAlteracaoEm:agora(),
+           dataEfetiva:dataEfetiva||hoje(), autor:Usuario.garantir(), motivo};
+      S.db.pendentes.push(p);
+    }else{
+      p.valorAtual=valorNovo; p.ultimaAlteracaoEm=agora();
+      if(dataEfetiva) p.dataEfetiva=dataEfetiva; if(motivo) p.motivo=motivo;
+    }
+    it[campo]=valorNovo;
+    if(campo==="status") it.ultimaAlteracaoStatus = p.dataEfetiva;
+    it.atualizadoEm = agora();
+    S.sujo = true;
+    this.agendarAutosave();
+    Render.badgePendentes();
+  },
+
+  agendarAutosave(){
+    clearTimeout(this.timerAuto);
+    marcarEstado(LANG==="pt"?"alterado...":"changed...");
+    this.timerAuto = setTimeout(()=>this.autosave(), 3000);
+  },
+  async autosave(){
+    if(!S.db || !Store.dirHandle) return;
+    await IDB.set("espelho", S.db);              // rede técnica: recuperação após queda
+    try{
+      await Store.gravar(S.db);
+      S.sujo=false; marcarEstado(LANG==="pt"?"salvo "+new Date().toLocaleTimeString().slice(0,5)
+                                            :"saved "+new Date().toLocaleTimeString().slice(0,5));
+    }catch(e){
+      if(e.message==="CONFLITO_REVISAO") return UI.conflitoGravacao(e);
+      marcarEstado(LANG==="pt"?"falha ao salvar":"save failed"); toast(String(e.message),"bad");
+    }
+  },
+
+  /* consolida um pendente no histórico definitivo (ou descarta se voltou ao original) */
+  consolidar(p, {forcado=false}={}){
+    const idx = S.db.pendentes.indexOf(p); if(idx<0) return;
+    S.db.pendentes.splice(idx,1);
+    if(String(p.valorOriginal) === String(p.valorAtual)) return "descartado";  // ida-e-volta
+    S.db.historico.push({
+      id:uid(), item:p.item, campo:p.campo,
+      valorAnterior:p.valorOriginal, valorNovo:p.valorAtual,
+      dataEfetiva:p.dataEfetiva, primeiraAlteracaoEm:p.primeiraAlteracaoEm,
+      consolidadoEm:agora(), autor:p.autor, origem: forcado?"manual":"automatico",
+      tipo:p.campo==="status"?"status":"campo", observacao:p.motivo||"",
+    });
+    return "consolidado";
+  },
+  varrer(){
+    if(!S.db) return;
+    const limite = (S.db.config.minutosConsolidacao ?? 10)*60000;
+    const t = Date.now(); let n=0;
+    for(const p of [...S.db.pendentes])
+      if(t - new Date(p.ultimaAlteracaoEm).getTime() >= limite){ this.consolidar(p); n++; }
+    if(n){ this.agendarAutosave(); Render.badgePendentes(); Render.atual(); }
+  },
+  consolidarTudo(){
+    const n = S.db.pendentes.length; if(!n) return toast(LANG==="pt"?"Nada pendente":"Nothing pending");
+    let c=0,d=0;
+    for(const p of [...S.db.pendentes]) (this.consolidar(p,{forcado:true})==="consolidado"?c++:d++);
+    this.autosave(); Render.badgePendentes(); Render.atual();
+    toast(LANG==="pt" ? `${c} consolidada(s), ${d} descartada(s) por retorno ao valor original`
+                      : `${c} consolidated, ${d} discarded (returned to original)`, "ok");
+  },
+  descartarTudo(){
+    const n=S.db.pendentes.length; if(!n) return;
+    const lista = S.db.pendentes.map(p=>`  ${p.item} / ${p.campo}: "${p.valorOriginal}" -> "${p.valorAtual}"`).join("\n");
+    if(!confirmar((LANG==="pt"?`Descartar ${n} alteração(ões) pendente(s)?\n\n`:`Discard ${n} pending change(s)?\n\n`)+lista)) return;
+    (S.db.logDescartes ??= []).push({em:agora(),autor:Usuario.garantir(),itens:structuredClone(S.db.pendentes)});
+    for(const p of S.db.pendentes){
+      const it=S.db.itens.find(i=>i.item===p.item); if(it) it[p.campo]=p.valorOriginal;
+    }
+    S.db.pendentes=[];
+    this.autosave(); Render.badgePendentes(); Render.atual();
+    toast(LANG==="pt"?"Descartado. Recuperável em Configurações > Log técnico.":"Discarded. Recoverable in Settings > Technical log.","ok");
+  },
+  iniciar(){ clearInterval(this.timerCons); this.timerCons=setInterval(()=>this.varrer(), 20000); },
+};
+
+function marcarEstado(txt){ $("#saveState").textContent = txt; }
+</script>
+<script>
+"use strict";
+/* ============================ indicadores ============================== */
+const M = {
+  kpis(base){
+    const itens=base??S.db.itens;
+    const ab=itens.filter(i=>R.aberto(i.status)).length;
+    const val=itens.filter(i=>i.status==="1 - Validated by ICN").length;
+    const mud=itens.filter(i=>R.mudouNoCiclo(i)).length;
+    return {total:itens.length, aberto:ab, validado:val, mudou:mud,
+            pct: itens.length? (itens.length-ab)/itens.length : 0};
+  },
+  porStatus(itens){ const m=new Map();
+    for(const i of itens) m.set(i.status,(m.get(i.status)||0)+1);
+    return [...m].sort((a,b)=>R.ordemDe(a[0])-R.ordemDe(b[0])); },
+  /* Painel "Evidence Flow": B05 x Except-B05, identico ao Arquivo 2. */
+  evidenceFlow(itens){
+    const b05=itens.filter(i=>i.isB05), nb=itens.filter(i=>!i.isB05);
+    const bloco=l=>({total:l.length, aberto:l.filter(i=>R.aberto(i.status)).length,
+                     status:this.porStatus(l)});
+    return {b05:bloco(b05), exceto:bloco(nb)};
+  },
+  /* Painel "Shipyard Prerequisites": filtra OriginalJx = J08. */
+  shipyard(itens,jx="J08"){
+    const l=itens.filter(i=>i.inspType==="Shipyard prerequisites" && i.originalJx===jx);
+    return {total:l.length, aberto:l.filter(i=>R.aberto(i.status)).length,
+            status:this.porStatus(l), itens:l};
+  },
+  /* Painel "Functional Insp Type": conta PENDENCIAS por InspType, com delta. */
+  funcional(itens){
+    const tipos=R.cfg().inspTypesFuncionais??[];
+    const ma=R.marcoAnterior()?.data;
+    const linhas=tipos.map(t=>{
+      const l=itens.filter(i=>i.inspType===t);
+      const at=l.filter(i=>R.aberto(i.status)).length;
+      const an=ma? l.filter(i=>R.aberto(R.statusEm(i.item,ma))).length : at;
+      return {tipo:t,total:l.length,atual:at,anterior:an,delta:an-at};
+    });
+    return {linhas, total:linhas.reduce((s,x)=>s+x.total,0), aberto:linhas.reduce((s,x)=>s+x.atual,0)};
+  },
+  porCampo(itens,campo){ const m=new Map();
+    for(const i of itens){ const v=i[campo]||"—"; m.set(v,(m.get(v)||0)+1); }
+    return [...m].sort((a,b)=>b[1]-a[1]); },
+  abertoPorCampo(itens,campo){ const m=new Map();
+    for(const i of itens){ if(!R.aberto(i.status)) continue;
+      const v=i[campo]||"—"; const o=m.get(v)||{}; o[i.status]=(o[i.status]||0)+1; m.set(v,o); }
+    return [...m].sort((a,b)=>Object.values(b[1]).reduce((s,x)=>s+x,0)-Object.values(a[1]).reduce((s,x)=>s+x,0)); },
+  /* Serie temporal de "em aberto" e "validados" por data. */
+  serie(itens,de,ate,passo=1){
+    const datas=[]; let d=new Date(de); const f=new Date(ate);
+    const n=Math.max(1,Math.round((f-d)/864e5));
+    const st = n>60? Math.ceil(n/60) : passo;
+    while(d<=f){ datas.push(d.toISOString().slice(0,10)); d=new Date(d.getTime()+st*864e5); }
+    if(datas[datas.length-1]!==ate) datas.push(ate);
+    return datas.map(dt=>{
+      const o={data:dt,aberto:0,validado:0,total:0};
+      for(const i of itens){ const s=R.statusEm(i.item,dt); if(!s) continue;
+        o.total++; if(R.aberto(s)) o.aberto++; if(s==="1 - Validated by ICN") o.validado++; }
+      return o;
+    });
+  },
+  /* Comparativo entre duas datas: fluxo de entradas, saidas, melhoras e pioras. */
+  comparar(itens,d1,d2){
+    const r={inicio:{},fim:{},melhoraram:[],pioraram:[],iguais:0,novos:[],alterados:[],
+             transicoes:new Map(), totalInicio:0, totalFim:0, abertoInicio:0, abertoFim:0};
+    for(const i of itens){
+      const a=R.statusEm(i.item,d1), b=R.statusEm(i.item,d2);
+      if(b){ r.fim[b]=(r.fim[b]||0)+1; r.totalFim++; if(R.aberto(b)) r.abertoFim++; }
+      if(a){ r.inicio[a]=(r.inicio[a]||0)+1; r.totalInicio++; if(R.aberto(a)) r.abertoInicio++; }
+      else if(b){ r.novos.push(i); continue; }
+      if(!b||!a) continue;
+      if(a===b){ r.iguais++; continue; }
+      r.alterados.push({item:i,de:a,para:b});
+      const k=a+" → "+b; r.transicoes.set(k,(r.transicoes.get(k)||0)+1);
+      (R.ordemDe(b)>R.ordemDe(a)? r.melhoraram : r.pioraram).push({item:i,de:a,para:b});
+    }
+    return r;
+  },
+  aging(itens){
+    const faixas=[[0,7],[8,30],[31,60],[61,90],[91,1e9]];
+    const rot=["0-7","8-30","31-60","61-90","90+"];
+    const abertos=itens.filter(i=>R.aberto(i.status));
+    return faixas.map(([a,b],k)=>({faixa:rot[k],
+      n:abertos.filter(i=>{const d=R.diasSemAtualizacao(i); return d>=a&&d<=b;}).length}));
+  },
+};
+
+/* ============================== graficos =============================== */
+/* SVG inline, sem biblioteca externa - funciona offline e em file:// */
+const G = {
+  /* Coordenadas em espaco fixo (W x H) com escala uniforme: o texto dentro do
+     SVG nao deforma quando o painel muda de largura. */
+  barras(dados,{h=190,cor="var(--accent)",fmt=v=>v,max=null}={}){
+    if(!dados.length) return `<div class="empty">&mdash;</div>`;
+    const W=600, mx = max ?? Math.max(1,...dados.map(d=>d.v)), bw=W/dados.length;
+    return `<svg viewBox="0 0 ${W} ${h}" style="width:100%;height:auto;display:block">
+      ${dados.map((d,k)=>{
+        const bh=(d.v/mx)*(h-30), x=k*bw, y=h-14-bh;
+        return `<rect x="${(x+bw*.18).toFixed(1)}" y="${y.toFixed(1)}" width="${(bw*.64).toFixed(1)}"
+                 height="${Math.max(bh,d.v?2:0).toFixed(1)}" fill="${d.cor||cor}" rx="2">
+                 <title>${esc(d.l)}: ${d.v}</title></rect>
+          ${d.v?`<text x="${(x+bw/2).toFixed(1)}" y="${(y-4).toFixed(1)}" text-anchor="middle" font-size="12"
+             fill="var(--fg-2)" font-family="var(--mono)">${fmt(d.v)}</text>`:""}`;}).join("")}
+      </svg>
+      <div style="display:grid;grid-template-columns:repeat(${dados.length},1fr);margin-top:3px">
+      ${dados.map(d=>`<div style="font-size:10px;color:var(--fg-3);text-align:center;overflow:hidden;
+        text-overflow:ellipsis;white-space:nowrap" title="${esc(d.l)}">${esc(d.l)}</div>`).join("")}</div>`;
+  },
+  barrasEmpilhadas(linhas,chaves,cores,{h=220}={}){
+    if(!linhas.length) return `<div class="empty">&mdash;</div>`;
+    const W=600, mx=Math.max(1,...linhas.map(l=>chaves.reduce((s,k)=>s+(l.v[k]||0),0))), bw=W/linhas.length;
+    return `<svg viewBox="0 0 ${W} ${h}" style="width:100%;height:auto;display:block">
+      ${linhas.map((l,k)=>{ let acc=0; const x=k*bw; const tot=chaves.reduce((s,c)=>s+(l.v[c]||0),0);
+        const barras = chaves.map((key,ki)=>{ const v=l.v[key]||0; if(!v) return "";
+          const bh=(v/mx)*(h-26); acc+=bh;
+          return `<rect x="${(x+bw*.18).toFixed(1)}" y="${(h-10-acc).toFixed(1)}" width="${(bw*.64).toFixed(1)}"
+            height="${bh.toFixed(1)}" fill="${cores[ki]}"><title>${esc(l.l)} \u2014 ${esc(key)}: ${v}</title></rect>`;}).join("");
+        return barras + (tot?`<text x="${(x+bw/2).toFixed(1)}" y="${(h-14-acc).toFixed(1)}" text-anchor="middle"
+          font-size="11" fill="var(--fg-2)" font-family="var(--mono)">${tot}</text>`:"");}).join("")}
+      </svg>
+      <div style="display:grid;grid-template-columns:repeat(${linhas.length},1fr);margin-top:3px">
+      ${linhas.map(l=>`<div style="font-size:10px;color:var(--fg-3);text-align:center;overflow:hidden;
+        text-overflow:ellipsis;white-space:nowrap" title="${esc(l.l)}">${esc(l.l)}</div>`).join("")}</div>`;
+  },
+  linhas(serie,series,{h=200}={}){
+    if(serie.length<2) return `<div class="empty">&mdash;</div>`;
+    const W=600, L=34, mx=Math.max(1,...serie.flatMap(p=>series.map(s=>p[s.k])));
+    const px=k=>L+(k/(serie.length-1))*(W-L-6);
+    const py=v=>h-16-(v/mx)*(h-30);
+    return `<svg viewBox="0 0 ${W} ${h}" style="width:100%;height:auto;display:block">
+      ${[0,.25,.5,.75,1].map(f=>`<line x1="${L}" y1="${py(mx*f).toFixed(1)}" x2="${W-6}" y2="${py(mx*f).toFixed(1)}"
+          stroke="var(--line-2)" stroke-width="1"/>
+        <text x="${L-5}" y="${(py(mx*f)+4).toFixed(1)}" text-anchor="end" font-size="11" fill="var(--fg-3)"
+          font-family="var(--mono)">${Math.round(mx*f)}</text>`).join("")}
+      ${series.map(s=>`<polyline fill="none" stroke="${s.cor}" stroke-width="2" stroke-linejoin="round"
+         points="${serie.map((p,k)=>`${px(k).toFixed(1)},${py(p[s.k]).toFixed(1)}`).join(" ")}"/>
+        ${serie.map((p,k)=>`<circle cx="${px(k).toFixed(1)}" cy="${py(p[s.k]).toFixed(1)}" r="2.5" fill="${s.cor}"
+          opacity="0"><title>${fmtD(p.data)} \u2014 ${s.nome}: ${p[s.k]}</title><animate attributeName="opacity"
+          begin="mouseover" dur="0.1s" to="1" fill="freeze"/></circle>`).join("")}`).join("")}
+      </svg>
+      <div class="rowflex" style="justify-content:space-between;font-size:10px;color:var(--fg-3);margin-top:2px;padding:0 6px 0 34px">
+        <span>${fmtD(serie[0].data)}</span><span>${fmtD(serie[serie.length-1].data)}</span></div>
+      <div class="rowflex" style="gap:12px;margin-top:6px;font-size:11px">
+      ${series.map(s=>`<span class="rowflex" style="gap:5px"><i class="dot" style="background:${s.cor}"></i>${esc(s.nome)}</span>`).join("")}</div>`;
+  },
+  donut(dados,{size=128}={}){
+    const tot=dados.reduce((s,d)=>s+d.v,0)||1; let acc=0; const r=15.915;
+    return `<div class="rowflex" style="gap:16px;align-items:center">
+      <svg viewBox="0 0 42 42" style="width:${size}px;height:${size}px;flex:none">
+        <circle cx="21" cy="21" r="${r}" fill="none" stroke="var(--line-2)" stroke-width="5"/>
+        ${dados.filter(d=>d.v).map(d=>{const p=d.v/tot*100; const el=`<circle cx="21" cy="21" r="${r}" fill="none"
+          stroke="${d.cor}" stroke-width="5" stroke-dasharray="${p.toFixed(2)} ${(100-p).toFixed(2)}"
+          stroke-dashoffset="${(25-acc).toFixed(2)}" transform="rotate(0 21 21)"><title>${esc(d.l)}: ${d.v}</title></circle>`;
+          acc+=p; return el;}).join("")}
+        <text x="21" y="20.5" text-anchor="middle" font-size="7" font-weight="700" fill="var(--fg)">${tot}</text>
+        <text x="21" y="25.5" text-anchor="middle" font-size="3" fill="var(--fg-3)">${LANG==="pt"?"ITENS":"ITEMS"}</text>
+      </svg>
+      <div style="display:flex;flex-direction:column;gap:3px;font-size:11.5px;min-width:0;flex:1">
+      ${dados.filter(d=>d.v).map(d=>`<div class="rowflex" style="gap:6px"><i class="dot" style="background:${d.cor}"></i>
+        <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(d.l)}</span>
+        <b class="mono">${d.v}</b><span class="muted mono" style="font-size:10px">${(d.v/tot*100).toFixed(1)}%</span></div>`).join("")}
+      </div></div>`;
+  },
+  /* A seta segue o sinal real da varia\u00e7\u00e3o; a cor diz se isso \u00e9 bom ou ruim.
+     Em contagem de pend\u00eancias, cair \u00e9 bom (menorMelhor). */
+  seta(delta,{menorMelhor=false}={}){
+    if(!delta) return `<span class="flat">\u25ac</span>`;
+    const bom = menorMelhor ? delta<0 : delta>0;
+    const ic  = delta>0 ? "\u25b2+" : "\u25bc-";
+    return `<span class="${bom?"up":"down"}">${ic}${String(Math.abs(delta)).padStart(2,"0")}</span>`;
+  },
+};
+</script>
+<script>
+"use strict";
+/* ============================== navegação ============================== */
+const ROTAS = [
+  {id:"dashboard", ic:"◧", t:"dashboard"},
+  {id:"itens",     ic:"▤", t:"itens"},
+  {id:"kanban",    ic:"▦", t:"kanban"},
+  {id:"historico", ic:"◴", t:"historico"},
+  {id:"relatorios",ic:"◰", t:"relatorios"},
+  {id:"conflitos", ic:"⚠", t:"conflitos"},
+  {id:"config",    ic:"⚙", t:"config"},
+];
+
+const Render = {
+  nav(){
+    const abertos = (S.db?.conflitos??[]).filter(c=>!c.resolvido).length;
+    $("#nav").innerHTML = ROTAS.map(r=>`<button data-r="${r.id}" class="${S.rota===r.id?"on":""}">
+      <span class="ic">${r.ic}</span><span>${T(r.t)}</span>
+      ${r.id==="conflitos"&&abertos?`<span class="cnt">${abertos}</span>`:""}</button>`).join("");
+    $$("#nav button").forEach(b=>b.onclick=()=>irPara(b.dataset.r));
+    $("#whoami").textContent = Usuario.nome() ? (LANG==="pt"?"Usuário: ":"User: ")+Usuario.nome() : "";
+  },
+  badgePendentes(){
+    const n=S.db?.pendentes?.length||0;
+    const b=$("#pendBadge"), s=$("#btnSaveNow");
+    b.style.display = n? "inline-flex":"none";
+    b.textContent = `${n} ${T("pendentes")}`;
+    s.style.display = n? "inline-block":"none";
+  },
+  atual(){ this.nav(); this.badgePendentes(); (this[S.rota]||this.dashboard).call(this); },
+
+  /* ------------------------------ sem base ----------------------------- */
+  semBase(motivo){
+    $("#pageTitle").textContent="StatusMilestone"; $("#headerExtra").innerHTML="";
+    const semSuporte = !Store.suportado;
+    $("#view").innerHTML = `<div class="panel pad" style="max-width:640px;margin:36px auto">
+      <h3 style="border:0;padding:0;text-transform:none;font-size:17px;letter-spacing:-.02em;color:var(--fg)">${T("semBase")}</h3>
+      <p class="muted" style="margin:10px 0 18px">${T("semBaseTxt")}</p>
+      ${motivo?`<p style="color:var(--bad);margin-bottom:14px">${esc(motivo)}</p>`:""}
+      ${semSuporte? `<div class="panel pad" style="background:var(--panel-2);border-color:var(--bad)">
+          <b style="color:var(--bad)">${LANG==="pt"?"Navegador sem suporte":"Unsupported browser"}</b>
+          <p class="muted" style="margin:8px 0 0">${LANG==="pt"
+            ? "A gravação direta em pasta exige Chrome ou Edge. Neste navegador você pode apenas abrir e baixar a base manualmente."
+            : "Direct folder writing requires Chrome or Edge. Here you can only open and download the database manually."}</p></div>
+          <div class="rowflex" style="margin-top:14px">
+            <button class="btn pri" id="btnAbrirArq">${LANG==="pt"?"Abrir database.json":"Open database.json"}</button></div>`
+        : `<div class="rowflex">
+            <button class="btn pri" id="btnPasta">📁 ${T("selecionarPasta")}</button>
+            ${Store.dirHandlePendente?`<button class="btn" id="btnRetomar">${LANG==="pt"?"Reautorizar pasta anterior":"Re-authorize previous folder"}</button>`:""}
+            <button class="btn" id="btnEspelho">${LANG==="pt"?"Recuperar cópia local":"Recover local copy"}</button>
+          </div>`}
+      <div class="sep"></div>
+      <p class="muted" style="font-size:11.5px;line-height:1.7">${LANG==="pt"
+        ? "Os dados ficam sempre no arquivo <b>database.json</b> da pasta escolhida — nunca dentro desta página. Backups automáticos vão para a subpasta <b>backups/</b>."
+        : "Data always lives in <b>database.json</b> inside the chosen folder — never inside this page. Automatic backups go to the <b>backups/</b> subfolder."}</p>
+    </div>`;
+    const bp=$("#btnPasta"); if(bp) bp.onclick=()=>UI.abrirPasta();
+    const br=$("#btnRetomar"); if(br) br.onclick=()=>UI.retomarPasta();
+    const be=$("#btnEspelho"); if(be) be.onclick=()=>UI.recuperarEspelho();
+    const ba=$("#btnAbrirArq"); if(ba) ba.onclick=()=>UI.abrirArquivoManual();
+  },
+
+  /* ------------------------------ dashboard ---------------------------- */
+  dashboard(){
+    $("#pageTitle").textContent=T("dashboard");
+    $("#headerExtra").innerHTML = Filtros.resumoHTML();
+    const itens = itensFiltrados();
+    const k = M.kpis(itens);
+    const ef = M.evidenceFlow(itens);
+    const sy = M.shipyard(itens);
+    const fu = M.funcional(itens);
+    const ma = R.marcoAnterior(), mt = R.marcoAtual();
+    const abAnt = ma? itens.filter(i=>R.aberto(R.statusEm(i.item,ma.data))).length : k.aberto;
+    const serieDe = R.marcos()[0]?.data || hoje();
+    const serie = M.serie(itens, serieDe, hoje());
+    const cores = st=>R.corDe(st);
+
+    const flow = (b,titulo)=>`<div class="panel">
+      <h3>${titulo}<span class="sub">${b.aberto} ${LANG==="pt"?"em aberto de":"open of"} ${b.total}</span></h3>
+      <div class="pad">
+        <div class="bar" style="margin-bottom:11px">${b.status.map(([st,n])=>
+          `<i style="width:${n/Math.max(b.total,1)*100}%;background:${cores(st)}" title="${esc(st)}: ${n}"></i>`).join("")}</div>
+        <div class="flow">${b.status.map(([st,n])=>`<div class="fbox" style="border-left-color:${cores(st)}">
+          <div class="fn" style="color:${cores(st)}">${n}</div>
+          <div class="fl">${esc(st)}</div>
+          <div class="fp">${(n/Math.max(b.total,1)*100).toFixed(2)}%</div></div>`).join("")}</div>
+      </div></div>`;
+
+    $("#view").innerHTML = `
+    <div class="grid kpis" style="margin-bottom:14px">
+      ${kpi(T("total"),k.total,"")}
+      ${kpi(T("emAberto"),k.aberto, ma? `${G.seta(k.aberto-abAnt,{menorMelhor:true})} ${LANG==="pt"?"vs":"vs"} ${fmtD(ma.data)}`:"")}
+      ${kpi(T("validados"),k.validado,"")}
+      ${kpi(T("conclusao"),(k.pct*100).toFixed(1)+"%","")}
+      ${kpi(T("alterados"),k.mudou, ma?`${LANG==="pt"?"desde":"since"} ${fmtD(ma.data)}`:"")}
+    </div>
+    <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(340px,1fr));margin-bottom:14px">
+      ${flow(ef.b05, LANG==="pt"?'Evidências "somente" B05':'Evidences "only" B05')}
+      ${flow(ef.exceto, LANG==="pt"?'Evidências "exceto" B05':'Evidences "except" B05')}
+    </div>
+    <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(330px,1fr));margin-bottom:14px">
+      <div class="panel"><h3>Shipyard Prerequisites <span class="sub">OriginalJx = J08</span></h3>
+        <div class="pad"><div class="rowflex" style="justify-content:space-between;margin-bottom:10px">
+          <span class="muted">${LANG==="pt"?"Em aberto":"Remaining"}</span>
+          <b style="font-size:19px">${sy.aberto} <span class="muted" style="font-size:12px;font-weight:400">/ ${sy.total}</span></b></div>
+          ${sy.status.map(([st,n])=>linhaStatus(st,n,sy.total)).join("")||`<div class="muted">—</div>`}
+        </div></div>
+      <div class="panel"><h3>Functional Insp. Type <span class="sub">${fu.aberto} ${LANG==="pt"?"em aberto de":"open of"} ${fu.total}</span></h3>
+        <div class="pad">${fu.linhas.filter(l=>l.total).map(l=>`
+          <div class="rowflex" style="justify-content:space-between;padding:3px 0;border-bottom:1px solid var(--line-2)">
+            <span>${esc(l.tipo)}</span>
+            <span class="rowflex" style="gap:9px"><b class="mono">${String(l.atual).padStart(2,"0")}</b>
+            <span style="min-width:48px;text-align:right">${G.seta(l.atual-l.anterior,{menorMelhor:true})}</span>
+            <span class="muted mono" style="font-size:10.5px;min-width:34px;text-align:right">/${l.total}</span></span>
+          </div>`).join("")}</div></div>
+      <div class="panel"><h3>${T("distribuicao")}</h3><div class="pad">
+        ${G.donut(M.porStatus(itens).map(([st,n])=>({l:st,v:n,cor:cores(st)})))}</div></div>
+    </div>
+    <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(440px,1fr))">
+      <div class="panel"><h3>${T("evolucao")} <span class="sub">${fmtD(serieDe)} — ${fmtD(hoje())}</span></h3>
+        <div class="pad">${G.linhas(serie,[
+          {k:"aberto",nome:T("emAberto"),cor:"var(--bad)"},
+          {k:"validado",nome:T("validados"),cor:"var(--ok)"}])}</div></div>
+      <div class="panel"><h3>${T("aging")} <span class="sub">${LANG==="pt"?"itens em aberto, por dias sem atualização":"open items, by days without update"}</span></h3>
+        <div class="pad">${G.barras(M.aging(itens).map(a=>({l:a.faixa,v:a.n,
+          cor:a.faixa==="90+"?"var(--bad)":a.faixa==="61-90"?"var(--orange)":"var(--accent)"})),{h:160})}</div></div>
+      <div class="panel"><h3>${T("tipoInsp")} <span class="sub">${LANG==="pt"?"pendências por status":"open by status"}</span></h3>
+        <div class="pad">${pilhaPor(itens,"inspType")}</div></div>
+      <div class="panel"><h3>${T("funcaoVital")} <span class="sub">${LANG==="pt"?"pendências por status":"open by status"}</span></h3>
+        <div class="pad">${pilhaPor(itens,"numAndDescription",12)}</div></div>
+    </div>`;
+    Filtros.ligar();
+  },
+};
+
+function kpi(lab,val,dlt){ return `<div class="kpi"><div class="lab">${esc(lab)}</div>
+  <div class="val">${val}</div><div class="dlt">${dlt||"&nbsp;"}</div></div>`; }
+function linhaStatus(st,n,tot){ return `<div class="rowflex" style="justify-content:space-between;padding:3px 0;border-bottom:1px solid var(--line-2)">
+  <span class="rowflex" style="gap:6px;min-width:0"><i class="dot" style="background:${R.corDe(st)}"></i>
+  <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(st)}</span></span>
+  <b class="mono">${String(n).padStart(2,"0")}</b></div>`; }
+function pilhaPor(itens,campo,maxLinhas=10){
+  const dados=M.abertoPorCampo(itens,campo).slice(0,maxLinhas);
+  if(!dados.length) return `<div class="empty">—</div>`;
+  const chaves=[...new Set(dados.flatMap(d=>Object.keys(d[1])))].sort((a,b)=>R.ordemDe(a)-R.ordemDe(b));
+  return G.barrasEmpilhadas(dados.map(([l,v])=>({l:l.length>16?l.slice(0,15)+"…":l, v})),
+    chaves, chaves.map(k=>R.corDe(k)), {h:190})
+    + `<div class="rowflex" style="gap:10px;margin-top:8px;font-size:10.5px">${chaves.map(k=>
+      `<span class="rowflex" style="gap:4px"><i class="dot" style="background:${R.corDe(k)}"></i>${esc(k)}</span>`).join("")}</div>`;
+}
+</script>
+<script>
+"use strict";
+/* ============================== filtros ================================ */
+const Filtros = {
+  resumoHTML(){
+    const f=S.filtros;
+    const n = f.status.length+f.familia.length+f.inspType.length+f.origem.length+f.bigram.length+
+              f.funcao.length+(f.b05?1:0)+(f.aging?1:0)+(f.alteradas?1:0)+(f.comObs?1:0)+
+              (f.dataDe?1:0)+(f.dataAte?1:0);
+    return `<input type="search" id="fBusca" placeholder="${T("buscar")}" value="${esc(f.busca)}" style="width:250px">
+      <button class="btn" id="fAbrir">⚟ ${LANG==="pt"?"Filtros":"Filters"}${n?` <b>(${n})</b>`:""}</button>
+      ${n||f.busca?`<button class="btn sm" id="fLimpar">${T("limpar")}</button>`:""}`;
+  },
+  ligar(){
+    const b=$("#fBusca");
+    if(b){ b.oninput=()=>{S.filtros.busca=b.value; clearTimeout(this._t);
+      this._t=setTimeout(()=>{const p=b.selectionStart; Render.atual();
+        const nb=$("#fBusca"); if(nb){nb.focus(); nb.setSelectionRange(p,p);} },220); }; }
+    const a=$("#fAbrir"); if(a) a.onclick=()=>this.painel();
+    const l=$("#fLimpar"); if(l) l.onclick=()=>{S.filtros=filtrosVazios(); Render.atual();};
+  },
+  painel(){
+    const f=S.filtros;
+    const grupo=(tit,chave,valores,rotulo=v=>v)=>`<div style="margin-bottom:14px">
+      <div style="font-size:10.5px;font-weight:650;text-transform:uppercase;letter-spacing:.04em;color:var(--fg-3);margin-bottom:6px">${esc(tit)}</div>
+      <div class="chips">${valores.map(v=>`<span class="chip ${f[chave].includes(v)?"on":""}"
+        data-g="${chave}" data-v="${esc(v)}">${esc(rotulo(v))}</span>`).join("")}</div></div>`;
+    UI.modal(LANG==="pt"?"Filtros":"Filters", `
+      ${grupo(T("status"),"status",R.statusAtivos())}
+      ${grupo(LANG==="pt"?"Coluna do Kanban":"Kanban column","familia",R.familias().map(x=>x.id),id=>R.nomeFamilia(id))}
+      ${grupo(T("tipoInsp"),"inspType",R.valoresDe("inspType"))}
+      ${grupo(T("origem"),"origem",R.valoresDe("originalJx"))}
+      ${grupo(T("funcaoVital"),"funcao",R.valoresDe("numAndDescription"))}
+      ${grupo("Bigram","bigram",R.bigrams())}
+      <div class="sep"></div>
+      <div class="rowflex" style="gap:16px;align-items:flex-end;flex-wrap:wrap">
+        <label class="fld"><span>B05</span><select id="fB05">
+          <option value="">${T("todos")}</option>
+          <option value="sim" ${f.b05==="sim"?"selected":""}>${T("b05")}</option>
+          <option value="nao" ${f.b05==="nao"?"selected":""}>${T("naoB05")}</option></select></label>
+        <label class="fld"><span>${T("semAtualizacao")} (${T("dias")})</span>
+          <input type="number" id="fAging" value="${esc(f.aging)}" min="0" style="width:90px"></label>
+        <label class="fld"><span>${LANG==="pt"?"Última mudança de":"Last change from"}</span>
+          <input type="date" id="fDe" value="${esc(f.dataDe)}"></label>
+        <label class="fld"><span>${LANG==="pt"?"até":"to"}</span>
+          <input type="date" id="fAte" value="${esc(f.dataAte)}"></label>
+        <label class="rowflex" style="gap:6px"><input type="checkbox" id="fAlt" ${f.alteradas?"checked":""}>
+          ${LANG==="pt"?"Só alterados no ciclo":"Only changed in cycle"}</label>
+        <label class="rowflex" style="gap:6px"><input type="checkbox" id="fObs" ${f.comObs?"checked":""}>
+          ${LANG==="pt"?"Só com observação":"Only with notes"}</label>
+      </div>`,
+      [{txt:T("limpar"),cls:"btn",fn:()=>{S.filtros=filtrosVazios(); UI.fechar(); Render.atual();}},
+       {txt:LANG==="pt"?"Aplicar":"Apply",cls:"btn pri",fn:()=>{
+          f.b05=$("#fB05").value; f.aging=$("#fAging").value; f.dataDe=$("#fDe").value;
+          f.dataAte=$("#fAte").value; f.alteradas=$("#fAlt").checked; f.comObs=$("#fObs").checked;
+          UI.fechar(); Render.atual();}}]);
+    $$(".chip[data-g]").forEach(c=>c.onclick=()=>{
+      const g=c.dataset.g, v=c.dataset.v, arr=S.filtros[g];
+      const i=arr.indexOf(v); i<0?arr.push(v):arr.splice(i,1); c.classList.toggle("on");
+    });
+  },
+};
+
+/* =============================== itens ================================= */
+Render.itens = function(){
+  $("#pageTitle").textContent=T("itens");
+  $("#headerExtra").innerHTML = Filtros.resumoHTML()+
+    `<button class="btn" id="btnExpTab">↓ CSV</button>`;
+  const lista = ordenar(itensFiltrados());
+  const cols = [
+    ["item",T("item"),"num"],["status",T("status"),""],["inspType",T("tipoInsp"),""],
+    ["originalJx",T("origem"),""],["evidence","Evidence",""],["description",LANG==="pt"?"Descrição":"Description",""],
+    ["updatedStatusObs",LANG==="pt"?"Obs. do status":"Status note",""],["aging",T("aging"),"num"],
+  ];
+  $("#view").innerHTML = `<div class="panel">
+    <h3>${lista.length} ${LANG==="pt"?"itens":"items"}${lista.length!==S.db.itens.length?` <span class="sub">${LANG==="pt"?"de":"of"} ${S.db.itens.length}</span>`:""}</h3>
+    <div class="tblwrap"><table><thead><tr>
+      ${cols.map(c=>`<th data-s="${c[0]}">${esc(c[1])}${S.ordenacao.campo===c[0]?(S.ordenacao.dir>0?" ▲":" ▼"):""}</th>`).join("")}
+    </tr></thead><tbody>
+      ${lista.length? lista.map(i=>{
+        const mud=R.mudouNoCiclo(i);
+        return `<tr data-i="${esc(i.item)}" class="${mud?"":""}">
+        <td class="num"><b>${esc(i.item)}</b></td>
+        <td class="${mud?"chgmark":""}"><span class="pill" style="background:${R.corDe(i.status)}22;color:${R.corDe(i.status)};border-color:${R.corDe(i.status)}55">
+          <i class="dot" style="background:${R.corDe(i.status)}"></i>${esc(i.status)}</span></td>
+        <td>${esc(i.inspType)}${i.isB05?` <span class="tag">B05</span>`:""}</td>
+        <td>${esc(i.originalJx)}</td>
+        <td><span class="trunc" style="max-width:180px">${esc(i.evidence)}</span></td>
+        <td><span class="trunc">${esc(i.description)}</span></td>
+        <td><span class="trunc" style="max-width:200px">${esc(i.updatedStatusObs)}</span></td>
+        <td class="num" style="color:${R.aberto(i.status)&&R.diasSemAtualizacao(i)>(S.db.config.diasAlertaAging??60)?"var(--bad)":"var(--fg-3)"}">${R.diasSemAtualizacao(i)}</td>
+      </tr>`;}).join("")
+      : `<tr><td colspan="${cols.length}"><div class="empty">${T("nenhumItem")}</div></td></tr>`}
+    </tbody></table></div></div>`;
+  $$("thead th[data-s]").forEach(th=>th.onclick=()=>{
+    const c=th.dataset.s;
+    S.ordenacao = S.ordenacao.campo===c? {campo:c,dir:-S.ordenacao.dir} : {campo:c,dir:1};
+    Render.atual();});
+  $$("tbody tr[data-i]").forEach(tr=>tr.onclick=()=>UI.detalhe(tr.dataset.i));
+  $("#btnExpTab").onclick=()=>Export.csv(lista);
+  Filtros.ligar();
+};
+
+/* =============================== kanban ================================ */
+Render.kanban = function(){
+  $("#pageTitle").textContent=T("kanban");
+  $("#headerExtra").innerHTML = Filtros.resumoHTML();
+  const lista = itensFiltrados();
+  const fams = R.familias().slice().sort((a,b)=>a.ordem-b.ordem);
+  const porFam = {}; fams.forEach(f=>porFam[f.id]=[]);
+  lista.forEach(i=>(porFam[R.familiaDe(i.status)] ??= []).push(i));
+  $("#view").innerHTML = `<div class="kb">${fams.map(f=>{
+    const itens=(porFam[f.id]||[]).sort((a,b)=>+a.item-+b.item);
+    const rec=S.recolhidas.has(f.id);
+    return `<section class="col ${rec?"collapsed":""}" data-f="${f.id}">
+      <div class="colh" style="border-left:3px solid ${f.cor}">
+        <i class="dot" style="background:${f.cor}"></i>
+        <span class="nm">${esc(R.nomeFamilia(f.id))}</span>
+        <span class="n">${itens.length}</span>
+        <span style="color:var(--fg-3);font-size:11px">${rec?"›":"‹"}</span>
+      </div>
+      <div class="colbody">${itens.map(i=>cardHTML(i)).join("")||
+        `<div class="muted" style="text-align:center;padding:14px;font-size:11.5px">—</div>`}</div>
+    </section>`;}).join("")}</div>`;
+
+  $$(".colh").forEach(h=>h.onclick=()=>{
+    const f=h.closest(".col").dataset.f;
+    S.recolhidas.has(f)? S.recolhidas.delete(f) : S.recolhidas.add(f);
+    localStorage.setItem("sm.recolhidas",JSON.stringify([...S.recolhidas]));
+    Render.atual();});
+  $$(".card").forEach(c=>{
+    c.draggable=true;
+    c.ondragstart=e=>{e.dataTransfer.setData("text/plain",c.dataset.i); c.classList.add("dragging");};
+    c.ondragend=()=>c.classList.remove("dragging");
+    c.onclick=()=>UI.detalhe(c.dataset.i);
+  });
+  $$(".col").forEach(col=>{
+    col.ondragover=e=>{e.preventDefault(); col.classList.add("over");};
+    col.ondragleave=()=>col.classList.remove("over");
+    col.ondrop=e=>{e.preventDefault(); col.classList.remove("over");
+      UI.moverPara(e.dataTransfer.getData("text/plain"), col.dataset.f);};
+  });
+  Filtros.ligar();
+};
+function cardHTML(i){
+  const mud=R.mudouNoCiclo(i), d=R.diasSemAtualizacao(i);
+  return `<article class="card ${mud?"chgmark":""}" data-i="${esc(i.item)}"
+    style="border-left-color:${R.corDe(i.status)}">
+    <div class="rowflex" style="justify-content:space-between">
+      <span class="cid">${esc(i.item)}</span>
+      ${i.isB05?`<span class="tag">B05</span>`:""}</div>
+    <div class="cdesc">${esc(i.description||i.evidence)}</div>
+    <div class="cmeta">
+      ${i.isB05?"":`<span class="tag">${esc(i.inspType)}</span>`}
+      <span class="tag">${esc(i.originalJx)}</span>
+      ${R.aberto(i.status)&&d>(S.db.config.diasAlertaAging??60)?`<span class="tag" style="color:var(--bad);border-color:var(--bad)">${d}d</span>`:""}
+    </div></article>`;
+}
+</script>
+<script>
+"use strict";
+/* ============================== histórico ============================== */
+Render.historico = function(){
+  $("#pageTitle").textContent=T("historico");
+  const marcos=R.marcos();
+  const d1=S.histDe ?? (marcos[marcos.length-2]?.data || marcos[0]?.data || hoje());
+  const d2=S.histAte ?? hoje();
+  $("#headerExtra").innerHTML=`
+    <label class="fld"><span>${T("de")}</span><input type="date" id="hDe" value="${d1}"></label>
+    <label class="fld"><span>${T("ate")}</span><input type="date" id="hAte" value="${d2}"></label>
+    <select id="hMarco"><option value="">${LANG==="pt"?"— marcos —":"— milestones —"}</option>
+      ${marcos.map(m=>`<option value="${m.data}">${esc(m.nome)}</option>`).join("")}</select>
+    <button class="btn pri" id="hGo">${T("comparar")}</button>`;
+
+  const itens=itensFiltrados();
+  const c=M.comparar(itens,d1,d2);
+  const serie=M.serie(itens,d1,d2);
+  const evs=(S.db.historico||[]).filter(h=>h.dataEfetiva>=d1&&h.dataEfetiva<=d2)
+             .sort((a,b)=>b.dataEfetiva.localeCompare(a.dataEfetiva)||b.item.localeCompare(a.item));
+  const statusUn=[...new Set([...Object.keys(c.inicio),...Object.keys(c.fim)])]
+                 .sort((a,b)=>R.ordemDe(a)-R.ordemDe(b));
+
+  $("#view").innerHTML=`
+  <div class="grid kpis" style="margin-bottom:14px">
+    ${kpi(T("emAberto")+" — "+fmtD(d1),c.abertoInicio,"")}
+    ${kpi(T("emAberto")+" — "+fmtD(d2),c.abertoFim,G.seta(c.abertoFim-c.abertoInicio,{menorMelhor:true}))}
+    ${kpi(T("melhoraram"),c.melhoraram.length,"")}
+    ${kpi(T("pioraram"),c.pioraram.length,"")}
+    ${kpi(T("iguais"),c.iguais,"")}
+    ${kpi(T("novos"),c.novos.length,"")}
+  </div>
+  <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(360px,1fr));margin-bottom:14px">
+    <div class="panel"><h3>${LANG==="pt"?"Situação nas duas datas":"State at both dates"}</h3>
+      <div class="pad"><table style="font-size:12.5px"><thead><tr>
+        <th>${T("status")}</th><th style="text-align:right">${fmtD(d1)}</th>
+        <th style="text-align:right">${fmtD(d2)}</th><th style="text-align:right">Δ</th></tr></thead><tbody>
+        ${statusUn.map(st=>{const a=c.inicio[st]||0,b=c.fim[st]||0;
+          return `<tr><td><span class="rowflex" style="gap:6px"><i class="dot" style="background:${R.corDe(st)}"></i>${esc(st)}</span></td>
+          <td class="num" style="text-align:right">${a}</td><td class="num" style="text-align:right"><b>${b}</b></td>
+          <td class="num" style="text-align:right">${G.seta(b-a,{menorMelhor:R.aberto(st)})}</td></tr>`;}).join("")}
+      </tbody></table></div></div>
+    <div class="panel"><h3>${T("evolucao")}</h3><div class="pad">
+      ${G.linhas(serie,[{k:"aberto",nome:T("emAberto"),cor:"var(--bad)"},
+                        {k:"validado",nome:T("validados"),cor:"var(--ok)"}])}</div></div>
+    <div class="panel"><h3>${LANG==="pt"?"Transições no período":"Transitions in period"}</h3><div class="pad">
+      ${[...c.transicoes].sort((a,b)=>b[1]-a[1]).map(([k,n])=>`
+        <div class="rowflex" style="justify-content:space-between;padding:3px 0;border-bottom:1px solid var(--line-2)">
+          <span style="font-size:11.5px">${esc(k)}</span><b class="mono">${n}</b></div>`).join("")
+        ||`<div class="empty">${LANG==="pt"?"Nenhuma transição":"No transitions"}</div>`}</div></div>
+  </div>
+  <div class="panel"><h3>${LANG==="pt"?"Eventos consolidados":"Consolidated events"} <span class="sub">${evs.length}</span>
+    <button class="btn sm" id="hExp" style="margin-left:8px">↓ CSV</button></h3>
+    <div class="tblwrap" style="max-height:440px"><table><thead><tr>
+      <th>${T("data")}</th><th>${T("item")}</th><th>${T("campo")}</th><th>${T("anterior")}</th>
+      <th>${T("novo")}</th><th>${T("autor")}</th><th>${LANG==="pt"?"Observação":"Note"}</th></tr></thead><tbody>
+      ${evs.slice(0,600).map(h=>`<tr data-i="${esc(h.item)}">
+        <td class="num">${fmtD(h.dataEfetiva)}</td><td class="num"><b>${esc(h.item)}</b></td>
+        <td>${esc(h.campo)}</td>
+        <td>${h.valorAnterior?`<span class="pill" style="background:${R.corDe(h.valorAnterior)}18;color:${R.corDe(h.valorAnterior)}">${esc(h.valorAnterior)}</span>`:`<span class="muted">—</span>`}</td>
+        <td><span class="pill" style="background:${R.corDe(h.valorNovo)}18;color:${R.corDe(h.valorNovo)}">${esc(h.valorNovo)}</span></td>
+        <td>${esc(h.autor||"")}</td><td><span class="trunc">${esc(h.observacao||"")}</span></td></tr>`).join("")
+        ||`<tr><td colspan="7"><div class="empty">${LANG==="pt"?"Sem eventos no período":"No events in period"}</div></td></tr>`}
+    </tbody></table></div></div>`;
+
+  $("#hGo").onclick=()=>{S.histDe=$("#hDe").value; S.histAte=$("#hAte").value; Render.atual();};
+  $("#hMarco").onchange=e=>{if(e.target.value){S.histDe=e.target.value; S.histAte=hoje(); Render.atual();}};
+  $("#hExp").onclick=()=>Export.historico(evs);
+  $$("tbody tr[data-i]").forEach(tr=>tr.onclick=()=>UI.detalhe(tr.dataset.i));
+};
+
+/* ============================= relatórios ============================= */
+const RELATORIOS = [
+  {id:"abertos", pt:"Todos em aberto", en:"All open", f:i=>R.aberto(i.status)},
+  {id:"b05ab",   pt:"B05 em aberto",   en:"B05 open", f:i=>i.isB05&&R.aberto(i.status)},
+  {id:"bloq",    pt:"Bloqueantes",     en:"Blocking", f:i=>i.status.startsWith("3 -")||i.status.startsWith("7 -")},
+  {id:"a7",      pt:"Alterados nos últimos 7 dias",  en:"Changed in last 7 days",  f:i=>diasEntre(i.ultimaAlteracaoStatus,hoje())<=7},
+  {id:"a30",     pt:"Alterados nos últimos 30 dias", en:"Changed in last 30 days", f:i=>diasEntre(i.ultimaAlteracaoStatus,hoje())<=30},
+  {id:"parado30",pt:"Sem atualização há mais de 30 dias", en:"No update for over 30 days",
+     f:i=>R.aberto(i.status)&&diasEntre(i.ultimaAlteracaoStatus,hoje())>30},
+  {id:"parado60",pt:"Sem atualização há mais de 60 dias", en:"No update for over 60 days",
+     f:i=>R.aberto(i.status)&&diasEntre(i.ultimaAlteracaoStatus,hoje())>60},
+  {id:"ciclo",   pt:"Alterados no ciclo atual", en:"Changed in current cycle", f:i=>R.mudouNoCiclo(i)},
+  {id:"comobs",  pt:"Com observação", en:"With notes",
+     f:i=>{const s=new Set((S.db.observacoes||[]).map(o=>o.item)); return s.has(i.item);}},
+  {id:"ncr",     pt:"Com NCR", en:"With NCR", f:i=>!!i.ncr},
+  {id:"inconsist", pt:"Inconsistências status x observação", en:"Status vs note inconsistencies",
+     f:i=>{const o=(i.updatedStatusObs||"").toLowerCase();
+       if(!o) return false;
+       const conc = o.includes("done")||o.includes("conform")||o.includes("accepted");
+       return (i.status==="1 - Validated by ICN" && !conc) || (R.aberto(i.status) && conc);}},
+  {id:"conflito", pt:"Itens com conflito não resolvido", en:"Items with unresolved conflict",
+     f:i=>{const s=new Set((S.db.conflitos||[]).filter(c=>!c.resolvido).map(c=>c.item)); return s.has(i.item);}},
+];
+Render.relatorios = function(){
+  $("#pageTitle").textContent=T("relatorios");
+  $("#headerExtra").innerHTML=Filtros.resumoHTML();
+  const sel=S.relSel||"abertos";
+  const def=RELATORIOS.find(r=>r.id===sel);
+  const lista=ordenar(itensFiltrados().filter(def.f));
+  $("#view").innerHTML=`
+    <div class="rowflex" style="margin-bottom:12px">
+      <div class="chips">${RELATORIOS.map(r=>`<span class="chip ${r.id===sel?"on":""}" data-r="${r.id}">
+        ${esc(LANG==="pt"?r.pt:r.en)}</span>`).join("")}</div></div>
+    <div class="panel"><h3>${esc(LANG==="pt"?def.pt:def.en)} <span class="sub">${lista.length} ${LANG==="pt"?"itens":"items"}</span>
+      <span style="margin-left:auto" class="rowflex noprint">
+        <button class="btn sm" id="eCsv">CSV</button>
+        <button class="btn sm" id="eXls">Excel</button>
+        <button class="btn sm" id="eJson">JSON</button>
+        <button class="btn sm" id="ePrint">${T("imprimir")} / PDF</button></span></h3>
+      <div class="tblwrap"><table><thead><tr>
+        <th>${T("item")}</th><th>${T("status")}</th><th>${T("tipoInsp")}</th><th>${T("origem")}</th>
+        <th>Evidence</th><th>${LANG==="pt"?"Descrição":"Description"}</th><th>${T("aging")}</th></tr></thead><tbody>
+        ${lista.map(i=>`<tr data-i="${esc(i.item)}"><td class="num"><b>${esc(i.item)}</b></td>
+          <td><span class="pill" style="background:${R.corDe(i.status)}18;color:${R.corDe(i.status)}">${esc(i.status)}</span></td>
+          <td>${esc(i.inspType)}</td><td>${esc(i.originalJx)}</td>
+          <td><span class="trunc" style="max-width:170px">${esc(i.evidence)}</span></td>
+          <td><span class="trunc">${esc(i.description)}</span></td>
+          <td class="num">${R.diasSemAtualizacao(i)}</td></tr>`).join("")
+          ||`<tr><td colspan="7"><div class="empty">${T("nenhumItem")}</div></td></tr>`}
+      </tbody></table></div></div>`;
+  $$(".chip[data-r]").forEach(c=>c.onclick=()=>{S.relSel=c.dataset.r; Render.atual();});
+  $$("tbody tr[data-i]").forEach(tr=>tr.onclick=()=>UI.detalhe(tr.dataset.i));
+  $("#eCsv").onclick=()=>Export.csv(lista);
+  $("#eXls").onclick=()=>Export.excel(lista, LANG==="pt"?def.pt:def.en);
+  $("#eJson").onclick=()=>dl(`relatorio-${sel}-${hoje()}.json`,JSON.stringify(lista,null,1),"application/json");
+  $("#ePrint").onclick=()=>window.print();
+  Filtros.ligar();
+};
+
+/* ============================== conflitos ============================== */
+Render.conflitos = function(){
+  $("#pageTitle").textContent=T("conflitos");
+  $("#headerExtra").innerHTML="";
+  const cs=S.db.conflitos||[];
+  const abertos=cs.filter(c=>!c.resolvido), fechados=cs.filter(c=>c.resolvido);
+  const tabela=(lista,resolvidos)=>`<div class="tblwrap"><table><thead><tr>
+      <th>${T("item")}</th><th>${T("campo")}</th><th>${T("arquivo1")}</th><th>${T("arquivo2")}</th>
+      <th>${resolvidos?LANG==="pt"?"Aplicado":"Applied":T("acoes")}</th></tr></thead><tbody>
+    ${lista.map(c=>`<tr>
+      <td class="num"><b>${esc(c.item)}</b></td><td>${esc(c.campo)}</td>
+      <td style="max-width:260px;white-space:pre-wrap">${esc(c.valorArquivo1)}</td>
+      <td style="max-width:260px;white-space:pre-wrap">${esc(c.valorArquivo2)}</td>
+      <td>${resolvidos
+        ? `<span class="pill" style="background:var(--ok)18;color:var(--ok)">${esc(c.valorAplicado)}</span>
+           <div class="muted" style="font-size:10.5px;margin-top:3px">${esc(c.justificativa||"")}</div>`
+        : `<div class="rowflex"><button class="btn sm" data-c="${c.id}" data-v="1">${T("manter")} 1</button>
+           <button class="btn sm" data-c="${c.id}" data-v="2">${T("manter")} 2</button>
+           <button class="btn sm" data-c="${c.id}" data-v="x">${LANG==="pt"?"Outro...":"Other..."}</button></div>`}</td>
+    </tr>`).join("")||`<tr><td colspan="5"><div class="empty">—</div></td></tr>`}</tbody></table></div>`;
+  $("#view").innerHTML=`
+    <div class="panel pad" style="margin-bottom:14px;border-left:3px solid var(--warn)">
+      <b>${LANG==="pt"?"Como ler esta tela":"How to read this screen"}</b>
+      <p class="muted" style="margin:6px 0 0;line-height:1.7">${LANG==="pt"
+        ? "Na migração, nenhum valor divergente foi sobrescrito. Onde os dois arquivos discordavam, o valor do <b>Resumo Fluxo Evidências</b> foi aplicado provisoriamente e o conflito registrado aqui para sua decisão. Resolver um conflito grava a escolha no histórico."
+        : "During migration no divergent value was silently overwritten. Where the two files disagreed, the value from <b>Evidence Flow Summary</b> was applied provisionally and the conflict recorded here for your decision."}</p></div>
+    <div class="panel" style="margin-bottom:14px"><h3>${LANG==="pt"?"Em aberto":"Unresolved"} <span class="sub">${abertos.length}</span></h3>${tabela(abertos,false)}</div>
+    <div class="panel"><h3>${LANG==="pt"?"Resolvidos":"Resolved"} <span class="sub">${fechados.length}</span></h3>${tabela(fechados,true)}</div>`;
+  $$("button[data-c]").forEach(b=>b.onclick=()=>UI.resolverConflito(b.dataset.c,b.dataset.v));
+};
+</script>
+<script>
+"use strict";
+/* ============================ configurações =========================== */
+Render.config = function(){
+  $("#pageTitle").textContent=T("config");
+  $("#headerExtra").innerHTML="";
+  const c=S.db.config, m=S.db.meta;
+  $("#view").innerHTML=`
+  <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(330px,1fr))">
+    <div class="panel"><h3>${LANG==="pt"?"Parâmetros":"Parameters"}</h3><div class="pad" style="display:grid;gap:11px">
+      <label class="fld"><span>${LANG==="pt"?"Minutos para consolidar o histórico":"Minutes to consolidate history"}</span>
+        <input type="number" id="cCons" min="0" max="1440" value="${c.minutosConsolidacao??10}"></label>
+      <label class="fld"><span>${LANG==="pt"?"Dias para considerar item sem atualização":"Days to flag item as stale"}</span>
+        <input type="number" id="cSem" min="1" value="${c.diasSemAtualizacao??30}"></label>
+      <label class="fld"><span>${LANG==="pt"?"Dias para alerta de aging":"Aging alert threshold (days)"}</span>
+        <input type="number" id="cAge" min="1" value="${c.diasAlertaAging??60}"></label>
+      <label class="fld"><span>${LANG==="pt"?"Seu nome (autor do histórico)":"Your name (history author)"}</span>
+        <input type="text" id="cAutor" value="${esc(Usuario.nome())}"></label>
+      <div><button class="btn pri" id="cSalvar">${T("salvar")}</button></div>
+    </div></div>
+
+    <div class="panel"><h3>${LANG==="pt"?"Status permitidos":"Allowed statuses"}
+      <span class="sub">${LANG==="pt"?"desmarque para ocultar do seletor":"uncheck to hide from picker"}</span></h3>
+      <div class="pad" style="max-height:330px;overflow:auto">
+      ${c.status.map((s,k)=>`<label class="rowflex" style="gap:8px;padding:3px 0;border-bottom:1px solid var(--line-2)">
+        <input type="checkbox" data-st="${k}" ${s.ativo?"checked":""}>
+        <i class="dot" style="background:${R.corDe(s.codigo)}"></i>
+        <span style="flex:1;font-size:12px">${esc(s.codigo)}</span>
+        <span class="tag">${esc(R.nomeFamilia(s.familia))}</span>
+        <span class="muted mono" style="font-size:10.5px">${S.db.itens.filter(i=>i.status===s.codigo).length}</span>
+      </label>`).join("")}</div></div>
+
+    <div class="panel"><h3>${LANG==="pt"?"Colunas do Kanban":"Kanban columns"}</h3><div class="pad">
+      ${R.familias().sort((a,b)=>a.ordem-b.ordem).map(f=>`
+        <div class="rowflex" style="padding:4px 0;border-bottom:1px solid var(--line-2)">
+          <i class="dot" style="background:${f.cor}"></i><b style="flex:1">${esc(R.nomeFamilia(f.id))}</b>
+          <span class="muted" style="font-size:11px">${c.status.filter(s=>s.familia===f.id).map(s=>s.codigo.split(" - ")[0]).join(", ")}</span>
+          <span class="mono">${S.db.itens.filter(i=>R.familiaDe(i.status)===f.id).length}</span></div>`).join("")}
+    </div></div>
+
+    <div class="panel"><h3>${T("backup")}</h3><div class="pad">
+      <div class="rowflex" style="margin-bottom:11px">
+        <button class="btn pri" id="bFazer">${LANG==="pt"?"Fazer backup agora":"Backup now"}</button>
+        <button class="btn" id="bBaixar">${LANG==="pt"?"Baixar cópia":"Download copy"}</button>
+        <button class="btn" id="bListar">${LANG==="pt"?"Listar backups":"List backups"}</button></div>
+      <div id="bLista" class="muted" style="font-size:11.5px"></div>
+      <div class="sep"></div>
+      <p class="muted" style="font-size:11.5px;line-height:1.7">${LANG==="pt"
+        ? "Backup automático a cada carregamento e antes de operações importantes, na subpasta <b>backups/</b>. Mantém as 30 versões mais recentes."
+        : "Automatic backup on load and before important operations, in the <b>backups/</b> subfolder. Keeps the 30 most recent versions."}</p>
+    </div></div>
+
+    <div class="panel"><h3>${LANG==="pt"?"Integridade da base":"Database integrity"}</h3><div class="pad">
+      <div id="integ"></div>
+      <div class="rowflex" style="margin-top:11px"><button class="btn" id="bVerif">${LANG==="pt"?"Verificar agora":"Check now"}</button></div>
+    </div></div>
+
+    <div class="panel"><h3>${LANG==="pt"?"Log técnico e recuperação":"Technical log and recovery"}</h3><div class="pad">
+      <dl class="kv">
+        <dt>${LANG==="pt"?"Revisão":"Revision"}</dt><dd class="mono">${m.revisao}</dd>
+        <dt>${LANG==="pt"?"Último autor":"Last author"}</dt><dd>${esc(m.ultimoAutor||"—")}</dd>
+        <dt>${LANG==="pt"?"Atualizado em":"Updated at"}</dt><dd>${fmtDT(m.atualizadoEm)}</dd>
+        <dt>${LANG==="pt"?"Pendentes":"Pending"}</dt><dd class="mono">${S.db.pendentes.length}</dd>
+        <dt>${LANG==="pt"?"Eventos":"Events"}</dt><dd class="mono">${S.db.historico.length}</dd>
+        <dt>${LANG==="pt"?"Descartes":"Discards"}</dt><dd class="mono">${(S.db.logDescartes||[]).length}</dd>
+      </dl>
+      ${(S.db.logDescartes||[]).length?`<div class="sep"></div>
+        <div style="max-height:170px;overflow:auto;font-size:11.5px">
+        ${S.db.logDescartes.slice().reverse().map(l=>`<div style="padding:4px 0;border-bottom:1px solid var(--line-2)">
+          <b>${fmtDT(l.em)}</b> — ${esc(l.autor)} — ${l.itens.length} ${LANG==="pt"?"alteração(ões)":"change(s)"}
+          <div class="muted mono" style="font-size:10.5px">${l.itens.map(p=>`${esc(p.item)}/${esc(p.campo)}: "${esc(p.valorOriginal)}" → "${esc(p.valorAtual)}"`).join("<br>")}</div>
+        </div>`).join("")}</div>`:""}
+    </div></div>
+
+    <div class="panel"><h3>${LANG==="pt"?"Relatório de migração":"Migration report"}</h3><div class="pad">
+      ${relMigracaoHTML()}</div></div>
+  </div>`;
+
+  $("#cSalvar").onclick=()=>{
+    c.minutosConsolidacao=+$("#cCons").value; c.diasSemAtualizacao=+$("#cSem").value;
+    c.diasAlertaAging=+$("#cAge").value;
+    const a=$("#cAutor").value.trim(); if(a) localStorage.setItem("sm.autor",a);
+    Pend.agendarAutosave(); toast(LANG==="pt"?"Configurações salvas":"Settings saved","ok"); Render.atual();};
+  $$("input[data-st]").forEach(cb=>cb.onchange=()=>{
+    c.status[+cb.dataset.st].ativo=cb.checked; Pend.agendarAutosave();});
+  $("#bFazer").onclick=async()=>{try{const n=await Store.backup(S.db,"manual");
+    toast((LANG==="pt"?"Backup criado: ":"Backup created: ")+n,"ok");}catch(e){toast(String(e.message),"bad");}};
+  $("#bBaixar").onclick=()=>dl(`database-${hoje()}.json`,JSON.stringify(S.db,null,1),"application/json");
+  $("#bListar").onclick=async()=>{
+    const l=await Store.listarBackups();
+    $("#bLista").innerHTML = l.length? l.map(b=>`<div class="rowflex" style="justify-content:space-between;padding:3px 0;border-bottom:1px solid var(--line-2)">
+      <span class="mono" style="font-size:10.5px">${esc(b.nome)}</span>
+      <span class="rowflex"><span class="muted">${(b.tamanho/1024).toFixed(0)} KB</span>
+      <button class="btn sm" data-rb="${esc(b.nome)}">${T("restaurar")}</button></span></div>`).join("")
+      : (LANG==="pt"?"Nenhum backup ainda.":"No backups yet.");
+    $$("button[data-rb]").forEach(b=>b.onclick=()=>UI.restaurar(b.dataset.rb));};
+  $("#bVerif").onclick=()=>{$("#integ").innerHTML=verificarIntegridade();};
+  $("#integ").innerHTML=verificarIntegridade();
+};
+function relMigracaoHTML(){
+  const r=S.db.relatorioMigracao; if(!r) return `<div class="muted">—</div>`;
+  const lin=(k,v)=>`<dt>${esc(k)}</dt><dd class="mono">${v}</dd>`;
+  return `<dl class="kv">
+    ${lin(LANG==="pt"?"Itens no Arquivo 1":"Items in File 1",r.itens_arquivo1)}
+    ${lin(LANG==="pt"?"Itens no Arquivo 2":"Items in File 2",r.itens_arquivo2)}
+    ${lin(LANG==="pt"?"Itens nos dois":"Items in both",r.itens_nos_dois)}
+    ${lin(LANG==="pt"?"Só no Arquivo 1":"Only in File 1",r.somente_arquivo1.length)}
+    ${lin(LANG==="pt"?"Só no Arquivo 2":"Only in File 2",r.somente_arquivo2.length)}
+    ${lin(LANG==="pt"?"Conflitos":"Conflicts",`${r.conflitos_total} (${r.conflitos_em_aberto} ${LANG==="pt"?"em aberto":"open"})`)}
+    ${lin(LANG==="pt"?"Campos só no Arquivo 1":"Fields only in File 1",esc(r.campos_so_arquivo1.join(", ")||"—"))}
+    ${lin(LANG==="pt"?"Campos só no Arquivo 2":"Fields only in File 2",esc(r.campos_so_arquivo2.join(", ")||"—"))}
+  </dl>`;
+}
+function verificarIntegridade(){
+  const p=[], itens=S.db.itens;
+  const ids=itens.map(i=>i.item);
+  const dup=ids.filter((x,k)=>ids.indexOf(x)!==k);
+  if(dup.length) p.push([`${LANG==="pt"?"Itens duplicados":"Duplicate items"}: ${[...new Set(dup)].join(", ")}`,"bad"]);
+  const semId=itens.filter(i=>!i.item).length;
+  if(semId) p.push([`${semId} ${LANG==="pt"?"itens sem identificador":"items without id"}`,"bad"]);
+  const validos=new Set(S.db.config.status.map(s=>s.codigo));
+  const inval=[...new Set(itens.map(i=>i.status).filter(s=>!validos.has(s)))];
+  if(inval.length) p.push([`${LANG==="pt"?"Status fora do domínio":"Status outside domain"}: ${inval.join(", ")}`,"bad"]);
+  const semSt=itens.filter(i=>!i.status).length;
+  if(semSt) p.push([`${semSt} ${LANG==="pt"?"itens sem status":"items without status"}`,"bad"]);
+  const orf=(S.db.historico||[]).filter(h=>!ids.includes(h.item)).length;
+  if(orf) p.push([`${orf} ${LANG==="pt"?"eventos de histórico órfãos":"orphan history events"}`,"warn"]);
+  const conf=(S.db.conflitos||[]).filter(c=>!c.resolvido).length;
+  if(conf) p.push([`${conf} ${LANG==="pt"?"conflitos aguardando decisão":"conflicts awaiting decision"}`,"warn"]);
+  const incoer=itens.filter(i=>{const o=(i.updatedStatusObs||"").toLowerCase(); if(!o) return false;
+    const c=o.includes("done")||o.includes("conform")||o.includes("accepted");
+    return (i.status==="1 - Validated by ICN"&&!c)||(R.aberto(i.status)&&c);}).length;
+  if(incoer) p.push([`${incoer} ${LANG==="pt"?"itens com status incoerente com a observação":"items whose status conflicts with their note"}`,"warn"]);
+  if(!p.length) return `<div class="rowflex" style="color:var(--ok)"><b>✓ ${LANG==="pt"?"Nenhum problema encontrado":"No problems found"}</b></div>`;
+  return p.map(([t,k])=>`<div class="rowflex" style="gap:7px;padding:3px 0;color:var(--${k==="bad"?"bad":"warn"})">
+    <span>${k==="bad"?"✕":"⚠"}</span><span style="color:var(--fg-2)">${esc(t)}</span></div>`).join("");
+}
+</script>
+<script>
+"use strict";
+/* ================================ UI =================================== */
+const UI = {
+  modal(titulo, corpo, botoes=[]){
+    this.fechar();
+    const ov=document.createElement("div"); ov.className="ov"; ov.id="ov";
+    ov.innerHTML=`<div class="modal"><header><h2>${esc(titulo)}</h2>
+        <button class="btn sm" id="mX">✕</button></header>
+      <div class="body">${corpo}</div>
+      ${botoes.length?`<footer>${botoes.map((b,k)=>`<button class="${b.cls||"btn"}" data-b="${k}">${esc(b.txt)}</button>`).join("")}</footer>`:""}</div>`;
+    document.body.append(ov);
+    ov.onclick=e=>{if(e.target===ov) this.fechar();};
+    $("#mX").onclick=()=>this.fechar();
+    $$("[data-b]",ov).forEach(b=>b.onclick=()=>botoes[+b.dataset.b].fn());
+    return ov;
+  },
+  fechar(){ $("#ov")?.remove(); },
+
+  /* ---- selecionar pasta / carregar base ---- */
+  async abrirPasta(){
+    try{
+      await Store.escolherPasta();
+      await this.carregarBase();
+    }catch(e){ if(e.name!=="AbortError") toast(String(e.message),"bad"); }
+  },
+  async retomarPasta(){
+    if(await Store.pedirPermissaoSalva()) await this.carregarBase();
+    else toast(LANG==="pt"?"Permissão não concedida":"Permission not granted","bad");
+  },
+  async carregarBase(){
+    try{
+      S.db = await Store.carregar();
+      normalizar(S.db);
+      Usuario.garantir();
+      await Store.backup(S.db,"abertura").catch(()=>{});
+      Pend.iniciar();
+      marcarEstado(LANG==="pt"?"base carregada":"database loaded");
+      toast(`${S.db.itens.length} ${LANG==="pt"?"itens carregados":"items loaded"}`,"ok");
+      irPara("dashboard");
+    }catch(e){
+      if(e.message==="NAO_ENCONTRADO") return this.baseNova();
+      Render.semBase(String(e.message));
+    }
+  },
+  baseNova(){
+    if(!confirmar(LANG==="pt"
+      ? "Não existe database.json nesta pasta. Criar uma base vazia aqui?"
+      : "No database.json in this folder. Create an empty database here?")) return Render.semBase();
+    S.db = baseVazia(); normalizar(S.db); Usuario.garantir();
+    Store.gravar(S.db,{forcar:true}).then(()=>{Pend.iniciar(); irPara("dashboard");});
+  },
+  async recuperarEspelho(){
+    const e=await IDB.get("espelho");
+    if(!e) return toast(LANG==="pt"?"Nenhuma cópia local encontrada":"No local copy found","bad");
+    if(!confirmar(LANG==="pt"
+      ? `Cópia local de ${fmtDT(e.meta?.atualizadoEm)} com ${e.itens?.length||0} itens. Carregar?`
+      : `Local copy from ${fmtDT(e.meta?.atualizadoEm)} with ${e.itens?.length||0} items. Load it?`)) return;
+    S.db=e; normalizar(S.db); Usuario.garantir(); Pend.iniciar(); irPara("dashboard");
+    toast(LANG==="pt"?"Cópia local carregada. Selecione a pasta para voltar a gravar.":"Local copy loaded. Select the folder to resume saving.","ok");
+  },
+  abrirArquivoManual(){
+    const inp=document.createElement("input"); inp.type="file"; inp.accept=".json";
+    inp.onchange=async()=>{ const f=inp.files[0]; if(!f) return;
+      try{ S.db=JSON.parse(await f.text()); normalizar(S.db); Usuario.garantir(); Pend.iniciar(); irPara("dashboard");
+        toast(LANG==="pt"?"Base aberta em modo leitura/baixar":"Database opened in read/download mode","ok");
+      }catch(e){ toast("JSON inválido","bad"); } };
+    inp.click();
+  },
+
+  /* ---- conflito de gravação concorrente ---- */
+  conflitoGravacao(err){
+    marcarEstado(LANG==="pt"?"conflito de gravação":"write conflict");
+    this.modal(LANG==="pt"?"Conflito de gravação":"Write conflict",
+      `<p>${LANG==="pt"
+        ? `O arquivo na pasta foi alterado por <b>${esc(err.autorDisco||"outra pessoa")}</b> (revisão ${err.revisaoDisco}) depois que você carregou esta base (revisão ${Store.revisaoCarregada}).`
+        : `The file was changed by <b>${esc(err.autorDisco||"someone else")}</b> (revision ${err.revisaoDisco}) after you loaded it (revision ${Store.revisaoCarregada}).`}</p>
+       <p class="muted">${LANG==="pt"
+        ? "Para não apagar o trabalho de ninguém, nada foi gravado. Escolha como prosseguir:"
+        : "Nothing was written so nobody's work is lost. Choose how to proceed:"}</p>
+       <ul class="muted" style="line-height:1.8">
+        <li><b>${LANG==="pt"?"Recarregar":"Reload"}</b> — ${LANG==="pt"?"descarta suas alterações não gravadas e traz a versão do disco.":"discards your unsaved changes and loads the disk version."}</li>
+        <li><b>${LANG==="pt"?"Salvar cópia":"Save a copy"}</b> — ${LANG==="pt"?"baixa a sua versão para comparação manual.":"downloads your version for manual comparison."}</li>
+        <li><b>${LANG==="pt"?"Forçar gravação":"Force write"}</b> — ${LANG==="pt"?"sobrescreve o disco. Um backup da versão do disco é criado antes.":"overwrites the disk. A backup of the disk version is created first."}</li></ul>`,
+      [{txt:LANG==="pt"?"Recarregar":"Reload",cls:"btn",fn:async()=>{this.fechar(); await this.carregarBase();}},
+       {txt:LANG==="pt"?"Salvar cópia":"Save a copy",cls:"btn",fn:()=>dl(`minha-versao-${hoje()}.json`,JSON.stringify(S.db,null,1),"application/json")},
+       {txt:LANG==="pt"?"Forçar gravação":"Force write",cls:"btn danger",fn:async()=>{
+          try{ await Store.backup(err.disco,"pre-sobrescrita"); }catch{}
+          S.db.meta.revisao = err.revisaoDisco;
+          await Store.gravar(S.db,{forcar:true});
+          this.fechar(); marcarEstado(LANG==="pt"?"gravado (forçado)":"written (forced)");}}]);
+  },
+
+  /* ---- detalhe do item ---- */
+  detalhe(itemId){
+    const i=S.db.itens.find(x=>x.item===itemId); if(!i) return;
+    S.selecionado=itemId;
+    const hist=(S.db.historico||[]).filter(h=>h.item===itemId)
+                .sort((a,b)=>b.dataEfetiva.localeCompare(a.dataEfetiva));
+    const obs=(S.db.observacoes||[]).filter(o=>o.item===itemId)
+                .sort((a,b)=>b.criadoEm.localeCompare(a.criadoEm));
+    const pend=S.db.pendentes.filter(p=>p.item===itemId);
+    const confl=(S.db.conflitos||[]).filter(c=>c.item===itemId&&!c.resolvido);
+    const ativos=R.statusAtivos();
+
+    const aba=(id,txt)=>`<button data-t="${id}">${esc(txt)}</button>`;
+    this.modal(`${LANG==="pt"?"Item":"Item"} ${itemId}`, `
+      <div class="tabs">${aba("d",T("detalhes"))}${aba("h",T("historico"))}${aba("o",T("observacoes"))}${aba("x",T("dados"))}</div>
+      <div id="tp-d">
+        ${confl.length?`<div class="panel pad" style="border-left:3px solid var(--warn);margin-bottom:12px">
+          <b style="color:var(--warn)">⚠ ${confl.length} ${LANG==="pt"?"conflito(s) de migração em aberto":"open migration conflict(s)"}</b>
+          ${confl.map(c=>`<div style="margin-top:6px;font-size:12px"><b>${esc(c.campo)}</b><br>
+            <span class="muted">${T("arquivo1")}:</span> ${esc(c.valorArquivo1)}<br>
+            <span class="muted">${T("arquivo2")}:</span> ${esc(c.valorArquivo2)}</div>`).join("")}</div>`:""}
+        ${pend.length?`<div class="panel pad" style="border-left:3px solid var(--chg-line);margin-bottom:12px">
+          <b>${pend.length} ${LANG==="pt"?"alteração(ões) pendente(s) de consolidação":"change(s) pending consolidation"}</b>
+          ${pend.map(p=>`<div class="muted" style="font-size:11.5px;margin-top:4px">${esc(p.campo)}:
+            "${esc(p.valorOriginal)}" → "${esc(p.valorAtual)}" · ${LANG==="pt"?"desde":"since"} ${fmtDT(p.primeiraAlteracaoEm)}</div>`).join("")}</div>`:""}
+        <div class="grid" style="grid-template-columns:1fr 1fr;gap:12px">
+          <label class="fld"><span>${T("status")}</span>
+            <select id="dStatus">${ativos.map(s=>`<option ${s===i.status?"selected":""}>${esc(s)}</option>`).join("")}</select></label>
+          <label class="fld"><span>${LANG==="pt"?"Data efetiva da mudança":"Effective change date"}</span>
+            <input type="date" id="dData" value="${hoje()}" max="${hoje()}"></label>
+        </div>
+        <div class="sep"></div>
+        <label class="fld" style="margin-bottom:10px"><span>Updated Status Obs</span>
+          <textarea id="dObs" rows="2">${esc(i.updatedStatusObs)}</textarea></label>
+        <label class="fld" style="margin-bottom:10px"><span>General Obs</span>
+          <textarea id="dGer" rows="2">${esc(i.generalObs)}</textarea></label>
+        <div class="grid" style="grid-template-columns:1fr 1fr;gap:12px">
+          <label class="fld"><span>NCR's</span><input type="text" id="dNcr" value="${esc(i.ncr)}"></label>
+          <label class="fld"><span>${LANG==="pt"?"Motivo da alteração (opcional)":"Reason for change (optional)"}</span>
+            <input type="text" id="dMotivo" placeholder="${LANG==="pt"?"vai para o histórico":"goes to history"}"></label>
+        </div>
+        <label class="fld" style="margin-top:10px"><span>Tests</span>
+          <textarea id="dTests" rows="3" class="mono" style="font-size:11px">${esc(i.tests)}</textarea></label>
+      </div>
+      <div id="tp-h" hidden>${hist.length? `<table><thead><tr><th>${T("data")}</th><th>${T("campo")}</th>
+        <th>${T("anterior")}</th><th>${T("novo")}</th><th>${T("autor")}</th></tr></thead><tbody>
+        ${hist.map(h=>`<tr><td class="num">${fmtD(h.dataEfetiva)}</td><td>${esc(h.campo)}</td>
+          <td>${h.valorAnterior?esc(h.valorAnterior):"—"}</td><td><b>${esc(h.valorNovo)}</b></td>
+          <td>${esc(h.autor||"")}</td></tr>`).join("")}</tbody></table>`
+        :`<div class="empty">${LANG==="pt"?"Sem histórico":"No history"}</div>`}</div>
+      <div id="tp-o" hidden>
+        <div class="rowflex" style="margin-bottom:12px">
+          <input type="text" id="oTxt" placeholder="${T("obsNova")}" style="flex:1">
+          <button class="btn pri" id="oAdd">${T("adicionar")}</button></div>
+        ${obs.map(o=>`<div class="panel pad" style="margin-bottom:8px">
+          <div class="rowflex" style="justify-content:space-between;font-size:11px;color:var(--fg-3)">
+            <b>${esc(o.autor||"")}</b><span>${fmtDT(o.criadoEm)}</span></div>
+          <div style="margin-top:5px;white-space:pre-wrap">${esc(o.texto)}</div></div>`).join("")
+          ||`<div class="empty">${LANG==="pt"?"Nenhuma observação":"No notes"}</div>`}</div>
+      <div id="tp-x" hidden><dl class="kv">
+        ${[["Evidence",i.evidence],["InspType",i.inspType],["Insp",i.insp],["OriginalJx",i.originalJx],
+           ["ActualJx",i.actualJx],["ActualJxDescription",i.actualJxDescription],
+           ["Nº and Description",i.numAndDescription],["Performance",i.performance],
+           ["Mode",i.mode+(i.modeOrigem?` <span class="muted">(${LANG==="pt"?"origem":"source"}: ${esc(i.modeOrigem)})</span>`:"")],
+           ["Description",i.description],["HullPassageParts",i.hullPassageParts],["Position AC",i.positionAC],
+           ["Bigram",(i.bigram||[]).map(b=>`<span class="tag">${esc(b)}</span>`).join("")],
+           ["SBR",i.sbr],[LANG==="pt"?"Criado em":"Created",fmtD(i.criadoEm)],
+           [LANG==="pt"?"Última mudança de status":"Last status change",fmtD(i.ultimaAlteracaoStatus)],
+           [LANG==="pt"?"Dias sem atualização":"Days without update",R.diasSemAtualizacao(i)],
+           [LANG==="pt"?"Presente em":"Present in",i.presenteEm],
+        ].map(([k,v])=>`<dt>${esc(k)}</dt><dd>${k==="Bigram"||String(v).includes("<span")?v:esc(v??"")}</dd>`).join("")}
+      </dl></div>`,
+      [{txt:T("fechar"),cls:"btn",fn:()=>this.fechar()},
+       {txt:T("salvar"),cls:"btn pri",fn:()=>{
+          const dt=$("#dData").value||hoje(), mot=$("#dMotivo").value.trim();
+          Pend.alterar(itemId,"status",$("#dStatus").value,{dataEfetiva:dt,motivo:mot});
+          Pend.alterar(itemId,"updatedStatusObs",$("#dObs").value,{dataEfetiva:dt,motivo:mot});
+          Pend.alterar(itemId,"generalObs",$("#dGer").value,{dataEfetiva:dt,motivo:mot});
+          Pend.alterar(itemId,"ncr",$("#dNcr").value,{dataEfetiva:dt,motivo:mot});
+          Pend.alterar(itemId,"tests",$("#dTests").value,{dataEfetiva:dt,motivo:mot});
+          this.fechar(); Render.atual();}}]);
+
+    $$(".tabs button").forEach((b,k)=>{ if(!k) b.classList.add("on");
+      b.onclick=()=>{ $$(".tabs button").forEach(x=>x.classList.remove("on")); b.classList.add("on");
+        ["d","h","o","x"].forEach(t=>$("#tp-"+t).hidden = t!==b.dataset.t); };});
+    $("#oAdd").onclick=()=>{
+      const t=$("#oTxt").value.trim(); if(!t) return;
+      S.db.observacoes.push({id:uid(),item:itemId,texto:t,criadoEm:agora(),autor:Usuario.garantir()});
+      Pend.autosave(); this.detalhe(itemId);   // observações gravam na hora (não passam por pendentes)
+      $$(".tabs button")[2].click();
+      toast(LANG==="pt"?"Observação salva":"Note saved","ok");};
+  },
+
+  /* ---- kanban: mover card ---- */
+  moverPara(itemId, familia){
+    const i=S.db.itens.find(x=>x.item===itemId); if(!i) return;
+    if(R.familiaDe(i.status)===familia) return;
+    const opcoes=S.db.config.status.filter(s=>s.familia===familia && (s.ativo||s.codigo===i.status));
+    if(!opcoes.length) return toast(LANG==="pt"?"Nenhum status ativo nesta coluna":"No active status in this column","bad");
+    if(opcoes.length===1){ Pend.alterar(itemId,"status",opcoes[0].codigo); Render.atual();
+      return toast(`${itemId} → ${opcoes[0].codigo}`); }
+    this.modal(`${itemId} → ${R.nomeFamilia(familia)}`,
+      `<p class="muted">${LANG==="pt"?"Escolha o status exato dentro desta coluna:":"Pick the exact status within this column:"}</p>
+       <div style="display:grid;gap:7px;margin-top:10px">${opcoes.map(o=>`
+         <button class="btn" data-s="${esc(o.codigo)}" style="text-align:left;padding:9px 12px">
+           <i class="dot" style="background:${R.corDe(o.codigo)};display:inline-block;margin-right:7px"></i>${esc(o.codigo)}</button>`).join("")}</div>
+       <label class="fld" style="margin-top:12px"><span>${LANG==="pt"?"Data efetiva":"Effective date"}</span>
+         <input type="date" id="kData" value="${hoje()}" max="${hoje()}"></label>`,
+      [{txt:T("cancelar"),cls:"btn",fn:()=>this.fechar()}]);
+    $$("button[data-s]").forEach(b=>b.onclick=()=>{
+      Pend.alterar(itemId,"status",b.dataset.s,{dataEfetiva:$("#kData").value||hoje()});
+      this.fechar(); Render.atual(); toast(`${itemId} → ${b.dataset.s}`);});
+  },
+
+  resolverConflito(id, escolha){
+    const c=(S.db.conflitos||[]).find(x=>x.id===id); if(!c) return;
+    let valor = escolha==="1"? c.valorArquivo1 : escolha==="2"? c.valorArquivo2 : null;
+    if(escolha==="x"){ valor = prompt(LANG==="pt"?"Informe o valor correto:":"Enter the correct value:", c.valorAplicado); if(valor===null) return; }
+    const it=S.db.itens.find(i=>i.item===c.item);
+    const mapa={OriginalJx:"originalJx","Updated Status Obs":"updatedStatusObs",Bigram:"bigram"};
+    const campo=mapa[c.campo];
+    if(it && campo){
+      const antes = Array.isArray(it[campo])? it[campo].join(";") : it[campo];
+      it[campo] = campo==="bigram"? valor.split(/[;,]/).map(s=>s.trim()).filter(Boolean) : valor;
+      S.db.historico.push({id:uid(),item:c.item,campo:c.campo,valorAnterior:antes,valorNovo:valor,
+        dataEfetiva:hoje(),consolidadoEm:agora(),primeiraAlteracaoEm:agora(),autor:Usuario.garantir(),
+        origem:"conflito",tipo:"conflito",
+        observacao:LANG==="pt"?"Resolução de conflito de migração":"Migration conflict resolution"});
+    }
+    c.resolvido=true; c.valorAplicado=valor; c.resolvidoPor=Usuario.garantir(); c.resolvidoEm=agora();
+    Pend.autosave(); Render.atual(); toast(LANG==="pt"?"Conflito resolvido":"Conflict resolved","ok");
+  },
+
+  async restaurar(nome){
+    if(!confirmar(LANG==="pt"
+      ? `Restaurar o backup ${nome}? A base atual será salva como backup antes.`
+      : `Restore backup ${nome}? The current database is backed up first.`)) return;
+    try{
+      await Store.backup(S.db,"pre-restauracao");
+      const b=await Store.restaurarBackup(nome);
+      normalizar(b); b.meta.revisao=S.db.meta.revisao;
+      S.db=b; await Store.gravar(S.db,{forcar:true});
+      Render.atual(); toast(LANG==="pt"?"Backup restaurado":"Backup restored","ok");
+    }catch(e){ toast(String(e.message),"bad"); }
+  },
+};
+</script>
+<script>
+"use strict";
+/* ============================= exportação ============================= */
+const Export = {
+  COLS:[["item","Item"],["status","Actual Status"],["inspType","InspType"],["insp","Insp"],
+        ["originalJx","OriginalJx"],["actualJx","ActualJx"],["actualJxDescription","ActualJxDescription"],
+        ["numAndDescription","Nº and Description"],["evidence","Evidence"],
+        ["hullPassageParts","HullPassageParts"],["description","Description"],["performance","Performance"],
+        ["mode","Mode"],["positionAC","Position AC"],["bigram","Bigram"],
+        ["updatedStatusObs","Updated Status Obs"],["generalObs","General Obs"],["ncr","NCR's"],
+        ["tests","Tests"],["ultimaAlteracaoStatus","Last Status Change"]],
+  val(i,k){ const v=i[k]; return Array.isArray(v)? v.join(";") : (v??""); },
+  csv(lista){
+    const q=s=>`"${String(s).replace(/"/g,'""')}"`;
+    const linhas=[this.COLS.map(c=>q(c[1])).join(";")];
+    for(const i of lista) linhas.push(this.COLS.map(c=>q(this.val(i,c[0]))).join(";"));
+    dl(`itens-${hoje()}.csv`,"﻿"+linhas.join("\r\n"),"text/csv;charset=utf-8");
+  },
+  historico(evs){
+    const q=s=>`"${String(s??"").replace(/"/g,'""')}"`;
+    const h=["Item","Campo","Valor anterior","Novo valor","Data efetiva","Consolidado em","Autor","Origem","Observação"];
+    const l=[h.map(q).join(";")];
+    for(const e of evs) l.push([e.item,e.campo,e.valorAnterior,e.valorNovo,e.dataEfetiva,
+                                e.consolidadoEm,e.autor,e.origem,e.observacao].map(q).join(";"));
+    dl(`historico-${hoje()}.csv`,"﻿"+l.join("\r\n"),"text/csv;charset=utf-8");
+  },
+  /* SpreadsheetML 2003: o Excel abre nativamente, com várias abas e formatação. */
+  excel(lista,titulo){
+    const x=s=>String(s??"").replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+    const cel=(v,estilo="")=>`<Cell${estilo?` ss:StyleID="${estilo}"`:""}><Data ss:Type="String">${x(v)}</Data></Cell>`;
+    const num=v=>`<Cell ss:StyleID="n"><Data ss:Type="Number">${+v||0}</Data></Cell>`;
+    const aba=(nome,linhas)=>`<Worksheet ss:Name="${x(nome).slice(0,31)}"><Table>${
+      linhas.map(l=>`<Row>${l}</Row>`).join("")}</Table>
+      <WorksheetOptions xmlns="urn:schemas-microsoft-com:office:excel"><FreezePanes/><SplitHorizontal>1</SplitHorizontal>
+      <TopRowBottomPane>1</TopRowBottomPane><ActivePane>2</ActivePane></WorksheetOptions></Worksheet>`;
+
+    const dados=[this.COLS.map(c=>cel(c[1],"h")).join("")]
+      .concat(lista.map(i=>this.COLS.map(c=>cel(this.val(i,c[0]))).join("")));
+
+    const ef=M.evidenceFlow(lista), sy=M.shipyard(lista), fu=M.funcional(lista);
+    const resumo=[
+      [cel("StatusMilestone — "+titulo,"t")].join(""),
+      [cel(`${LANG==="pt"?"Gerado em":"Generated"} ${fmtDT(agora())} — ${Usuario.nome()}`)].join(""),
+      "",
+      [cel(LANG==="pt"?"EVIDÊNCIAS SOMENTE B05":"EVIDENCES ONLY B05","h"),cel(""),cel("")].join(""),
+      [cel(LANG==="pt"?"Total":"Total"),num(ef.b05.total),cel("")].join(""),
+      [cel(LANG==="pt"?"Em aberto":"Remaining"),num(ef.b05.aberto),cel("")].join(""),
+      ...ef.b05.status.map(([s,n])=>[cel(s),num(n),cel((n/Math.max(ef.b05.total,1)*100).toFixed(2)+"%")].join("")),
+      "",
+      [cel(LANG==="pt"?"EVIDÊNCIAS EXCETO B05":"EVIDENCES EXCEPT B05","h"),cel(""),cel("")].join(""),
+      [cel(LANG==="pt"?"Total":"Total"),num(ef.exceto.total),cel("")].join(""),
+      [cel(LANG==="pt"?"Em aberto":"Remaining"),num(ef.exceto.aberto),cel("")].join(""),
+      ...ef.exceto.status.map(([s,n])=>[cel(s),num(n),cel((n/Math.max(ef.exceto.total,1)*100).toFixed(2)+"%")].join("")),
+      "",
+      [cel("SHIPYARD PREREQUISITES (J08)","h"),cel(""),cel("")].join(""),
+      [cel(LANG==="pt"?"Total":"Total"),num(sy.total),cel("")].join(""),
+      [cel(LANG==="pt"?"Em aberto":"Remaining"),num(sy.aberto),cel("")].join(""),
+      ...sy.status.map(([s,n])=>[cel(s),num(n),cel("")].join("")),
+      "",
+      [cel("FUNCTIONAL INSP. TYPE","h"),cel(LANG==="pt"?"Em aberto":"Open","h"),
+       cel(LANG==="pt"?"Anterior":"Previous","h"),cel("Δ","h"),cel("Total","h")].join(""),
+      ...fu.linhas.filter(l=>l.total).map(l=>[cel(l.tipo),num(l.atual),num(l.anterior),
+        cel((l.delta>0?"▼-":l.delta<0?"▲+":"▬")+(l.delta?Math.abs(l.delta):"")),num(l.total)].join("")),
+    ].filter(r=>r!=="").map(r=>r||cel(""));
+
+    const hist=(S.db.historico||[]).filter(h=>lista.some(i=>i.item===h.item));
+    const abaHist=[["Item","Campo","Anterior","Novo","Data","Autor"].map(v=>cel(v,"h")).join("")]
+      .concat(hist.map(h=>[h.item,h.campo,h.valorAnterior,h.valorNovo,h.dataEfetiva,h.autor].map(v=>cel(v)).join("")));
+
+    const xml=`<?xml version="1.0"?><?mso-application progid="Excel.Sheet"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel"
+ xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
+<Styles>
+ <Style ss:ID="h"><Font ss:Bold="1" ss:Color="#FFFFFF"/><Interior ss:Color="#2F5FA8" ss:Pattern="Solid"/></Style>
+ <Style ss:ID="t"><Font ss:Bold="1" ss:Size="13"/></Style>
+ <Style ss:ID="n"><NumberFormat ss:Format="0"/></Style>
+</Styles>
+${aba("Resumo",resumo)}${aba("Itens",dados)}${aba(LANG==="pt"?"Historico":"History",abaHist)}
+</Workbook>`;
+    dl(`statusmilestone-${hoje()}.xls`, xml, "application/vnd.ms-excel");
+  },
+};
+
+/* ============================ normalização ============================ */
+function baseVazia(){
+  return {schemaVersion:1, meta:{criadoEm:agora(),atualizadoEm:agora(),revisao:0,
+      ultimoAutor:"",appVersion:"1.0.0",origem:"base vazia"},
+    config:{idioma:"pt",minutosConsolidacao:10,diasSemAtualizacao:30,diasAlertaAging:60,
+      status:[], familias:[], statusAbertoExcecoes:["1 - Validated by ICN","2 - Not Blocking","2 - Not Available Jx"],
+      inspTypesFuncionais:[]},
+    marcos:[], itens:[], historico:[], pendentes:[], observacoes:[], conflitos:[]};
+}
+function normalizar(db){
+  db.schemaVersion ??= 1;
+  db.meta ??= {revisao:0}; db.config ??= {}; db.marcos ??= [];
+  db.itens ??= []; db.historico ??= []; db.pendentes ??= [];
+  db.observacoes ??= []; db.conflitos ??= [];
+  const c=db.config;
+  c.minutosConsolidacao ??= 10; c.diasSemAtualizacao ??= 30; c.diasAlertaAging ??= 60;
+  c.status ??= []; c.familias ??= []; c.inspTypesFuncionais ??= [];
+  if(!c.familias.length) c.familias=[
+    {id:"pendente",pt:"Pendente",en:"Pending",cor:"#8a8f98",ordem:1},
+    {id:"prova",pt:"Em prova",en:"Waiting Proof",cor:"#b8860b",ordem:2},
+    {id:"analise",pt:"Em análise",en:"Under Analysis",cor:"#c2703d",ordem:3},
+    {id:"bloqueado",pt:"Bloqueado",en:"Blocking",cor:"#b3403a",ordem:4},
+    {id:"ressalva",pt:"Aceito c/ ressalva",en:"Accepted w/ note",cor:"#3d6fa8",ordem:5},
+    {id:"validado",pt:"Validado",en:"Validated",cor:"#2f7a4f",ordem:6},
+    {id:"cancelado",pt:"Cancelado",en:"Canceled",cor:"#5c5f66",ordem:7}];
+  /* qualquer status presente nos dados que não esteja no domínio entra como inativo */
+  const conhecidos=new Set(c.status.map(s=>s.codigo));
+  for(const st of new Set(db.itens.map(i=>i.status).filter(Boolean)))
+    if(!conhecidos.has(st)){
+      const n=parseInt(st,10);
+      const fam = n===1?"validado":n===2?"ressalva":n===3||n===7?"bloqueado":n===4?"analise":
+                  n===5?"prova":n===0?"cancelado":"pendente";
+      c.status.push({codigo:st,familia:fam,ativo:true,ordem:c.status.length});
+    }
+  for(const i of db.itens){
+    i.bigram ??= []; if(typeof i.bigram==="string") i.bigram=i.bigram.split(/[;,]/).map(s=>s.trim()).filter(Boolean);
+    i.isB05 = i.isB05 ?? (i.inspType==="B05");
+    i.criadoEm ??= (db.marcos[0]?.data || hoje());
+    i.ultimaAlteracaoStatus ??= i.criadoEm;
+    for(const k of ["updatedStatusObs","generalObs","ncr","tests","description","evidence",
+                    "inspType","insp","originalJx","actualJx","actualJxDescription",
+                    "numAndDescription","performance","mode","positionAC","hullPassageParts","sbr"]) i[k] ??= "";
+  }
+  R._hs=null; R._hsRev=-1;
+}
+
+/* ============================== arranque =============================== */
+function irPara(rota){ S.rota=rota; if(!S.db) return Render.semBase(); Render.atual(); }
+
+function aplicarTema(){
+  const t=localStorage.getItem("sm.tema");
+  if(t) document.documentElement.dataset.theme=t; else delete document.documentElement.dataset.theme;
+}
+$("#btnTheme").onclick=()=>{
+  const at=document.documentElement.dataset.theme;
+  const prox = at==="dark"?"light":at==="light"?"":"dark";
+  prox? localStorage.setItem("sm.tema",prox) : localStorage.removeItem("sm.tema");
+  aplicarTema();};
+$("#btnLang").onclick=()=>{ LANG = LANG==="pt"?"en":"pt"; localStorage.setItem("sm.lang",LANG);
+  document.documentElement.lang = LANG==="pt"?"pt-BR":"en"; Render.atual(); };
+$("#btnSaveNow").onclick=()=>Pend.consolidarTudo();
+$("#pendBadge").onclick=()=>{
+  const p=S.db?.pendentes||[]; if(!p.length) return;
+  UI.modal(LANG==="pt"?"Alterações pendentes":"Pending changes",
+    `<p class="muted">${LANG==="pt"
+      ? `Estas alterações já estão salvas na base, mas ainda não viraram histórico definitivo. Consolidam sozinhas após ${S.db.config.minutosConsolidacao} minutos sem novo toque.`
+      : `These changes are already saved, but not yet consolidated into the permanent history. They consolidate automatically after ${S.db.config.minutosConsolidacao} minutes without further edits.`}</p>
+     <table style="margin-top:12px"><thead><tr><th>${T("item")}</th><th>${T("campo")}</th>
+       <th>${T("anterior")}</th><th>${T("novo")}</th><th>${LANG==="pt"?"Desde":"Since"}</th></tr></thead><tbody>
+     ${p.map(x=>`<tr><td class="num"><b>${esc(x.item)}</b></td><td>${esc(x.campo)}</td>
+       <td>${esc(x.valorOriginal)||"—"}</td><td><b>${esc(x.valorAtual)}</b></td>
+       <td class="num">${fmtDT(x.primeiraAlteracaoEm)}</td></tr>`).join("")}</tbody></table>`,
+    [{txt:T("descartar"),cls:"btn danger",fn:()=>{UI.fechar(); Pend.descartarTudo();}},
+     {txt:T("salvarAgora"),cls:"btn pri",fn:()=>{UI.fechar(); Pend.consolidarTudo();}}]);
+};
+addEventListener("beforeunload",e=>{ if(S.sujo){ e.preventDefault(); e.returnValue=""; } });
+addEventListener("keydown",e=>{
+  if(e.key==="Escape") UI.fechar();
+  if((e.ctrlKey||e.metaKey)&&e.key==="s"){ e.preventDefault(); if(S.db) Pend.consolidarTudo(); }
+});
+
+(async function iniciar(){
+  aplicarTema();
+  document.documentElement.lang = LANG==="pt"?"pt-BR":"en";
+  Render.nav();
+  if(Store.suportado && await Store.restaurarHandle()){
+    await UI.carregarBase();
+  }else{
+    Render.semBase();
+  }
+})();
+</script>
+</body></html>
