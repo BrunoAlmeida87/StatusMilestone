@@ -222,7 +222,10 @@ const I18N = {
    origem:"Marco de origem",aging:"Aging",semAtualizacao:"Sem atualização",dias:"dias",
    evolucao:"Evolução",distribuicao:"Distribuição",campo:"Campo",anterior:"Anterior",novo:"Novo",
    data:"Data",autor:"Autor",item:"Item",acoes:"Ações",resolver:"Resolver",
-   arquivo1:"SafetyMilestoneJ08",arquivo2:"Resumo Fluxo Evidências",manter:"Manter este"},
+   arquivo1:"SafetyMilestoneJ08",arquivo2:"Resumo Fluxo Evidências",
+   usarEste:"Usar este",combinar:"Combinar os dois",outro:"Escrever outro valor",
+   aplicado:"aplicado hoje",emLote:"Resolver em lote",incoerente:"Texto não combina com o status atual",
+   semConflito:"Nenhum conflito em aberto",tudoResolvido:"Todos os conflitos foram decididos."},
  en:{dashboard:"Dashboard",itens:"Items",kanban:"Kanban",historico:"History",relatorios:"Reports",
    conflitos:"Conflicts",config:"Settings",tema:"Theme",salvarAgora:"Save changes now",
    total:"Total items",emAberto:"Open",validados:"Validated",conclusao:"Completion",
@@ -238,7 +241,10 @@ const I18N = {
    origem:"Origin milestone",aging:"Aging",semAtualizacao:"No update for",dias:"days",
    evolucao:"Trend",distribuicao:"Distribution",campo:"Field",anterior:"Previous",novo:"New",
    data:"Date",autor:"Author",item:"Item",acoes:"Actions",resolver:"Resolve",
-   arquivo1:"SafetyMilestoneJ08",arquivo2:"Evidence Flow Summary",manter:"Keep this"}
+   arquivo1:"SafetyMilestoneJ08",arquivo2:"Evidence Flow Summary",
+   usarEste:"Use this one",combinar:"Combine both",outro:"Write another value",
+   aplicado:"currently applied",emLote:"Resolve in bulk",incoerente:"Text does not match the current status",
+   semConflito:"No open conflicts",tudoResolvido:"All conflicts have been decided."}
 };
 let LANG = localStorage.getItem("sm.lang") || "pt";
 const T = k => (I18N[LANG][k] ?? I18N.pt[k] ?? k);
@@ -1190,34 +1196,96 @@ Render.relatorios = function(){
 };
 
 /* ============================== conflitos ============================== */
+/* Coerencia entre o texto da observacao e o status do item: um texto que diz
+   "concluído" num item em aberto (ou o contrário) e um sinal de alerta. */
+function textoDizConcluido(t){
+  t=(t||"").toLowerCase();
+  return /done|conform|accepted|waiver|aceito|conclu/.test(t);
+}
+function incoerente(status,texto){
+  if(!texto) return false;
+  const c=textoDizConcluido(texto);
+  return (R.aberto(status) && c) || (status==="1 - Validated by ICN" && !c);
+}
+const CAMPO_ITEM={OriginalJx:"originalJx","Updated Status Obs":"updatedStatusObs",Bigram:"bigram"};
+
 Render.conflitos = function(){
   $("#pageTitle").textContent=T("conflitos");
   $("#headerExtra").innerHTML="";
   const cs=S.db.conflitos||[];
   const abertos=cs.filter(c=>!c.resolvido), fechados=cs.filter(c=>c.resolvido);
-  const tabela=(lista,resolvidos)=>`<div class="tblwrap"><table><thead><tr>
-      <th>${T("item")}</th><th>${T("campo")}</th><th>${T("arquivo1")}</th><th>${T("arquivo2")}</th>
-      <th>${resolvidos?LANG==="pt"?"Aplicado":"Applied":T("acoes")}</th></tr></thead><tbody>
-    ${lista.map(c=>`<tr>
-      <td class="num"><b>${esc(c.item)}</b></td><td>${esc(c.campo)}</td>
-      <td style="max-width:260px;white-space:pre-wrap">${esc(c.valorArquivo1)}</td>
-      <td style="max-width:260px;white-space:pre-wrap">${esc(c.valorArquivo2)}</td>
-      <td>${resolvidos
-        ? `<span class="pill" style="background:var(--ok)18;color:var(--ok)">${esc(c.valorAplicado)}</span>
-           <div class="muted" style="font-size:10.5px;margin-top:3px">${esc(c.justificativa||"")}</div>`
-        : `<div class="rowflex"><button class="btn sm" data-c="${c.id}" data-v="1">${T("manter")} 1</button>
-           <button class="btn sm" data-c="${c.id}" data-v="2">${T("manter")} 2</button>
-           <button class="btn sm" data-c="${c.id}" data-v="x">${LANG==="pt"?"Outro...":"Other..."}</button></div>`}</td>
-    </tr>`).join("")||`<tr><td colspan="5"><div class="empty">—</div></td></tr>`}</tbody></table></div>`;
+  const porCampo={}; abertos.forEach(c=>(porCampo[c.campo] ??= []).push(c));
+
+  const caixa=(c,qual)=>{
+    const val = qual===1? c.valorArquivo1 : c.valorArquivo2;
+    const nome = qual===1? T("arquivo1") : T("arquivo2");
+    const ativo = String(c.valorAplicado)===String(val);
+    return `<div style="flex:1 1 260px;min-width:240px;border:1px solid ${ativo?"var(--accent)":"var(--line)"};
+        border-radius:7px;padding:9px 11px;background:var(--panel-2)">
+      <div class="rowflex" style="justify-content:space-between;margin-bottom:5px">
+        <b style="font-size:10.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--fg-3)">${esc(nome)}</b>
+        ${ativo?`<span class="tag" style="color:var(--accent);border-color:var(--accent)">${T("aplicado")}</span>`:""}</div>
+      <div style="white-space:pre-wrap;min-height:34px;font-size:12.5px">${esc(val)||`<span class="muted">(vazio)</span>`}</div>
+      <button class="btn sm" style="margin-top:8px;width:100%" data-c="${c.id}" data-v="${qual}">${T("usarEste")}</button>
+    </div>`;
+  };
+
+  const cartao=c=>{
+    const it=S.db.itens.find(i=>i.item===c.item);
+    const st=it?.status||"";
+    const alerta = c.campo==="Updated Status Obs" && incoerente(st,c.valorAplicado);
+    return `<div class="panel pad" style="margin-bottom:10px;${alerta?"border-left:3px solid var(--warn)":""}">
+      <div class="rowflex" style="justify-content:space-between;margin-bottom:9px">
+        <span class="rowflex" style="gap:9px">
+          <b class="mono" style="font-size:14px">${esc(c.item)}</b>
+          <span class="pill" style="background:${R.corDe(st)}18;color:${R.corDe(st)};border-color:${R.corDe(st)}55">
+            <i class="dot" style="background:${R.corDe(st)}"></i>${esc(st)}</span></span>
+        <span class="tag">${esc(c.campo)}</span></div>
+      <div class="rowflex" style="gap:10px;align-items:stretch">${caixa(c,1)}${caixa(c,2)}</div>
+      <div class="rowflex" style="margin-top:9px">
+        ${c.campo==="Updated Status Obs"?`<button class="btn sm" data-comb="${c.id}">${T("combinar")}</button>`:""}
+        <button class="btn sm" data-c="${c.id}" data-v="x">${T("outro")}</button>
+        ${alerta?`<span class="rowflex" style="gap:5px;color:var(--warn);font-size:11.5px;margin-left:auto">
+          &#9888; ${T("incoerente")}</span>`:""}
+      </div></div>`;
+  };
+
   $("#view").innerHTML=`
-    <div class="panel pad" style="margin-bottom:14px;border-left:3px solid var(--warn)">
-      <b>${LANG==="pt"?"Como ler esta tela":"How to read this screen"}</b>
-      <p class="muted" style="margin:6px 0 0;line-height:1.7">${LANG==="pt"
-        ? "Na migração, nenhum valor divergente foi sobrescrito. Onde os dois arquivos discordavam, o valor do <b>Resumo Fluxo Evidências</b> foi aplicado provisoriamente e o conflito registrado aqui para sua decisão. Resolver um conflito grava a escolha no histórico."
-        : "During migration no divergent value was silently overwritten. Where the two files disagreed, the value from <b>Evidence Flow Summary</b> was applied provisionally and the conflict recorded here for your decision."}</p></div>
-    <div class="panel" style="margin-bottom:14px"><h3>${LANG==="pt"?"Em aberto":"Unresolved"} <span class="sub">${abertos.length}</span></h3>${tabela(abertos,false)}</div>
-    <div class="panel"><h3>${LANG==="pt"?"Resolvidos":"Resolved"} <span class="sub">${fechados.length}</span></h3>${tabela(fechados,true)}</div>`;
+    <div class="panel pad" style="margin-bottom:14px;border-left:3px solid var(--accent)">
+      <b>${LANG==="pt"?"O que é esta tela":"What this screen is"}</b>
+      <p class="muted" style="margin:6px 0 0;line-height:1.75">${LANG==="pt"
+        ? `Os 428 itens casaram nos dois arquivos, mas em alguns campos eles <b>diziam coisas diferentes</b>.
+           Nada foi sobrescrito: os dois valores estão guardados e o do <b>${T("arquivo2")}</b> foi aplicado
+           provisoriamente. Escolher um valor aqui o torna oficial, guarda o outro no registro do conflito e
+           gera um evento no histórico com o seu nome. <b>Nenhuma informação é perdida.</b>`
+        : `All 428 items matched across both files, but some fields <b>disagreed</b>. Nothing was overwritten:
+           both values are stored and the one from <b>${T("arquivo2")}</b> was applied provisionally. Picking a
+           value makes it official, keeps the other in the conflict record, and logs a history event under your
+           name. <b>No information is lost.</b>`}</p></div>
+
+    ${abertos.length? Object.entries(porCampo).map(([campo,lista])=>`
+      <div class="panel" style="margin-bottom:14px"><h3>${esc(campo)} <span class="sub">${lista.length}</span>
+        <span style="margin-left:auto" class="rowflex">
+          <button class="btn sm" data-lote="${esc(campo)}" data-q="2">${T("emLote")}: ${T("arquivo2")}</button>
+          <button class="btn sm" data-lote="${esc(campo)}" data-q="1">${T("emLote")}: ${T("arquivo1")}</button>
+        </span></h3>
+        <div class="pad">${lista.map(cartao).join("")}</div></div>`).join("")
+      : `<div class="panel"><div class="empty"><h3>&#10003; ${T("semConflito")}</h3>${T("tudoResolvido")}</div></div>`}
+
+    ${fechados.length?`<div class="panel"><h3>${LANG==="pt"?"Resolvidos":"Resolved"} <span class="sub">${fechados.length}</span></h3>
+      <div class="tblwrap" style="max-height:340px"><table><thead><tr>
+        <th>${T("item")}</th><th>${T("campo")}</th><th>${LANG==="pt"?"Valor oficial":"Official value"}</th>
+        <th>${LANG==="pt"?"Descartado":"Discarded"}</th><th>${T("autor")}</th></tr></thead><tbody>
+      ${fechados.map(c=>{const desc=String(c.valorAplicado)===String(c.valorArquivo1)?c.valorArquivo2:c.valorArquivo1;
+        return `<tr><td class="num"><b>${esc(c.item)}</b></td><td>${esc(c.campo)}</td>
+        <td style="max-width:300px;white-space:pre-wrap">${esc(c.valorAplicado)}</td>
+        <td style="max-width:240px;white-space:pre-wrap" class="muted">${esc(desc)}</td>
+        <td>${esc(c.resolvidoPor||"")}<div class="muted" style="font-size:10.5px">${esc(c.justificativa||"")}</div></td></tr>`;}).join("")}
+      </tbody></table></div></div>`:""}`;
+
   $$("button[data-c]").forEach(b=>b.onclick=()=>UI.resolverConflito(b.dataset.c,b.dataset.v));
+  $$("button[data-comb]").forEach(b=>b.onclick=()=>UI.combinarConflito(b.dataset.comb));
+  $$("button[data-lote]").forEach(b=>b.onclick=()=>UI.resolverLote(b.dataset.lote,b.dataset.q));
 };
 </script>
 <script>
@@ -1565,23 +1633,65 @@ const UI = {
       this.fechar(); Render.atual(); toast(`${itemId} → ${b.dataset.s}`);});
   },
 
-  resolverConflito(id, escolha){
-    const c=(S.db.conflitos||[]).find(x=>x.id===id); if(!c) return;
-    let valor = escolha==="1"? c.valorArquivo1 : escolha==="2"? c.valorArquivo2 : null;
-    if(escolha==="x"){ valor = prompt(LANG==="pt"?"Informe o valor correto:":"Enter the correct value:", c.valorAplicado); if(valor===null) return; }
+  aplicarResolucao(c, valor, justificativa){
     const it=S.db.itens.find(i=>i.item===c.item);
-    const mapa={OriginalJx:"originalJx","Updated Status Obs":"updatedStatusObs",Bigram:"bigram"};
-    const campo=mapa[c.campo];
+    const campo=CAMPO_ITEM[c.campo];
     if(it && campo){
       const antes = Array.isArray(it[campo])? it[campo].join(";") : it[campo];
-      it[campo] = campo==="bigram"? valor.split(/[;,]/).map(s=>s.trim()).filter(Boolean) : valor;
-      S.db.historico.push({id:uid(),item:c.item,campo:c.campo,valorAnterior:antes,valorNovo:valor,
-        dataEfetiva:hoje(),consolidadoEm:agora(),primeiraAlteracaoEm:agora(),autor:Usuario.garantir(),
-        origem:"conflito",tipo:"conflito",
-        observacao:LANG==="pt"?"Resolução de conflito de migração":"Migration conflict resolution"});
+      if(String(antes)!==String(valor)){
+        it[campo] = campo==="bigram"? String(valor).split(/[;,]/).map(x=>x.trim()).filter(Boolean) : valor;
+        it.atualizadoEm = agora();
+        S.db.historico.push({id:uid(),item:c.item,campo:c.campo,valorAnterior:antes,valorNovo:valor,
+          dataEfetiva:hoje(),consolidadoEm:agora(),primeiraAlteracaoEm:agora(),autor:Usuario.garantir(),
+          origem:"conflito",tipo:"conflito",
+          observacao:justificativa||(LANG==="pt"?"Resolução de conflito de migração":"Migration conflict resolution")});
+      }
     }
-    c.resolvido=true; c.valorAplicado=valor; c.resolvidoPor=Usuario.garantir(); c.resolvidoEm=agora();
+    c.resolvido=true; c.valorAplicado=valor;
+    c.resolvidoPor=Usuario.garantir(); c.resolvidoEm=agora();
+    c.justificativa=justificativa||null;
+  },
+  resolverConflito(id, escolha){
+    const c=(S.db.conflitos||[]).find(x=>x.id===id); if(!c) return;
+    if(escolha==="x") return this.editarConflito(c, c.valorAplicado);
+    this.aplicarResolucao(c, escolha==="1"? c.valorArquivo1 : c.valorArquivo2,
+      escolha==="1"? T("arquivo1") : T("arquivo2"));
     Pend.autosave(); Render.atual(); toast(LANG==="pt"?"Conflito resolvido":"Conflict resolved","ok");
+  },
+  combinarConflito(id){
+    const c=(S.db.conflitos||[]).find(x=>x.id===id); if(!c) return;
+    const a=(c.valorArquivo2||"").trim(), b=(c.valorArquivo1||"").trim();
+    const juntos = a && b ? (a.endsWith(".")? a+" "+b : a+". "+b) : (a||b);
+    this.editarConflito(c, juntos, LANG==="pt"?"Combinação dos dois arquivos":"Combined from both files");
+  },
+  editarConflito(c, valorInicial, justificativa){
+    const it=S.db.itens.find(i=>i.item===c.item);
+    this.modal(`${LANG==="pt"?"Item":"Item"} ${c.item} — ${c.campo}`,
+      `<div class="rowflex" style="margin-bottom:12px"><span class="muted">${T("status")}:</span>
+         <span class="pill" style="background:${R.corDe(it?.status)}18;color:${R.corDe(it?.status)}">${esc(it?.status||"")}</span></div>
+       <div class="grid" style="grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">
+         <div class="panel pad"><b style="font-size:10.5px;color:var(--fg-3)">${T("arquivo1")}</b>
+           <div style="white-space:pre-wrap;margin-top:4px">${esc(c.valorArquivo1)||"—"}</div></div>
+         <div class="panel pad"><b style="font-size:10.5px;color:var(--fg-3)">${T("arquivo2")}</b>
+           <div style="white-space:pre-wrap;margin-top:4px">${esc(c.valorArquivo2)||"—"}</div></div></div>
+       <label class="fld"><span>${LANG==="pt"?"Valor oficial":"Official value"}</span>
+         <textarea id="cfTxt" rows="4">${esc(valorInicial??"")}</textarea></label>`,
+      [{txt:T("cancelar"),cls:"btn",fn:()=>this.fechar()},
+       {txt:T("salvar"),cls:"btn pri",fn:()=>{
+          this.aplicarResolucao(c, $("#cfTxt").value, justificativa||(LANG==="pt"?"Valor informado manualmente":"Manually entered value"));
+          this.fechar(); Pend.autosave(); Render.atual();
+          toast(LANG==="pt"?"Conflito resolvido":"Conflict resolved","ok");}}]);
+  },
+  resolverLote(campo, qual){
+    const lista=(S.db.conflitos||[]).filter(c=>!c.resolvido && c.campo===campo);
+    if(!lista.length) return;
+    const nome = qual==="1"? T("arquivo1") : T("arquivo2");
+    if(!confirmar(LANG==="pt"
+      ? `Resolver ${lista.length} conflito(s) de "${campo}" usando o valor do ${nome}?\n\nO outro valor continua guardado em cada conflito e cada decisão vira um evento no histórico.`
+      : `Resolve ${lista.length} "${campo}" conflict(s) using the value from ${nome}?\n\nThe other value stays recorded and each decision is logged in the history.`)) return;
+    for(const c of lista) this.aplicarResolucao(c, qual==="1"? c.valorArquivo1 : c.valorArquivo2, nome+" (lote)");
+    Pend.autosave(); Render.atual();
+    toast(`${lista.length} ${LANG==="pt"?"conflitos resolvidos":"conflicts resolved"}`,"ok");
   },
 
   async restaurar(nome){
