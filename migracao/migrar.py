@@ -79,6 +79,27 @@ MODE_NORM = {
     "-": "Not applicable",
 }
 
+# Cor por status. Atribuição obtida por busca sobre as rampas validadas, exigindo
+# que TODOS os pares que aparecem lado a lado no diagrama de fluxo passem nos pisos
+# de daltonismo (ΔE >= 8) e de visão normal (ΔE >= 15), em tema claro e escuro.
+# Semântica preservada: verde = validado, vermelho = bloqueio.
+CORES_STATUS = {
+    "8 - Mounting not Completed":             ("#2a78d6", "#3987e5"),  # azul
+    "5 - Waiting Proof":                      ("#e87ba4", "#d55181"),  # magenta
+    "4 - Under Analysis":                     ("#4a3aa7", "#9085e9"),  # violeta
+    "4 - Under Analysis to Not Blocking":     ("#6b5cc4", "#a79ef0"),
+    "4 - Under Analysis To Downgraded":       ("#6b5cc4", "#a79ef0"),
+    "4 - Under Analysis To Not Available Jx": ("#6b5cc4", "#a79ef0"),
+    "7 - Missing Vacuum Test or Sign":        ("#eb6834", "#d95926"),  # laranja
+    "6 - Waiting B05":                        ("#1baf7a", "#199e70"),  # aqua
+    "1 - Validated by ICN":                   ("#008300", "#00a300"),  # verde
+    "3 - Blocking":                           ("#e34948", "#e66767"),  # vermelho
+    "2 - Not Blocking":                       ("#eda100", "#c98500"),  # amarelo
+    "2 - Not Blocking - Downgraded":          ("#c98a10", "#a87200"),
+    "2 - Not Available Jx":                   ("#a87a2a", "#8c6520"),
+    "0 - Canceled":                           ("#6b7280", "#8b94a3"),  # neutro
+}
+
 STATUS_DEF = [
     # code                                     familia      ativo  ordem
     ("0 - Canceled",                            "cancelado", False, 0),
@@ -296,7 +317,10 @@ def migrar(p1, p2, saida, autor="Migração"):
             "minutosConsolidacao": 10,
             "diasSemAtualizacao": 30,
             "diasAlertaAging": 60,
-            "status": [{"codigo": c, "familia": f, "ativo": at, "ordem": o} for c, f, at, o in STATUS_DEF],
+            "status": [{"codigo": c, "familia": f, "ativo": at, "ordem": o,
+                        "cor": CORES_STATUS.get(c, ("#6b7280", "#8b94a3"))[0],
+                        "corEscura": CORES_STATUS.get(c, ("#6b7280", "#8b94a3"))[1]}
+                       for c, f, at, o in STATUS_DEF],
             "familias": FAMILIAS,
             "statusAbertoExcecoes": ["1 - Validated by ICN", "2 - Not Blocking", "2 - Not Available Jx"],
             # Status posteriores a execucao: fazer o B05 e depois aguardar o teste a vacuo
@@ -304,6 +328,27 @@ def migrar(p1, p2, saida, autor="Migração"):
             "statusPosExecucao": ["7 - Missing Vacuum Test or Sign"],
             "inspTypesFuncionais": INSPTYPES_FUNCIONAIS,
             "colunasRecolhidas": [],
+            # Layout do diagrama de fluxo (mesmo esquema da aba "Evidence Flow").
+            "fluxo": {
+                "b05": {
+                    "principal": ["8 - Mounting not Completed", "5 - Waiting Proof",
+                                  "4 - Under Analysis", "6 - Waiting B05", "1 - Validated by ICN"],
+                    "desvio": "7 - Missing Vacuum Test or Sign",
+                    "bloqueio": "3 - Blocking",
+                    "grupoA": ["4 - Under Analysis to Not Blocking", "4 - Under Analysis To Downgraded",
+                               "4 - Under Analysis To Not Available Jx"],
+                    "grupoB": ["2 - Not Blocking", "2 - Not Blocking - Downgraded", "2 - Not Available Jx"],
+                },
+                "exceto": {
+                    "principal": ["8 - Mounting not Completed", "5 - Waiting Proof",
+                                  "4 - Under Analysis", "1 - Validated by ICN"],
+                    "desvio": None,
+                    "bloqueio": "3 - Blocking",
+                    "grupoA": ["4 - Under Analysis to Not Blocking", "4 - Under Analysis To Downgraded",
+                               "4 - Under Analysis To Not Available Jx"],
+                    "grupoB": ["2 - Not Blocking", "2 - Not Blocking - Downgraded", "2 - Not Available Jx"],
+                },
+            },
         },
         "marcos": [
             {"id": "m1", "nome": "Emissão 29/07/2026", "data": BASELINE, "tipo": "baseline"},
