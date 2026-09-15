@@ -130,27 +130,41 @@ Para o campo `status` a regra já valia integralmente. Não havia o que mudar.
 |---|---|---|
 | `Updated Status Obs` | **SafetyMilestoneJ08 vence, sem exceção** | 26 resolvidos |
 | `OriginalJx` | Arquivo 2 vence — decisão C3/C4 do usuário, que é mais específica e prevalece: o J08 achatou o marco de origem para J08, e o usuário confirmou que a origem é J06/J07 | 11 resolvidos |
-| `Bigram` | **Deixado em aberto** — ver abaixo | 3 pendentes |
+| `Bigram` | **Mantém quem tem mais códigos** — ver abaixo | 3 resolvidos |
 
-**Conflitos em aberto: 29 → 3.**
+**Conflitos em aberto: 29 → 0.** Os 40 estão decididos.
 
 Efeito colateral positivo: os itens **624, 625, 628 e 629** ficaram com
 `New intervention Ficha 339/340/341/342`, informação que só existe no SafetyMilestoneJ08 e que
 seria perdida do campo por qualquer outra escolha.
 
-### Por que `Bigram` ficou de fora
+### `Bigram` — decisão: mantém quem tem mais códigos
 
-Ali o Arquivo 1 é um **subconjunto** do Arquivo 2, não uma versão diferente:
+Aqui o SafetyMilestoneJ08 não trazia um valor *diferente*, e sim uma lista **mais curta**:
 
-| Item | SafetyMilestoneJ08 | Resumo Fluxo |
-|---|---|---|
-| 809 | `HG` | `HG;HP` |
-| 1027 | `DM` | `DA;DM;DN` |
-| 3102 | `-` | `Several` |
+| Item | SafetyMilestoneJ08 | Resumo Fluxo | Aplicar o J08 removeria |
+|---|---|---|---|
+| 809 | `HG` | `HG;HP` | `HP` — código usado em 3 itens da base |
+| 1027 | `DM` | `DA;DM;DN` | `DA` (10 itens) e `DN` (27 itens) |
+| 3102 | `-` | `Several` | `Several` (12 itens) — e o item ficaria sem Bigram nenhum |
 
-Aplicar o J08 **apagaria códigos** (`HP`, `DA`, `DN`) em vez de corrigir um valor. Como isso é
-perda de informação e não uma questão de status, os três seguem como conflito em aberto,
-aguardando confirmação.
+Nos três o J08 é um **subconjunto** do outro arquivo, e os códigos que sumiriam existem
+normalmente em dezenas de outros itens — ou seja, não são erro do Resumo Fluxo, é o J08 que
+está incompleto nesse campo.
+
+> **Decisão do usuário: "mantenha o que tem mais bigramas."**
+
+A regra foi codificada pela **quantidade de códigos**, e não como "arquivo 2 vence":
+
+```python
+"*:Bigram": "mais_codigos"
+```
+
+Assim ela continua correta se numa migração futura for o J08 o mais completo. Empate mantém o
+J08, pela precedência geral. Cada conflito guarda a justificativa calculada, por exemplo:
+*"Mantido o valor com mais códigos (3 contra 1): o outro arquivo perdeu DA, DN."*
+
+**Resultado: conflitos em aberto 3 → 0. Todos os 40 resolvidos, nenhum valor perdido.**
 
 ### Consequência medida
 

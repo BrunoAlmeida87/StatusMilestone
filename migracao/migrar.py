@@ -55,16 +55,21 @@ DECISOES_CONFLITO = {
     # Efeito colateral positivo: preserva "New intervention Ficha 339/340/341/342"
     # (itens 624, 625, 628 e 629), que só existe nesse arquivo.
     "*:Updated Status Obs": "arquivo1",
-    # Bigram fica de fora: ali o Arquivo 1 é um SUBCONJUNTO do Arquivo 2
-    # (HG vs HG;HP), então aplicar o J08 apagaria códigos. Segue em aberto.
+    # Bigram: "mantenha o que tem mais bigramas". Nao e "arquivo 2 vence" - a regra
+    # e pela QUANTIDADE de codigos, entao continua correta se um dia o J08 for o
+    # mais completo. Empate mantem o J08, pela precedencia geral.
+    "*:Bigram": "mais_codigos",
 }
+
+def _codigos(txt):
+    """Separa o Bigram em codigos atomicos, ignorando o marcador de vazio."""
+    return [x.strip() for x in re.split(r"[;,]", txt or "") if x.strip() and x.strip() != "-"]
 
 JUSTIFICATIVAS = {
     "OriginalJx:arquivo2": ("Decisão C3/C4: OriginalJx é o marco de origem; o Arquivo 2 "
                             "preserva J06/J07 e o Arquivo 1 achatou tudo para J08."),
     "Updated Status Obs:arquivo1": ("O SafetyMilestoneJ08 é a fonte oficial em questão de status."),
     "Updated Status Obs:arquivo2": "Decisão do usuário",
-    "Bigram:arquivo2": "O Arquivo 2 preserva todos os códigos; o Arquivo 1 perdeu parte deles.",
 }
 
 MODE_NORM = {
@@ -236,7 +241,14 @@ def migrar(p1, p2, saida, autor="Migração"):
             if not (va and vb and va != vb):
                 continue
             decisao = DECISOES_CONFLITO.get(f"{it}:{campo}") or DECISOES_CONFLITO.get(f"*:{campo}")
-            if decisao in ("arquivo1", "arquivo2"):
+            if decisao == "mais_codigos":
+                ca, cb = _codigos(va), _codigos(vb)
+                vence = "arquivo1" if len(ca) >= len(cb) else "arquivo2"
+                aplicado = va if vence == "arquivo1" else vb
+                just = (f"Mantido o valor com mais códigos ({max(len(ca), len(cb))} contra "
+                        f"{min(len(ca), len(cb))}): o outro arquivo perdeu "
+                        f"{', '.join(sorted(set(cb) ^ set(ca))) or 'códigos'}.")
+            elif decisao in ("arquivo1", "arquivo2"):
                 aplicado = va if decisao == "arquivo1" else vb
                 just = JUSTIFICATIVAS.get(f"{campo}:{decisao}", "Decisão do usuário")
             elif decisao:
