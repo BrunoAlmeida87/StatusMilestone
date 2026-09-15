@@ -252,7 +252,7 @@ dl.kv dd{margin:0;white-space:pre-wrap;word-break:break-word}
         <button class="btn" id="btnSaveNow" style="display:none" data-i="salvarAgora">Salvar altera&ccedil;&otilde;es agora</button>
         <span id="presenca" class="pill noprint" style="display:none;background:var(--accent-soft);
           color:var(--accent);border-color:var(--accent)"></span>
-        <span id="saveState" class="muted" style="font-size:11px"></span>
+        <span id="saveState" class="muted" style="font-size:11px" role="status" aria-live="polite"></span>
       </div>
     </header>
     <main id="view"></main>
@@ -386,46 +386,108 @@ const Store = {
     const fh = await this.dirHandle.getFileHandle(nome);
     return JSON.parse(await (await fh.getFile()).text());
   },
+  /* Classificacao do erro de leitura. So "arquivo inexistente" pode ser tratado
+     como pasta vazia: permissao negada, JSON invalido ou falha de I/O sao coisas
+     diferentes e, na hora de gravar, nenhuma delas autoriza sobrescrever. */
+  tipoErroLeitura(e){
+    if(e?.name === "NotFoundError") return "INEXISTENTE";
+    if(e?.name === "NotAllowedError" || e?.name === "SecurityError") return "PERMISSAO";
+    if(e instanceof SyntaxError) return "JSON_INVALIDO";
+    return "LEITURA";
+  },
   async carregar(){
     if(!this.dirHandle) throw new Error("sem pasta");
     let db;
     try{ db = await this.lerArquivo(); }
     catch(e){
-      if(e.name==="NotFoundError") throw new Error("NAO_ENCONTRADO");
-      throw new Error("CORROMPIDO: "+e.message);
+      const tipo = this.tipoErroLeitura(e);
+      if(tipo==="INEXISTENTE")   throw new Error("NAO_ENCONTRADO");
+      if(tipo==="JSON_INVALIDO") throw new Error("CORROMPIDO: "+e.message);
+      const err = new Error("LEITURA_"+tipo); err.causa=e; err.detalhe=e?.message||String(e);
+      throw err;
     }
     this.revisaoCarregada = db?.meta?.revisao ?? 0;
     await IDB.set("espelho", db);
     return db;
   },
+  /* Uma escrita por vez. Autosave, consolidacao manual, varredura automatica e
+     resolucao de conflito podem disparar quase juntos; sem fila, dois writers
+     abrem no mesmo arquivo. Uma falha nao trava a fila: a tarefa seguinte roda. */
+  _fila:null,
+  enfileirar(tarefa){
+    const atual = (this._fila ?? Promise.resolve()).then(tarefa);
+    this._fila = atual.catch(()=>{});
+    return atual;
+  },
   /* Controle de concorrencia: rele o arquivo e compara a revisao antes de gravar. */
-  async gravar(db,{forcar=false}={}){
-    if(!this.dirHandle) throw new Error("sem pasta");
+  gravar(db,{forcar=false}={}){
+    if(!this.dirHandle) return Promise.reject(new Error("sem pasta"));
+    return this.enfileirar(()=>this._gravar(db,{forcar}));
+  },
+  async _gravar(db,{forcar=false}={}){
     if(!forcar){
-      try{
-        const disco = await this.lerArquivo();
+      let disco = null;
+      try{ disco = await this.lerArquivo(); }
+      catch(e){
+        const tipo = this.tipoErroLeitura(e);
+        /* So seguimos quando o arquivo comprovadamente nao existe. Qualquer outra
+           falha interrompe: gravar por cima do que nao conseguimos ler apagaria
+           trabalho alheio sem nem detectar o conflito. */
+        if(tipo !== "INEXISTENTE"){
+          const err = new Error("LEITURA_"+tipo); err.causa=e; err.detalhe=e?.message||String(e);
+          throw err;
+        }
+      }
+      if(disco){
         const rd = disco?.meta?.revisao ?? 0;
         if(rd !== this.revisaoCarregada){
           const err = new Error("CONFLITO_REVISAO"); err.revisaoDisco = rd;
           err.autorDisco = disco?.meta?.ultimoAutor; err.disco = disco; throw err;
         }
-      }catch(e){ if(e.message==="CONFLITO_REVISAO") throw e; /* arquivo novo: segue */ }
+      }
     }
-    db.meta.revisao = (db.meta.revisao||0)+1;
-    db.meta.atualizadoEm = agora();
-    db.meta.ultimoAutor = Usuario.nome();
-    const fh = await this.dirHandle.getFileHandle("database.json",{create:true});
-    const w = await fh.createWritable();
-    await w.write(JSON.stringify(db,null,1)); await w.close();
-    this.revisaoCarregada = db.meta.revisao;
+    /* Os metadados novos ficam num snapshot ate o close() terminar. Se a escrita
+       falhar, a revisao em memoria continua igual a ultima efetivamente gravada. */
+    const meta = {...(db.meta||{}), revisao:(db.meta?.revisao||0)+1,
+                  atualizadoEm:agora(), ultimoAutor:Usuario.nome()};
+    const texto = JSON.stringify({...db, meta}, null, 1);
+    let w = null;
+    try{
+      const fh = await this.dirHandle.getFileHandle("database.json",{create:true});
+      w = await fh.createWritable();
+      await w.write(texto);
+      await w.close();
+    }catch(e){
+      try{ await w?.abort?.(); }catch{}
+      const err = new Error("FALHA_ESCRITA"); err.causa=e; err.detalhe=e?.message||String(e);
+      throw err;
+    }
+    db.meta = meta;                       /* so agora a base ativa avanca de revisao */
+    this.revisaoCarregada = meta.revisao;
     await IDB.set("espelho", db);
-    return db.meta.revisao;
+    return meta.revisao;
   },
-  async backup(db,rotulo="manual"){
+  /* O backup so e dado como feito depois de reler e conferir o arquivo gravado:
+     quem depende dele (sobrescrita forcada, restauracao) precisa dessa certeza. */
+  backup(db,rotulo="manual"){
+    if(!this.dirHandle) return Promise.reject(new Error("sem pasta"));
+    return this.enfileirar(()=>this._backup(db,rotulo));
+  },
+  async _backup(db,rotulo="manual"){
     const bdir = await this.dirHandle.getDirectoryHandle("backups",{create:true});
     const nome = `database-${agora().replace(/[:.]/g,"-").slice(0,19)}-${rotulo}.json`;
     const fh = await bdir.getFileHandle(nome,{create:true});
     const w = await fh.createWritable(); await w.write(JSON.stringify(db,null,1)); await w.close();
+    let lido;
+    try{
+      const conf = await bdir.getFileHandle(nome);
+      lido = JSON.parse(await (await conf.getFile()).text());
+    }catch(e){
+      const err = new Error("BACKUP_NAO_CONFIRMADO"); err.causa=e; err.detalhe=e?.message||String(e);
+      throw err;
+    }
+    if(!lido || typeof lido!=="object" || !Array.isArray(lido.itens))
+      throw new Error("BACKUP_NAO_CONFIRMADO");
     await this.limparBackupsAntigos(bdir);
     return nome;
   },
@@ -543,13 +605,20 @@ const R = {
     const evs = this.histStatus()[item]; if(!evs) return null;
     let st=null; for(const e of evs){ if(e.dataEfetiva<=data) st=e.valorNovo; else break; } return st;
   },
-  _hs:null, _hsRev:-1,
+  /* Indice do historico por item. A validade e amarrada ao objeto da base e a uma
+     invalidacao explicita - nao a meta.revisao, que so muda quando o arquivo e
+     gravado: um evento consolidado agora precisa aparecer nos calculos agora. */
+  _hs:null, _hsDb:null,
+  invalidarHist(){ this._hs=null; this._hsDb=null; },
   histStatus(){
-    if(this._hsRev === S.db?.meta?.revisao && this._hs) return this._hs;
+    if(this._hs && this._hsDb === S.db) return this._hs;
     const m={}; for(const h of (S.db?.historico??[])) if(h.campo==="status") (m[h.item] ??= []).push(h);
-    for(const k in m) m[k].sort((a,b)=>a.dataEfetita<b.dataEfetiva?-1:a.dataEfetiva>b.dataEfetiva?1:0);
-    for(const k in m) m[k].sort((a,b)=>a.dataEfetiva.localeCompare(b.dataEfetiva));
-    this._hs=m; this._hsRev=S.db?.meta?.revisao; return m;
+    /* ordem deterministica: data do fato, data do registro como desempate, id no fim */
+    for(const k in m) m[k].sort((a,b)=>
+      String(a.dataEfetiva??"").localeCompare(String(b.dataEfetiva??"")) ||
+      String(a.consolidadoEm??"").localeCompare(String(b.consolidadoEm??"")) ||
+      String(a.id??"").localeCompare(String(b.id??"")));
+    this._hs=m; this._hsDb=S.db; return m;
   },
   marcos(){ return [...(S.db?.marcos??[])].sort((a,b)=>a.data.localeCompare(b.data)); },
   marcoAnterior(){ const m=this.marcos(); return m.length>1?m[m.length-2]:m[0]; },
@@ -626,6 +695,11 @@ const Pend = {
     let p = S.db.pendentes.find(x=>x.item===itemId && x.campo===campo);
     if(!p){
       p = {id:uid(), item:itemId, campo, valorOriginal:atual, valorAtual:valorNovo,
+           /* Estado dos campos derivados antes da PRIMEIRA alteracao: e o que o
+              descarte precisa devolver. Em A -> B -> C o snapshot continua sendo
+              o de antes de A, porque so e gravado na criacao da pendencia. */
+           origUltimaAlteracaoStatus: it.ultimaAlteracaoStatus ?? null,
+           origAtualizadoEm: it.atualizadoEm ?? null,
            primeiraAlteracaoEm:agora(), ultimaAlteracaoEm:agora(),
            dataEfetiva:dataEfetiva||hoje(), autor:Usuario.garantir(), motivo};
       S.db.pendentes.push(p);
@@ -648,34 +722,70 @@ const Pend = {
     marcarEstado(LANG==="pt"?"alterado...":"changed...");
     this.timerAuto = setTimeout(()=>this.autosave(), 3000);
   },
-  async autosave(tentativa=0){
+  /* Store.gravar ja serializa as escritas; aqui o cuidado e com o que acontece
+     ENQUANTO uma escrita corre: o que entrar no diario depois da marca nao pode
+     ser dado como salvo, senao a alteracao some do diario sem estar no disco. */
+  async autosave(){
     if(!S.db || !Store.dirHandle) return;
     await IDB.set("espelho", S.db);              // rede técnica: recuperação após queda
     S.salvando = true;
+    marcarEstado(LANG==="pt"?"salvando...":"saving...");
     try{
-      await Store.gravar(S.db);
-      this.diario = []; S.sujo=false;
-      marcarEstado(LANG==="pt"?"salvo "+new Date().toLocaleTimeString().slice(0,5)
-                              :"saved "+new Date().toLocaleTimeString().slice(0,5));
-      Sync.ultimoMtime = await Store.mtime();
-    }catch(e){
-      if(e.message==="CONFLITO_REVISAO"){
-        /* Outra pessoa gravou antes. Se as alteracoes nao se cruzam, junta as duas
-           versoes e grava de novo; se cruzam, quem decide e o usuario. */
-        if(tentativa<2 && Sync.receber(e.disco,{aoSalvar:true})!=="decidir"){
-          S.salvando=false; return this.autosave(tentativa+1);
+      for(let tentativa=0; ; tentativa++){
+        const enviados = this.diario.length;
+        try{
+          await Store.gravar(S.db);
+          this.diario = this.diario.slice(enviados);
+          S.sujo = this.diario.length > 0;       /* so limpa se nada entrou no meio */
+          marcarEstado(LANG==="pt"?"salvo "+new Date().toLocaleTimeString().slice(0,5)
+                                  :"saved "+new Date().toLocaleTimeString().slice(0,5));
+          Sync.ultimoMtime = await Store.mtime();
+          if(S.sujo) this.agendarAutosave();
+          return;
+        }catch(e){
+          if(e.message!=="CONFLITO_REVISAO"){
+            /* S.sujo continua como estava: o que esta em memoria nao chegou ao disco. */
+            marcarEstado(LANG==="pt"?"falha ao salvar":"save failed");
+            toast(mensagemArmazenamento(e),"bad");
+            return;
+          }
+          /* Outra pessoa gravou antes. Se as alteracoes nao se cruzam, junta as duas
+             versoes e grava de novo; se cruzam, quem decide e o usuario. */
+          if(tentativa<2 && Sync.receber(e.disco,{aoSalvar:true})!=="decidir") continue;
+          return UI.conflitoGravacao(e);
         }
-        S.salvando=false; return UI.conflitoGravacao(e);
       }
-      marcarEstado(LANG==="pt"?"falha ao salvar":"save failed"); toast(String(e.message),"bad");
     }finally{ S.salvando=false; }
   },
 
+  /* Desfaz no item tudo o que as pendencias alteraram - inclusive os derivados.
+     Sem isso, "descartar" devolvia o campo principal e deixava ultimaAlteracaoStatus
+     e atualizadoEm com a data da alteracao desfeita, mexendo no aging e nos filtros. */
+  desfazer(pends){
+    const porItem = new Map();
+    for(const p of pends){ if(!porItem.has(p.item)) porItem.set(p.item,[]); porItem.get(p.item).push(p); }
+    for(const [itemId, lista] of porItem){
+      const it = S.db.itens.find(i=>i.item===itemId); if(!it) continue;
+      for(const p of lista) it[p.campo] = p.valorOriginal;
+      const st = lista.find(p=>p.campo==="status");
+      if(st && st.origUltimaAlteracaoStatus != null) it.ultimaAlteracaoStatus = st.origUltimaAlteracaoStatus;
+      /* atualizadoEm so volta quando nao resta nenhuma outra pendencia do item:
+         uma pendencia que continua de pe alterou a data legitimamente. */
+      if(S.db.pendentes.some(x=>x.item===itemId && !lista.includes(x))) continue;
+      const orig = lista.map(p=>p.origAtualizadoEm).filter(v=>v!=null).sort()[0];
+      if(orig != null) it.atualizadoEm = orig;
+      else if(lista.every(p=>"origAtualizadoEm" in p)) delete it.atualizadoEm;
+    }
+  },
   /* consolida um pendente no histórico definitivo (ou descarta se voltou ao original) */
   consolidar(p, {forcado=false}={}){
     const idx = S.db.pendentes.indexOf(p); if(idx<0) return;
     S.db.pendentes.splice(idx,1);
-    if(String(p.valorOriginal) === String(p.valorAtual)) return "descartado";  // ida-e-volta
+    if(String(p.valorOriginal) === String(p.valorAtual)){   // ida-e-volta: A -> B -> A
+      this.desfazer([p]);                                   // aging volta ao que era
+      return "descartado";
+    }
+    R.invalidarHist();                       /* o evento novo vale a partir de agora */
     S.db.historico.push({
       id:uid(), item:p.item, campo:p.campo,
       valorAnterior:p.valorOriginal, valorNovo:p.valorAtual,
@@ -697,19 +807,19 @@ const Pend = {
     const n = S.db.pendentes.length; if(!n) return toast(LANG==="pt"?"Nada pendente":"Nothing pending");
     let c=0,d=0;
     for(const p of [...S.db.pendentes]) (this.consolidar(p,{forcado:true})==="consolidado"?c++:d++);
-    this.autosave(); Render.badgePendentes(); Render.atual();
+    const gravacao = this.autosave(); Render.badgePendentes(); Render.atual();
     toast(LANG==="pt" ? `${c} consolidada(s), ${d} descartada(s) por retorno ao valor original`
                       : `${c} consolidated, ${d} discarded (returned to original)`, "ok");
+    return gravacao;                       /* quem chama pode aguardar a gravacao */
   },
   descartarTudo(){
     const n=S.db.pendentes.length; if(!n) return;
     const lista = S.db.pendentes.map(p=>`  ${p.item} / ${p.campo}: "${p.valorOriginal}" -> "${p.valorAtual}"`).join("\n");
     if(!confirmar((LANG==="pt"?`Descartar ${n} alteração(ões) pendente(s)?\n\n`:`Discard ${n} pending change(s)?\n\n`)+lista)) return;
     (S.db.logDescartes ??= []).push({em:agora(),autor:Usuario.garantir(),itens:structuredClone(S.db.pendentes)});
-    for(const p of S.db.pendentes){
-      const it=S.db.itens.find(i=>i.item===p.item); if(it) it[p.campo]=p.valorOriginal;
-    }
+    const descartadas = [...S.db.pendentes];
     S.db.pendentes=[];
+    this.desfazer(descartadas);
     this.autosave(); Render.badgePendentes(); Render.atual();
     toast(LANG==="pt"?"Descartado. Recuperável em Configurações > Log técnico.":"Discarded. Recoverable in Settings > Technical log.","ok");
   },
@@ -779,7 +889,7 @@ const Sync = {
       const modal = !!$("#ov");
       S.db = disco; Store.revisaoCarregada = disco.meta.revisao ?? 0;
       Pend.diario = []; S.sujo = false;
-      R._hs=null; R._hsRev=-1;
+      R.invalidarHist();
       IDB.set("espelho", disco);
       if(!modal) Render.atual(); else Render.badgePendentes();
       marcarEstado(LANG==="pt"?"atualizado do disco":"updated from disk");
@@ -858,7 +968,7 @@ const Sync = {
       {txt:LANG==="pt"?"Manter tudo meu":"Keep all mine",cls:"btn",fn:()=>{
         const meus = colide.map(c=>({...c}));
         UI.fechar(); this.ligado=true;
-        S.db=disco; Store.revisaoCarregada=disco.meta.revisao??0; Pend.diario=[]; R._hs=null; R._hsRev=-1;
+        S.db=disco; Store.revisaoCarregada=disco.meta.revisao??0; Pend.diario=[]; R.invalidarHist();
         this.reaplicar([...seguras,...meus]); Render.atual();
         toast(LANG==="pt"?"Sua versão prevaleceu nos campos em disputa":"Your values won the disputed fields","ok");}},
       {txt:LANG==="pt"?"Aplicar escolhas":"Apply choices",cls:"btn pri",fn:()=>{
@@ -866,7 +976,7 @@ const Sync = {
         colide.forEach((c,k)=>{ const r=$(`input[name="cf${k}"]:checked`);
           if(r && r.value==="meu") fica.push(c); });
         UI.fechar(); this.ligado=true;
-        S.db=disco; Store.revisaoCarregada=disco.meta.revisao??0; Pend.diario=[]; R._hs=null; R._hsRev=-1;
+        S.db=disco; Store.revisaoCarregada=disco.meta.revisao??0; Pend.diario=[]; R.invalidarHist();
         this.reaplicar([...seguras,...fica]); Render.atual();
         toast(LANG==="pt"?"Versões conciliadas":"Versions reconciled","ok");}}]);
   },
@@ -907,6 +1017,28 @@ const Sync = {
 };
 
 function marcarEstado(txt){ $("#saveState").textContent = txt; }
+/* Mensagem acionavel para as falhas de leitura/escrita da base - nada de stack trace. */
+function mensagemArmazenamento(e){
+  const pt = LANG==="pt";
+  switch(e?.message){
+    case "LEITURA_PERMISSAO": return pt
+      ? "Sem permissão para ler o database.json da pasta. Nada foi gravado — reautorize a pasta e tente de novo."
+      : "No permission to read database.json in the folder. Nothing was written — re-authorize the folder and try again.";
+    case "LEITURA_JSON_INVALIDO": return pt
+      ? "O database.json da pasta está ilegível (JSON inválido). Nada foi gravado, para não apagá-lo. Restaure um backup da subpasta backups/ ou baixe a sua versão em Configurações."
+      : "The database.json in the folder is unreadable (invalid JSON). Nothing was written, so it is not destroyed. Restore a backup from backups/ or download your version in Settings.";
+    case "LEITURA_LEITURA": return pt
+      ? "Não foi possível ler o database.json antes de gravar. Nada foi gravado. Verifique o acesso à pasta e tente de novo."
+      : "Could not read database.json before writing. Nothing was written. Check folder access and try again.";
+    case "FALHA_ESCRITA": return pt
+      ? "Falha ao gravar o database.json. Suas alterações continuam aqui e na cópia local; tente de novo quando a pasta estiver acessível."
+      : "Failed to write database.json. Your changes are still here and in the local copy; try again when the folder is reachable.";
+    case "BACKUP_NAO_CONFIRMADO": return pt
+      ? "O backup não pôde ser confirmado (não foi possível gravar ou reler o arquivo em backups/)."
+      : "The backup could not be confirmed (failed to write or re-read the file in backups/).";
+    default: return String(e?.message ?? e);
+  }
+}
 </script>
 <script>
 "use strict";
@@ -1973,7 +2105,15 @@ Render.config = function(){
         <dt>${LANG==="pt"?"Pendentes":"Pending"}</dt><dd class="mono">${S.db.pendentes.length}</dd>
         <dt>${LANG==="pt"?"Eventos":"Events"}</dt><dd class="mono">${S.db.historico.length}</dd>
         <dt>${LANG==="pt"?"Descartes":"Discards"}</dt><dd class="mono">${(S.db.logDescartes||[]).length}</dd>
+        <dt>${LANG==="pt"?"Sobrescritas forçadas":"Forced overwrites"}</dt><dd class="mono">${(S.db.logSobrescritas||[]).length}</dd>
       </dl>
+      ${(S.db.logSobrescritas||[]).length?`<div class="sep"></div>
+        <div style="max-height:120px;overflow:auto;font-size:11.5px">
+        ${S.db.logSobrescritas.slice().reverse().map(l=>`<div style="padding:4px 0;border-bottom:1px solid var(--line-2)">
+          <b>${fmtDT(l.em)}</b> — ${esc(l.autor)} — ${LANG==="pt"?"revisão":"revision"} ${esc(l.revisaoLocal)} → ${esc(l.revisaoDisco)}
+          <span class="mono" style="color:var(--${l.resultado==="sobrescrito"?"ok":"bad"})">${esc(l.resultado)}</span>
+          <div class="muted mono" style="font-size:10.5px">${esc(l.backup||(LANG==="pt"?"sem backup":"no backup"))}</div>
+        </div>`).join("")}</div>`:""}
       ${(S.db.logDescartes||[]).length?`<div class="sep"></div>
         <div style="max-height:170px;overflow:auto;font-size:11.5px">
         ${S.db.logDescartes.slice().reverse().map(l=>`<div style="padding:4px 0;border-bottom:1px solid var(--line-2)">
@@ -2089,7 +2229,7 @@ const UI = {
       irPara("dashboard");
     }catch(e){
       if(e.message==="NAO_ENCONTRADO") return this.baseNova();
-      Render.semBase(String(e.message));
+      Render.semBase(mensagemArmazenamento(e));
     }
   },
   baseNova(){
@@ -2130,16 +2270,41 @@ const UI = {
        <ul class="muted" style="line-height:1.8">
         <li><b>${LANG==="pt"?"Recarregar":"Reload"}</b> — ${LANG==="pt"?"descarta suas alterações não gravadas e traz a versão do disco.":"discards your unsaved changes and loads the disk version."}</li>
         <li><b>${LANG==="pt"?"Salvar cópia":"Save a copy"}</b> — ${LANG==="pt"?"baixa a sua versão para comparação manual.":"downloads your version for manual comparison."}</li>
-        <li><b>${LANG==="pt"?"Forçar gravação":"Force write"}</b> — ${LANG==="pt"?"sobrescreve o disco. Um backup da versão do disco é criado antes.":"overwrites the disk. A backup of the disk version is created first."}</li></ul>`,
+        <li><b>${LANG==="pt"?"Forçar gravação":"Force write"}</b> — ${LANG==="pt"?"sobrescreve o disco, mas só depois de gravar e conferir um backup da versão que está lá. Se o backup não puder ser confirmado, nada é sobrescrito.":"overwrites the disk, but only after a backup of the version on disk is written and verified. If the backup cannot be confirmed, nothing is overwritten."}</li></ul>`,
       [{txt:LANG==="pt"?"Recarregar":"Reload",cls:"btn",fn:async()=>{
           this.fechar(); Pend.diario=[]; S.sujo=false; await this.carregarBase();}},
        {txt:LANG==="pt"?"Salvar cópia":"Save a copy",cls:"btn",fn:()=>dl(`minha-versao-${hoje()}.json`,JSON.stringify(S.db,null,1),"application/json")},
        {txt:LANG==="pt"?"Forçar gravação":"Force write",cls:"btn danger",fn:async()=>{
-          try{ await Store.backup(err.disco,"pre-sobrescrita"); }catch{}
-          S.db.meta.revisao = err.revisaoDisco;
-          await Store.gravar(S.db,{forcar:true});
-          Pend.diario=[]; Sync.ultimoMtime = await Store.mtime();
-          this.fechar(); marcarEstado(LANG==="pt"?"gravado (forçado)":"written (forced)");}}]);
+          /* O backup da versao do disco e pre-requisito, nao tentativa: sem ele
+             confirmado, a sobrescrita nao acontece e o conflito continua aberto. */
+          const registro = {em:agora(), autor:Usuario.garantir(), acao:"sobrescrita-forcada",
+                            revisaoDisco:err.revisaoDisco, revisaoLocal:Store.revisaoCarregada,
+                            backup:null, resultado:"tentativa"};
+          (S.db.logSobrescritas ??= []).push(registro);
+          let nome;
+          try{ nome = await Store.backup(err.disco,"pre-sobrescrita"); }
+          catch(e){
+            registro.resultado = "backup-falhou";
+            marcarEstado(LANG==="pt"?"conflito de gravação":"write conflict");
+            return toast((LANG==="pt"
+              ? "Backup da versão em disco falhou — nada foi sobrescrito. "
+              : "Backup of the disk version failed — nothing was overwritten. ")
+              + mensagemArmazenamento(e), "bad");
+          }
+          registro.backup = nome;
+          try{
+            S.db.meta.revisao = err.revisaoDisco;
+            await Store.gravar(S.db,{forcar:true});
+          }catch(e){
+            registro.resultado = "gravacao-falhou";
+            return toast(mensagemArmazenamento(e),"bad");
+          }
+          registro.resultado = "sobrescrito";
+          registro.revisaoGravada = S.db.meta.revisao;
+          Pend.diario=[]; S.sujo=false; Sync.ultimoMtime = await Store.mtime();
+          this.fechar(); marcarEstado(LANG==="pt"?"gravado (forçado)":"written (forced)");
+          toast(LANG==="pt"?`Sobrescrito. Backup da versão anterior: ${nome}`
+                           :`Overwritten. Backup of the previous version: ${nome}`,"ok");}}]);
   },
 
   /* ---- detalhe do item ---- */
@@ -2322,6 +2487,7 @@ const UI = {
       if(String(antes)!==String(valor)){
         it[campo] = campo==="bigram"? String(valor).split(/[;,]/).map(x=>x.trim()).filter(Boolean) : valor;
         it.atualizadoEm = agora();
+        R.invalidarHist();
         S.db.historico.push({id:uid(),item:c.item,campo:c.campo,valorAnterior:antes,valorNovo:valor,
           dataEfetiva:hoje(),consolidadoEm:agora(),primeiraAlteracaoEm:agora(),autor:Usuario.garantir(),
           origem:"conflito",tipo:"conflito",
@@ -2539,7 +2705,7 @@ function normalizar(db){
                     "inspType","insp","originalJx","actualJx","actualJxDescription",
                     "numAndDescription","performance","mode","positionAC","hullPassageParts","sbr"]) i[k] ??= "";
   }
-  R._hs=null; R._hsRev=-1;
+  R.invalidarHist();
 }
 
 /* ============================== arranque =============================== */

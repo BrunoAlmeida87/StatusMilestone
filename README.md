@@ -77,7 +77,9 @@ como constava no Arquivo 1. Como o painel filtra por J08, ele sai da conta. Deci
 
 Rode você mesmo: `python3 migracao/validar.py caminho/para/database.json`
 
-O comportamento simultâneo tem suíte própria: `python3 testes/sincronizacao.py` (31 verificações).
+O comportamento simultâneo tem suíte própria: `SM_DATABASE=... python3 testes/sincronizacao.py`
+(31 verificações). O motor de gravação, o descarte de pendentes e o histórico têm testes de
+unidade que rodam sem navegador e sem base real: `node testes/unidade.mjs` (91 verificações).
 
 ## Estrutura
 
@@ -89,7 +91,8 @@ migracao/extrair.py                Excel -> CSV
 migracao/migrar.py                 CSV -> database.json
 migracao/validar.py                reconciliacao contra os numeros das planilhas
 
-testes/                            testes de comportamento em Chromium real
+testes/unidade.mjs                 testes de unidade do motor (Node puro, base sintetica)
+testes/*.py                        testes de comportamento em Chromium real
 analise/01_ANALISE_DOS_ARQUIVOS.md engenharia reversa e qualidade dos dados
 analise/02_DECISOES.md             decisoes de negocio tomadas
 analise/03_ARQUITETURA_E_MODELO.md arquitetura, modelo de dados e telas

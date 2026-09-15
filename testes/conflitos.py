@@ -1,14 +1,23 @@
 from playwright.sync_api import sync_playwright
-import pathlib,json
-APP=pathlib.Path('/home/user/StatusMilestone/docs/index.html').resolve().as_uri()
-DBP='/tmp/claude-0/-home-user-StatusMilestone/1a537918-4090-5771-81f5-3c87119b1495/scratchpad/entregar/database.json'
-DB=json.load(open(DBP,encoding='utf-8'))
+import pathlib, json, os
+# Caminhos por variavel de ambiente: nenhum dado do projeto vive no repositorio
+# e o Chromium fica onde o Playwright instalou (ou onde SM_CHROMIUM apontar).
+RAIZ = pathlib.Path(__file__).resolve().parent.parent
+APP  = (RAIZ/"docs"/"index.html").as_uri()
+_DBP = os.environ.get("SM_DATABASE")
+if not _DBP:
+    raise SystemExit("Defina SM_DATABASE com o caminho do seu database.json "
+                     "(ex.: SM_DATABASE=~/base/database.json python3 %s)" % __file__)
+DB   = json.load(open(os.path.expanduser(_DBP), encoding="utf-8"))
+DBP  = os.path.expanduser(_DBP)
+CHROMIUM = os.environ.get("SM_CHROMIUM")          # opcional
+LAUNCH = {"args":["--no-sandbox"]} | ({"executable_path":CHROMIUM} if CHROMIUM else {})
 falhas=[]
 def chk(n,c,e=""):
     print(("  OK  " if c else "  XXX ")+n+(f"  {e}" if e else ""))
     if not c: falhas.append(n)
 with sync_playwright() as pw:
-    b=pw.chromium.launch(executable_path="/opt/pw-browsers/chromium-1194/chrome-linux/chrome",args=["--no-sandbox"])
+    b=pw.chromium.launch(**LAUNCH)
     pg=b.new_page(viewport={"width":1500,"height":980}); errs=[]
     pg.on("pageerror",lambda e:errs.append(str(e)))
     pg.on("console",lambda m:errs.append("C:"+m.text) if m.type=="error" else None)
