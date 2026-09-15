@@ -15,7 +15,11 @@ with sync_playwright() as pw:
     pg.goto(APP); pg.wait_for_timeout(400)
     pg.evaluate("""(db)=>{localStorage.setItem('sm.autor','Bruno Almeida');localStorage.setItem('sm.tema','light');
       Store.gravar=async d=>1;Store.backup=async()=>'x';Store.dirHandle={};window.confirm=()=>true;
-      S.db=db;normalizar(S.db);aplicarTema();irPara('conflitos');}""",DB)
+      S.db=db;normalizar(S.db);aplicarTema();
+      // a migracao ja decide os 40; reabrimos 3 para testar a tela de decisao
+      S.db.conflitos.filter(c=>c.campo==='Bigram').slice(0,3)
+        .forEach(c=>{c.resolvido=false; delete c.valorAplicado; delete c.resolvidoPor;});
+      irPara('conflitos');}""",DB)
     pg.wait_for_timeout(600)
     chk("3 conflitos em aberto (Bigram)", pg.evaluate("S.db.conflitos.filter(c=>!c.resolvido).length")==3)
     chk("nomes dos arquivos nos cartoes", "SafetyMilestoneJ08" in pg.inner_text("#view") and "Resumo Fluxo" in pg.inner_text("#view"))
@@ -24,7 +28,7 @@ with sync_playwright() as pw:
     chk("sem 'Combinar' em Bigram (so em observacao)", pg.locator("button[data-comb]").count()==0)
     chk("regra corrigida: Missing Vacuum + B05 done nao alerta",
         pg.evaluate("incoerente('7 - Missing Vacuum Test or Sign','B05 done, without pendencies.')")==False)
-    pg.screenshot(path="conf.png")
+    pg.screenshot(path="/tmp/conf.png")
 
     print("--- lote (Bigram, usar Arquivo 2)")
     pg.evaluate("UI.resolverLote('Bigram','2')"); pg.wait_for_timeout(400)
@@ -36,7 +40,7 @@ with sync_playwright() as pw:
     print("--- resolvidos ficam visiveis com o valor descartado")
     chk("todos os 40 resolvidos apos o lote", pg.evaluate("S.db.conflitos.filter(c=>c.resolvido).length")==40)
     chk("valor descartado visivel na tabela", "B05 done" in pg.inner_text("#view"))
-    pg.wait_for_timeout(300); pg.screenshot(path="conf2.png")
+    pg.wait_for_timeout(300); pg.screenshot(path="/tmp/conf2.png")
     b.close()
 print("\nerros:", errs or "nenhum")
 print("falhas:", falhas or "nenhuma")

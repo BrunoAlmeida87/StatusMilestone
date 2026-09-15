@@ -49,7 +49,12 @@ with sync_playwright() as pw:
     print("=== 3. KANBAN")
     pg.evaluate("irPara('kanban')"); pg.wait_for_timeout(300)
     chk("7 faixas empilhadas", pg.locator(".col").count()==7, str(pg.locator(".col").count()))
-    chk("layout vertical", len(set(pg.evaluate("[...document.querySelectorAll('.col')].map(c=>Math.round(c.getBoundingClientRect().x))")))==1)
+    xs=lambda: [round(v) for v in pg.evaluate("[...document.querySelectorAll('.col')].map(c=>c.getBoundingClientRect().x)")]
+    chk("padrao e horizontal (colunas lado a lado)", len(set(xs()))>1, str(sorted(set(xs()))[:4]))
+    pg.locator("#kbLay").click(); pg.wait_for_timeout(350)
+    chk("alterna para vertical (faixas empilhadas)", len(set(xs()))==1)
+    pg.locator("#kbLay").click(); pg.wait_for_timeout(350)
+    chk("volta para horizontal", len(set(xs()))>1)
     chk("cards renderizados", pg.locator(".card").count()>0, str(pg.locator(".card").count()))
     pg.locator(".col[data-f='validado'] .colh").click(); pg.wait_for_timeout(500)
     chk("coluna recolhivel", pg.locator(".col[data-f='validado'].collapsed").count()==1)
@@ -146,8 +151,10 @@ with sync_playwright() as pw:
     pg.evaluate("S.filtros=filtrosVazios()")
 
     print("=== 13. CONFLITOS")
-    pg.evaluate("irPara('conflitos')"); pg.wait_for_timeout(250)
-    chk("40 conflitos, 3 em aberto (Bigram)",
+    pg.evaluate("""S.db.conflitos.filter(c=>c.campo==='Bigram').slice(0,3)
+        .forEach(c=>{c.resolvido=false; delete c.valorAplicado;}); irPara('conflitos');""")
+    pg.wait_for_timeout(250)
+    chk("40 conflitos, 3 reabertos para decisao manual (Bigram)",
         pg.evaluate("S.db.conflitos.length")==40 and pg.evaluate("S.db.conflitos.filter(c=>!c.resolvido).length")==3)
     cid = pg.evaluate("S.db.conflitos.find(c=>!c.resolvido).id")
     pg.evaluate(f"UI.resolverConflito('{cid}','1')"); pg.wait_for_timeout(300)
@@ -164,7 +171,11 @@ with sync_playwright() as pw:
     pg.locator("#btnTheme").click(); pg.wait_for_timeout(200)
     chk("tema alterna", pg.evaluate("document.documentElement.dataset.theme")in("dark","light"))
     csv = pg.evaluate("(()=>{const l=S.db.itens.slice(0,3);const q=s=>'\"'+String(s).replace(/\"/g,'\"\"')+'\"';return [Export.COLS.map(c=>q(c[1])).join(';')].concat(l.map(i=>Export.COLS.map(c=>q(Export.val(i,c[0]))).join(';'))).join('\\n');})()")
-    chk("CSV gera cabecalho + linhas", csv.count("\n")==3 and "Actual Status" in csv)
+    import io as _io, csv as _csv
+    linhas=list(_csv.reader(_io.StringIO(csv),delimiter=";"))
+    chk("CSV gera cabecalho + 3 linhas, colunas alinhadas",
+        len(linhas)==4 and len({len(l) for l in linhas})==1 and "Actual Status" in csv,
+        f"{len(linhas)} linhas x {len(linhas[0])} colunas")
     xls_ok = pg.evaluate("(()=>{try{ const o=[]; const orig=window.URL.createObjectURL; window.URL.createObjectURL=b=>{o.push(b);return 'blob:x'}; Export.excel(S.db.itens.slice(0,5),'teste'); window.URL.createObjectURL=orig; return o.length===1 && o[0].size>1000;}catch(e){return 'ERRO:'+e.message}})()")
     chk("export Excel (SpreadsheetML) gera arquivo", xls_ok is True, str(xls_ok))
 
@@ -173,9 +184,9 @@ with sync_playwright() as pw:
     ow = pg.evaluate("document.documentElement.scrollWidth<=document.documentElement.clientWidth+2")
     chk("sem rolagem horizontal em 420px", ow)
     pg.set_viewport_size({"width":1500,"height":950}); pg.wait_for_timeout(300)
-    pg.screenshot(path="dash.png", full_page=False)
-    pg.evaluate("irPara('kanban')"); pg.wait_for_timeout(400); pg.screenshot(path="kanban.png")
-    pg.evaluate("irPara('historico')"); pg.wait_for_timeout(500); pg.screenshot(path="hist.png")
+    pg.screenshot(path="/tmp/dash.png", full_page=False)
+    pg.evaluate("irPara('kanban')"); pg.wait_for_timeout(400); pg.screenshot(path="/tmp/kanban.png")
+    pg.evaluate("irPara('historico')"); pg.wait_for_timeout(500); pg.screenshot(path="/tmp/hist.png")
     b.close()
 
 print("\n"+"="*70)

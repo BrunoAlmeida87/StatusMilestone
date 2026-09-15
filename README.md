@@ -24,8 +24,8 @@ Também funciona **sem internet**: baixe `docs/index.html` e abra por duplo cliq
 | Tela | Conteúdo |
 |---|---|
 | **Dashboard** | KPIs, Evidence Flow (B05 / exceto B05), Shipyard Prerequisites, Functional Insp. Type, evolução, aging, pendências por tipo e por função vital |
-| **Itens** | Tabela ordenável com busca, filtros combináveis e edição pelo detalhe |
-| **Kanban** | 6 colunas por família de status, arrastar e soltar, colunas recolhíveis |
+| **Itens** | Tabela ordenável com busca, filtros combináveis e edição pelo detalhe. Célula cortada mostra o conteúdo inteiro ao passar o mouse; o botão **Texto completo** desliga o corte |
+| **Kanban** | 6 colunas por família de status, **horizontal ou vertical**, arrastar e soltar, colunas recolhíveis |
 | **Histórico** | Compara **quaisquer duas datas** e reconstrói o estado em cada uma |
 | **Relatórios** | 12 relatórios prontos, exportação em CSV / Excel / JSON / PDF |
 | **Conflitos** | Fila de decisão das divergências entre os dois Excel — nada foi sobrescrito |
@@ -40,6 +40,23 @@ edição → autosave (3 s) → alteração pendente → 10 min sem novo toque �
 O autosave protege o trabalho **sem** poluir o histórico. Dentro da janela, `A → B → C` vira um
 único evento `A → C`, e `A → B → A` não gera evento nenhum. O botão **Salvar alterações agora**
 consolida na hora. O tempo é configurável.
+
+## Duas ou mais pessoas ao mesmo tempo
+
+A base continua sendo **um único `database.json`** na pasta compartilhada. Cada sessão confere a
+data do arquivo a cada poucos segundos (configurável) e, quando alguém grava, traz a versão nova
+e **reaplica por cima o que ainda não tinha sido gravado aqui**.
+
+| Situação | O que acontece |
+|---|---|
+| Ninguém tocou no mesmo dado | Junta sozinho, sem interromper ninguém |
+| Campos diferentes do mesmo item | Junta sozinho |
+| **Mesmo campo do mesmo item** | Abre a tela de decisão com os dois valores lado a lado — nada é sobrescrito em silêncio |
+| Configuração / conflito de migração / restauração | Pede decisão (não dá para reaplicar sozinho) |
+
+O valor descartado numa decisão vira o "anterior" do evento de histórico, então a troca fica
+rastreável. O crachá no topo (**"N na base"**) mostra quantas pessoas estão com a base aberta —
+cada uma escreve o próprio arquivo em `presenca/`, sem disputa de escrita.
 
 ## Validação
 
@@ -59,6 +76,8 @@ como constava no Arquivo 1. Como o painel filtra por J08, ele sai da conta. Deci
 [`analise/02_DECISOES.md`](analise/02_DECISOES.md) (C3/C4).
 
 Rode você mesmo: `python3 migracao/validar.py caminho/para/database.json`
+
+O comportamento simultâneo tem suíte própria: `python3 testes/sincronizacao.py` (31 verificações).
 
 ## Estrutura
 

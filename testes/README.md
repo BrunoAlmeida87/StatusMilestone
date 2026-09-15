@@ -6,12 +6,15 @@ com mouse de verdade.
 
 ```bash
 pip install playwright
-python3 testes/comportamento.py        # 62 verificações: carga, edição, pendentes,
+python3 testes/comportamento.py        # 65 verificações: carga, edição, pendentes,
                                        # consolidação, agrupamento, descarte, histórico,
                                        # filtros, exportação, temas, responsivo
-python3 testes/kanban_e_graficos.py    # 17: arraste real, seletor de status no card,
-                                       # ordenação alfanumérica, diagramas de fluxo
+python3 testes/kanban_e_graficos.py    # 32: arraste real, seletor de status no card,
+                                       # ordenação alfanumérica, diagramas de fluxo (inclusive
+                                       # em base sem config.fluxo), balão de texto completo
 python3 testes/conflitos.py            # 10: tela de conflitos, lote, regra de coerência
+python3 testes/sincronizacao.py        # 31: duas pessoas na mesma base — junção automática,
+                                       # decisão campo a campo, gravação concorrente, presença
 ```
 
 Os scripts esperam o Chromium do Playwright em

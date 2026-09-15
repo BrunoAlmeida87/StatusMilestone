@@ -13,3 +13,6 @@ database*.json
 __pycache__/
 *.py[cod]
 .DS_Store
+
+# capturas de tela geradas pelos testes
+*.png

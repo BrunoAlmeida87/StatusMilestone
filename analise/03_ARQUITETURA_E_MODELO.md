@@ -161,6 +161,34 @@ confirmação antes de operações destrutivas · histórico protegido contra so
 
 ---
 
+## Etapa 7b — Trabalho simultâneo
+
+A base é um arquivo só numa pasta compartilhada, então duas sessões podem gravar em cima uma da
+outra. O controle tem três camadas:
+
+1. **Revisão otimista** (já existia). `Store.gravar` relê o arquivo e compara `meta.revisao` antes
+   de escrever. Se mudou, não escreve.
+2. **Diário local** (`Pend.diario`). Toda alteração feita aqui e ainda não gravada fica registrada
+   como `{item, campo, de, para}` — ou `{t:"obs"}` para observações. É o que permite reaplicar o
+   trabalho local sobre a versão de outra pessoa em vez de escolher entre um e outro.
+3. **Junção por campo** (`Sync.receber`). Compara, campo a campo:
+
+   | Valor no disco | Decisão |
+   |---|---|
+   | igual ao meu "de" (ninguém mais mexeu) | reaplica o meu |
+   | igual ao meu "para" | nada a fazer |
+   | **diferente dos dois** | conflito real → o usuário decide |
+
+O polling lê só a data de modificação do arquivo (`Store.mtime`); o conteúdo só é aberto quando
+ela muda. Enquanto houver uma janela aberta, o polling espera — nada muda debaixo do usuário.
+
+A presença usa **um arquivo por pessoa** em `presenca/<nome>.json`, e não um campo compartilhado:
+assim ninguém disputa escrita para dizer "estou aqui". Entradas com mais de 90 s são ignoradas.
+
+Limite conhecido: alterações estruturais (configuração, resolução de conflito de migração,
+restauração de backup) não são reaplicáveis automaticamente. Nesse caso o sistema pede decisão em
+vez de escolher sozinho.
+
 ## Etapa 8 — Organização visual
 
 Menu final: **Dashboard · Itens · Kanban · Histórico · Relatórios · Conflitos · Configurações**.

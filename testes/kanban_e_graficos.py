@@ -73,13 +73,67 @@ with sync_playwright() as pw:
     for r in ["dashboard","kanban","historico","relatorios","conflitos","config"]:
         pg.evaluate(f"irPara('{r}')"); pg.wait_for_timeout(260)
     pg.evaluate("irPara('dashboard')"); pg.wait_for_timeout(800)
-    chk("2 diagramas de fluxo", pg.locator("#view svg marker#pf").count()==2)
-    pg.screenshot(path="f_dash.png")
-    pg.evaluate("irPara('kanban')"); pg.wait_for_timeout(700); pg.screenshot(path="f_kanban.png")
+    chk("2 diagramas de fluxo", pg.locator("#view svg marker").count()==2)
+    caixas=pg.evaluate("[...document.querySelectorAll('#view svg rect[rx=\"11\"]')].length")
+    chk("caixas de status desenhadas nos dois diagramas", caixas==12, str(caixas))
+    pg.screenshot(path="/tmp/f_dash.png")
+    pg.evaluate("irPara('kanban')"); pg.wait_for_timeout(700); pg.screenshot(path="/tmp/f_kanban.png")
     pg.evaluate("localStorage.setItem('sm.tema','dark');aplicarTema();irPara('dashboard')"); pg.wait_for_timeout(800)
-    pg.screenshot(path="f_dark.png")
+    pg.screenshot(path="/tmp/f_dark.png")
     pg.set_viewport_size({"width":420,"height":900}); pg.wait_for_timeout(400)
     chk("sem rolagem horizontal em 420px",
         pg.evaluate("document.documentElement.scrollWidth<=document.documentElement.clientWidth+2"))
+
+    print("=== G) diagrama de fluxo sem config.fluxo na base (base antiga) ===")
+    pg.set_viewport_size({"width":1600,"height":1000})
+    pg.evaluate("""(db)=>{localStorage.setItem('sm.tema','light');
+      const d=structuredClone(db); delete d.config.fluxo;      // base gerada antes do diagrama
+      S.db=d; normalizar(S.db); aplicarTema(); irPara('dashboard');}""",DB)
+    pg.wait_for_timeout(900)
+    chk("o padrao embutido repoe o desenho", pg.evaluate("!!S.db.config.fluxo.b05.principal"))
+    chk("os 2 diagramas continuam aparecendo", pg.locator("#view svg marker").count()==2)
+    cx=pg.evaluate("[...document.querySelectorAll('#view svg rect[rx=\"11\"]')].length")
+    chk("12 caixas desenhadas, nao um painel em branco", cx==12, str(cx))
+    painel=pg.evaluate("""[...document.querySelectorAll('#view .panel')]
+        .find(p=>p.textContent.includes('somente'))?.querySelector('.pad')?.textContent.trim()""")
+    chk("painel 'somente B05' traz numeros", bool(painel) and any(c.isdigit() for c in painel or ""), (painel or "")[:40])
+
+    print("=== H) a soma do diagrama fecha com o total (nenhum item invisivel) ===")
+    soma=pg.evaluate("""(()=>{const l=S.db.itens.filter(i=>i.isB05);
+      const lay=R.fluxoLayout('b05',l);
+      const desenhados=new Set([...lay.principal,...lay.grupoA,...lay.grupoB,...lay.grupoC,
+                                lay.desvio,lay.bloqueio].filter(Boolean));
+      return l.filter(i=>desenhados.has(i.status)).length===l.length;})()""")
+    chk("todo status B05 tem lugar no desenho", soma)
+
+    print("=== I) tabela: conteudo cortado acessivel ===")
+    pg.evaluate("localStorage.setItem('sm.textoCompleto','0');S.textoCompleto=false;irPara('itens')")
+    pg.wait_for_timeout(600)
+    nt=pg.locator("#view td .trunc[data-tip]").count()
+    chk("celulas longas marcadas com o texto completo", nt>0, str(nt))
+    alvo=pg.locator("#view td .trunc[data-tip]").first
+    completo=alvo.get_attribute("data-tip")
+    alvo.hover(); pg.wait_for_timeout(400)
+    chk("balao aparece ao passar o mouse", pg.evaluate("getComputedStyle($('#tip')).display")=="block")
+    chk("balao mostra o conteudo inteiro", completo in pg.inner_text("#tip"),
+        (completo or "")[:38]+"...")
+    chk("o balao nao corta", len(pg.inner_text("#tip"))>=len(completo))
+    pg.locator("#btnTxt").click(); pg.wait_for_timeout(500)
+    chk("modo texto completo desliga o corte", pg.locator("#view table.livre").count()==1)
+    chk("sem balao quando tudo ja esta visivel", pg.locator("#view td .trunc[data-tip]").count()==0)
+    pg.locator("#btnTxt").click(); pg.wait_for_timeout(400)
+
+    print("=== J) linhas e cores mais fortes ===")
+    pg.evaluate("irPara('dashboard')"); pg.wait_for_timeout(700)
+    bw=pg.evaluate("getComputedStyle(document.querySelector('.panel')).borderTopWidth")
+    chk("borda do painel reforcada", float(bw.replace("px",""))>=1.5, bw)
+    cores=pg.evaluate("""[...document.querySelectorAll('#view svg rect[rx="11"]')]
+        .map(r=>r.getAttribute('stroke'))""")
+    chk("cada caixa usa a cor do seu status", len(set(cores))>=5, str(len(set(cores))))
+    linhas=pg.evaluate("""[...document.querySelectorAll('#view svg path[marker-end]')]
+        .every(p=>parseFloat(p.getAttribute('stroke-width'))>=3)""")
+    chk("setas do fluxo mais grossas", linhas)
+    pg.screenshot(path="/tmp/f_dash.png", full_page=True)
+
     b.close()
 print("\nerros:",errs or "nenhum"); print("falhas:",f or "nenhuma")

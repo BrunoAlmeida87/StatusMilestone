@@ -8,7 +8,7 @@
 /* Tema: superfícies mais quentes, contraste suave, cantos arredondados e
    respiro maior. O azul só aparece onde há ação. */
 :root{
-  --bg:#f4f5f7; --panel:#ffffff; --panel-2:#f9fafb; --line:#e4e7ec; --line-2:#f0f2f5;
+  --bg:#eef0f4; --panel:#ffffff; --panel-2:#f5f7fa; --line:#b9c2d0; --line-2:#dbe1ea;
   --fg:#1f2430; --fg-2:#596273; --fg-3:#8b93a3;
   --accent:#2a78d6; --accent-fg:#ffffff; --accent-soft:#e8f0fb;
   --ok:#0ca30c; --warn:#d99400; --bad:#d03b3b; --info:#2a78d6; --neutral:#8b93a3; --orange:#eb6834;
@@ -20,7 +20,7 @@
   --sans:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
 }
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
-  --bg:#12151b; --panel:#181c23; --panel-2:#1e232c; --line:#2d333e; --line-2:#242933;
+  --bg:#0f1218; --panel:#181c23; --panel-2:#20262f; --line:#454f5e; --line-2:#333b47;
   --fg:#e8ebf0; --fg-2:#a8b1c0; --fg-3:#78818f;
   --accent:#5b9ae8; --accent-fg:#0b1016; --accent-soft:#1b2734;
   --ok:#3fbf3f; --warn:#e0a92a; --bad:#e26b6b; --info:#5b9ae8; --neutral:#78818f; --orange:#e8834f;
@@ -29,7 +29,7 @@
   --shadow-2:0 6px 22px rgba(0,0,0,.4);
 }}
 :root[data-theme="dark"]{
-  --bg:#12151b; --panel:#181c23; --panel-2:#1e232c; --line:#2d333e; --line-2:#242933;
+  --bg:#0f1218; --panel:#181c23; --panel-2:#20262f; --line:#454f5e; --line-2:#333b47;
   --fg:#e8ebf0; --fg-2:#a8b1c0; --fg-3:#78818f;
   --accent:#5b9ae8; --accent-fg:#0b1016; --accent-soft:#1b2734;
   --ok:#3fbf3f; --warn:#e0a92a; --bad:#e26b6b; --info:#5b9ae8; --neutral:#78818f; --orange:#e8834f;
@@ -83,15 +83,16 @@ label.fld{display:flex;flex-direction:column;gap:3px;font-size:11px;color:var(--
 label.fld>span{font-weight:600;text-transform:uppercase;letter-spacing:.04em;font-size:10px}
 
 /* ---------- cards ---------- */
-.panel{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);min-width:0}
-.panel>h3{padding:13px 17px;border-bottom:1px solid var(--line-2);font-size:11.5px;text-transform:uppercase;
+.panel{background:var(--panel);border:2px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);min-width:0}
+.panel>h3{padding:13px 17px;border-bottom:2px solid var(--line);background:var(--panel-2);border-radius:calc(var(--radius) - 2px) calc(var(--radius) - 2px) 0 0;font-size:11.5px;text-transform:uppercase;
   letter-spacing:.07em;color:var(--fg-2);display:flex;align-items:center;gap:9px;font-weight:700}
 .panel>h3 .sub{margin-left:auto;font:500 11px/1 var(--sans);text-transform:none;letter-spacing:0;color:var(--fg-3)}
 .pad{padding:17px}
 .grid{display:grid;gap:16px;min-width:0}
 .grid>*{min-width:0}
 .kpis{grid-template-columns:repeat(auto-fit,minmax(min(150px,100%),1fr))}
-.kpi{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:15px 17px;box-shadow:var(--shadow)}
+.kpi{background:var(--panel);border:2px solid var(--line);border-radius:var(--radius);padding:15px 17px;box-shadow:var(--shadow);
+  border-top:4px solid var(--accent)}
 .kpi .lab{font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--fg-3);font-weight:600}
 .kpi .val{font:700 30px/1.1 var(--sans);letter-spacing:-.03em;margin-top:5px}
 .kpi .dlt{font-size:11.5px;margin-top:2px;color:var(--fg-3)}
@@ -100,15 +101,26 @@ label.fld>span{font-weight:600;text-transform:uppercase;letter-spacing:.04em;fon
 /* ---------- tabela ---------- */
 .tblwrap{overflow:auto;max-height:calc(100vh - 230px)}
 table{border-collapse:separate;border-spacing:0;width:100%;font-size:12.5px}
-th,td{padding:9px 12px;text-align:left;border-bottom:1px solid var(--line-2);vertical-align:top}
+th,td{padding:9px 12px;text-align:left;border-bottom:1px solid var(--line);border-right:1px solid var(--line-2);vertical-align:top}
+th:last-child,td:last-child{border-right:0}
+tbody tr:nth-child(even){background:var(--panel-2)}
 thead th{position:sticky;top:0;z-index:2;background:var(--panel-2);font-size:10.5px;text-transform:uppercase;
-  letter-spacing:.04em;color:var(--fg-3);font-weight:650;cursor:pointer;white-space:nowrap;border-bottom:1px solid var(--line)}
+  letter-spacing:.04em;color:var(--fg-2);font-weight:700;cursor:pointer;white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis;border-bottom:3px solid var(--line)}
 thead th:hover{color:var(--fg)}
 tbody tr{cursor:pointer;transition:background .1s}
 tbody tr:hover{background:var(--accent-soft)}
 tbody tr.sel{background:var(--accent-soft)}
 td.num{font:500 12px/1.5 var(--mono)}
 .trunc{max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block}
+/* leitura integral: desliga o corte e deixa o texto quebrar linha */
+table.livre .trunc{max-width:none;white-space:pre-wrap;overflow:visible;word-break:break-word}
+table.livre td{vertical-align:top}
+.trunc[data-tip]{cursor:help;text-decoration:underline dotted var(--line);text-underline-offset:3px}
+#tip{position:fixed;z-index:300;max-width:min(460px,86vw);background:var(--fg);color:var(--panel);
+  padding:9px 12px;border-radius:9px;font-size:12px;line-height:1.55;box-shadow:0 10px 30px rgba(0,0,0,.34);
+  pointer-events:none;white-space:pre-wrap;word-break:break-word;display:none}
+#tip b{display:block;font-size:10px;text-transform:uppercase;letter-spacing:.06em;opacity:.62;margin-bottom:3px}
 
 /* ---------- pills ---------- */
 .pill{display:inline-flex;align-items:center;gap:5px;padding:1px 8px;border-radius:11px;font-size:11px;
@@ -118,28 +130,36 @@ td.num{font:500 12px/1.5 var(--mono)}
   font:600 10.5px/1.75 var(--mono);margin:1px 3px 1px 0;border:1px solid var(--line)}
 .chgmark{background:var(--chg);border-left:3px solid var(--chg-line)!important}
 
-/* ---------- kanban: faixas empilhadas verticalmente ---------- */
-.kb{display:flex;flex-direction:column;gap:12px}
-.col{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);
-  display:flex;flex-direction:column;box-shadow:var(--shadow);overflow:hidden}
+/* ---------- kanban: colunas lado a lado (h) ou faixas empilhadas (v) ---------- */
+.kb{display:flex;gap:12px}
+.kb.v{flex-direction:column}
+.kb.h{flex-direction:row;align-items:flex-start;overflow-x:auto;padding-bottom:10px}
+.kb.h>.col{flex:0 0 306px;max-height:calc(100vh - 212px)}
+.kb.h>.col.collapsed{flex:0 0 214px}
+.kb.h .colh .ch{display:none}
+.col{background:var(--panel);border:2px solid var(--line);border-radius:var(--radius);
+  display:flex;flex-direction:column;box-shadow:var(--shadow);overflow:hidden;min-height:0}
 .col.collapsed .colbody{display:none}
-.colh{display:flex;align-items:center;gap:10px;padding:11px 14px;cursor:pointer;
-  border-left:4px solid transparent;background:var(--panel-2)}
+.colh{display:flex;align-items:center;gap:10px;padding:11px 14px;cursor:pointer;flex:none;
+  border-left:7px solid transparent;border-bottom:2px solid var(--line);background:var(--panel-2)}
 .colh:hover{background:var(--line-2)}
-.colh .nm{font-weight:650;font-size:13.5px}
+.colh .nm{font-weight:650;font-size:13.5px;white-space:nowrap;overflow:hidden;
+  text-overflow:ellipsis;min-width:0;flex:1}
+.colh .n{flex:none}
 .colh .n{font:650 12px/1 var(--mono);color:var(--fg-2);background:var(--panel);
   border:1px solid var(--line);border-radius:10px;padding:3px 9px}
 .colh .ch{margin-left:auto;display:flex;gap:6px;align-items:center}
 .colh .caret{color:var(--fg-3);font-size:12px;width:14px;text-align:center}
-.colbody{padding:12px;display:grid;gap:9px;
-  grid-template-columns:repeat(auto-fill,minmax(min(232px,100%),1fr));max-height:430px;overflow-y:auto}
+.colbody{padding:12px;display:grid;gap:9px;overflow-y:auto;min-height:0}
+.kb.v .colbody{grid-template-columns:repeat(auto-fill,minmax(min(232px,100%),1fr));max-height:430px}
+.kb.h .colbody{grid-template-columns:1fr;flex:1 1 auto;max-height:none}
 .col.over{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft),var(--shadow-2)}
 .col.over .colbody{background:var(--accent-soft)}
 .col.over .colh{background:var(--accent-soft)}
 body.arrastando .col:not(.over){opacity:.72}
 body.arrastando .colh{cursor:copy}
 .card{-webkit-user-drag:element}
-.card{background:var(--panel-2);border:1px solid var(--line);border-left-width:4px;border-radius:8px;
+.card{background:var(--panel);border:2px solid var(--line);border-left-width:7px;border-radius:8px;
   padding:9px 11px;cursor:grab;font-size:12px;transition:border-color .12s,transform .12s}
 .card:hover{border-color:var(--accent);transform:translateY(-1px)}
 .card.dragging{opacity:.4}
@@ -158,7 +178,7 @@ body.arrastando .colh{cursor:copy}
 /* ---------- modal ---------- */
 .ov{position:fixed;inset:0;background:rgba(10,13,18,.55);display:flex;align-items:center;justify-content:center;
   z-index:100;padding:20px;backdrop-filter:blur(2px)}
-.modal{background:var(--panel);border:1px solid var(--line);border-radius:16px;max-width:920px;width:100%;
+.modal{background:var(--panel);border:2px solid var(--line);border-radius:16px;max-width:920px;width:100%;
   max-height:88vh;display:flex;flex-direction:column;box-shadow:0 12px 40px rgba(0,0,0,.3)}
 .modal>header{border-radius:16px 16px 0 0;backdrop-filter:none;background:var(--panel)}
 .modal .body{overflow:auto;padding:16px}
@@ -170,11 +190,11 @@ body.arrastando .colh{cursor:copy}
 
 /* ---------- diversos ---------- */
 .flow{display:grid;gap:8px;grid-template-columns:repeat(auto-fit,minmax(min(135px,100%),1fr))}
-.fbox{border:1px solid var(--line);border-left-width:3px;border-radius:6px;padding:8px 10px;background:var(--panel-2)}
+.fbox{border:2px solid var(--line);border-left-width:6px;border-radius:6px;padding:8px 10px;background:var(--panel-2)}
 .fbox .fn{font:650 21px/1.1 var(--sans)}
 .fbox .fl{font-size:10.5px;color:var(--fg-2);margin-top:3px;line-height:1.35}
 .fbox .fp{font:500 11px/1 var(--mono);color:var(--fg-3);margin-top:4px}
-.bar{height:7px;border-radius:4px;background:var(--line-2);overflow:hidden;display:flex}
+.bar{height:9px;border-radius:5px;background:var(--line-2);overflow:hidden;display:flex;border:1px solid var(--line)}
 .empty{text-align:center;padding:56px 20px;color:var(--fg-3)}
 .empty h3{font-size:15px;color:var(--fg-2);margin-bottom:6px}
 .toast{position:fixed;bottom:16px;right:16px;z-index:200;display:flex;flex-direction:column;gap:7px;align-items:flex-end}
@@ -187,7 +207,7 @@ body.arrastando .colh{cursor:copy}
 .mono{font-family:var(--mono)}
 .sep{height:1px;background:var(--line-2);margin:12px 0}
 dl.kv{display:grid;grid-template-columns:150px 1fr;gap:5px 12px;margin:0;font-size:12.5px}
-dl.kv dt{color:var(--fg-3);font-size:11px;text-transform:uppercase;letter-spacing:.03em;font-weight:600;padding-top:2px}
+dl.kv dt{color:var(--fg-2);font-size:11px;text-transform:uppercase;letter-spacing:.03em;font-weight:600;padding-top:2px}
 dl.kv dd{margin:0;white-space:pre-wrap;word-break:break-word}
 .chips{display:flex;gap:5px;flex-wrap:wrap}
 .chip{border:1px solid var(--line);background:var(--panel);border-radius:16px;padding:4px 12px;cursor:pointer;font-size:11.5px;transition:.12s}
@@ -225,6 +245,8 @@ dl.kv dd{margin:0;white-space:pre-wrap;word-break:break-word}
       <div class="rowflex noprint">
         <span id="pendBadge" class="pill" style="display:none;background:var(--chg);color:#4a3d00;border-color:var(--chg-line)"></span>
         <button class="btn" id="btnSaveNow" style="display:none" data-i="salvarAgora">Salvar altera&ccedil;&otilde;es agora</button>
+        <span id="presenca" class="pill noprint" style="display:none;background:var(--accent-soft);
+          color:var(--accent);border-color:var(--accent)"></span>
         <span id="saveState" class="muted" style="font-size:11px"></span>
       </div>
     </header>
@@ -232,6 +254,7 @@ dl.kv dd{margin:0;white-space:pre-wrap;word-break:break-word}
   </div>
 </div>
 <div class="toast" id="toast"></div>
+<div id="tip"></div>
 <script>
 "use strict";
 /* ==========================================================================
@@ -349,6 +372,11 @@ const Store = {
     await IDB.set("dirHandle", this.dirHandle);
     return this.dirHandle;
   },
+  /* Data de modificacao sem ler o conteudo: o polling so abre o arquivo quando muda. */
+  async mtime(nome="database.json"){
+    try{ const fh=await this.dirHandle.getFileHandle(nome); return (await fh.getFile()).lastModified; }
+    catch{ return 0; }
+  },
   async lerArquivo(nome="database.json"){
     const fh = await this.dirHandle.getFileHandle(nome);
     return JSON.parse(await (await fh.getFile()).text());
@@ -433,7 +461,9 @@ const Usuario = {
 /* ============================== estado ================================= */
 const S = {
   db:null, rota:"dashboard", filtros:filtrosVazios(), ordenacao:{campo:"item",dir:1},
-  selecionado:null, salvando:false, sujo:false,
+  selecionado:null, salvando:false, sujo:false, sujoEstrutural:false,
+  kbLayout: localStorage.getItem("sm.kbLayout") || "h",
+  textoCompleto: localStorage.getItem("sm.textoCompleto")==="1",
   recolhidas:new Set(JSON.parse(localStorage.getItem("sm.recolhidas")||'["validado"]')),
 };
 function filtrosVazios(){
@@ -457,6 +487,45 @@ const R = {
     return this.familiaObj(this.familiaDe(st)).cor;
   },
   ordemDe(st){ return this.familiaObj(this.familiaDe(st)).ordem; },
+
+  /* Desenho do diagrama "Evidence Flow". Fica no config para poder ser ajustado,
+     mas o padrao vive aqui: uma base antiga (sem config.fluxo) desenha do mesmo
+     jeito em vez de aparecer em branco. */
+  FLUXO_PADRAO:{
+    b05:{principal:["8 - Mounting not Completed","5 - Waiting Proof","4 - Under Analysis",
+                    "6 - Waiting B05","1 - Validated by ICN"],
+         desvio:"7 - Missing Vacuum Test or Sign", bloqueio:"3 - Blocking",
+         grupoA:["4 - Under Analysis to Not Blocking","4 - Under Analysis To Downgraded",
+                 "4 - Under Analysis To Not Available Jx"],
+         grupoB:["2 - Not Blocking","2 - Not Blocking - Downgraded","2 - Not Available Jx"]},
+    exceto:{principal:["8 - Mounting not Completed","5 - Waiting Proof","4 - Under Analysis",
+                       "1 - Validated by ICN"],
+         desvio:null, bloqueio:"3 - Blocking",
+         grupoA:["4 - Under Analysis to Not Blocking","4 - Under Analysis To Downgraded",
+                 "4 - Under Analysis To Not Available Jx"],
+         grupoB:["2 - Not Blocking","2 - Not Blocking - Downgraded","2 - Not Available Jx"]},
+  },
+  /* Devolve o desenho e acrescenta, num grupo "outros", qualquer status presente
+     na lista que o desenho nao preveja - nenhum item some da conta. */
+  fluxoLayout(qual, lista){
+    const pad = this.FLUXO_PADRAO[qual] || this.FLUXO_PADRAO.exceto;
+    const cfg = (this.cfg().fluxo || {})[qual] || {};
+    const arr = (a,b)=> Array.isArray(a) && a.length ? a : b;
+    const l = {
+      principal: arr(cfg.principal, pad.principal),
+      desvio:    ("desvio"   in cfg) ? cfg.desvio   : pad.desvio,
+      bloqueio:  ("bloqueio" in cfg) ? cfg.bloqueio : pad.bloqueio,
+      grupoA:    arr(cfg.grupoA, pad.grupoA),
+      grupoB:    arr(cfg.grupoB, pad.grupoB),
+    };
+    if(!l.principal.length) return null;
+    const desenhados = new Set([...l.principal, ...l.grupoA, ...l.grupoB,
+                                l.desvio, l.bloqueio].filter(Boolean));
+    const fora = [...new Set((lista||[]).map(i=>i.status).filter(st=>st && !desenhados.has(st)))]
+                   .sort((a,b)=>this.ordemDe(a)-this.ordemDe(b)||cmpAlfa(a,b));
+    l.grupoC = fora;
+    return l;
+  },
   statusAtivos(){ const a=this.statusDefs().filter(s=>s.ativo).map(s=>s.codigo);
     const usados=[...new Set((S.db?.itens??[]).map(i=>i.status))];
     return [...new Set([...a,...usados])].sort((x,y)=>this.ordemDe(x)-this.ordemDe(y)||x.localeCompare(y)); },
@@ -535,10 +604,14 @@ function ordenar(lista){
    Agrupa várias mudanças no mesmo campo e descarta ida-e-volta.        */
 const Pend = {
   timerAuto:null, timerCons:null,
+  /* Tudo o que foi feito aqui e ainda nao chegou ao disco. Serve para reaplicar
+     as nossas alteracoes por cima da versao que outra pessoa gravou. */
+  diario:[],
+  registrar(e){ this.diario.push(e); },
 
   campoEditavel:["status","updatedStatusObs","generalObs","ncr","tests"],
 
-  alterar(itemId, campo, valorNovo, {dataEfetiva=null, motivo=""}={}){
+  alterar(itemId, campo, valorNovo, {dataEfetiva=null, motivo="", silencioso=false}={}){
     if(!this.campoEditavel.includes(campo)) return toast("Campo somente leitura","bad");
     const it = S.db.itens.find(i=>i.item===itemId); if(!it) return;
     const atual = it[campo] ?? "";
@@ -557,6 +630,8 @@ const Pend = {
     it[campo]=valorNovo;
     if(campo==="status") it.ultimaAlteracaoStatus = p.dataEfetiva;
     it.atualizadoEm = agora();
+    if(!silencioso) this.registrar({t:"campo", item:itemId, campo, de:atual, para:valorNovo,
+                                    dataEfetiva:p.dataEfetiva, motivo:p.motivo||""});
     S.sujo = true;
     this.agendarAutosave();
     Render.badgePendentes();
@@ -567,17 +642,27 @@ const Pend = {
     marcarEstado(LANG==="pt"?"alterado...":"changed...");
     this.timerAuto = setTimeout(()=>this.autosave(), 3000);
   },
-  async autosave(){
+  async autosave(tentativa=0){
     if(!S.db || !Store.dirHandle) return;
     await IDB.set("espelho", S.db);              // rede técnica: recuperação após queda
+    S.salvando = true;
     try{
       await Store.gravar(S.db);
-      S.sujo=false; marcarEstado(LANG==="pt"?"salvo "+new Date().toLocaleTimeString().slice(0,5)
-                                            :"saved "+new Date().toLocaleTimeString().slice(0,5));
+      this.diario = []; S.sujo=false;
+      marcarEstado(LANG==="pt"?"salvo "+new Date().toLocaleTimeString().slice(0,5)
+                              :"saved "+new Date().toLocaleTimeString().slice(0,5));
+      Sync.ultimoMtime = await Store.mtime();
     }catch(e){
-      if(e.message==="CONFLITO_REVISAO") return UI.conflitoGravacao(e);
+      if(e.message==="CONFLITO_REVISAO"){
+        /* Outra pessoa gravou antes. Se as alteracoes nao se cruzam, junta as duas
+           versoes e grava de novo; se cruzam, quem decide e o usuario. */
+        if(tentativa<2 && Sync.receber(e.disco,{aoSalvar:true})!=="decidir"){
+          S.salvando=false; return this.autosave(tentativa+1);
+        }
+        S.salvando=false; return UI.conflitoGravacao(e);
+      }
       marcarEstado(LANG==="pt"?"falha ao salvar":"save failed"); toast(String(e.message),"bad");
-    }
+    }finally{ S.salvando=false; }
   },
 
   /* consolida um pendente no histórico definitivo (ou descarta se voltou ao original) */
@@ -622,7 +707,197 @@ const Pend = {
     this.autosave(); Render.badgePendentes(); Render.atual();
     toast(LANG==="pt"?"Descartado. Recuperável em Configurações > Log técnico.":"Discarded. Recoverable in Settings > Technical log.","ok");
   },
-  iniciar(){ clearInterval(this.timerCons); this.timerCons=setInterval(()=>this.varrer(), 20000); },
+  iniciar(){ clearInterval(this.timerCons); this.timerCons=setInterval(()=>this.varrer(), 20000);
+    Sync.iniciar(); },
+};
+
+
+/* ==================== sincronizacao entre duas ou mais pessoas ==========
+   A base continua sendo um unico database.json numa pasta compartilhada.
+   Cada sessao:
+     - verifica a data do arquivo a cada poucos segundos (barato: so metadados);
+     - quando muda, traz a versao nova e reaplica por cima o que ainda nao
+       tinha gravado daqui (Pend.diario);
+     - se a mesma pessoa e a outra mexeram no MESMO campo do MESMO item,
+       nada e sobrescrito em silencio: o usuario decide campo a campo;
+     - anuncia sua presenca em presenca/<nome>.json (um arquivo por pessoa,
+       portanto sem disputa de escrita) para todos verem quem esta na base.
+   ====================================================================== */
+const Sync = {
+  timer:null, timerPres:null, ultimoMtime:0, presentes:[], ligado:true,
+
+  segundos(){ return Math.min(120, Math.max(3, S.db?.config?.segundosSync ?? 7)); },
+
+  iniciar(){
+    this.parar();
+    if(!Store.dirHandle || !S.db) return;
+    Store.mtime().then(m=>this.ultimoMtime=m);
+    this.timer     = setInterval(()=>this.tick(),     this.segundos()*1000);
+    this.timerPres = setInterval(()=>this.presenca(), 20000);
+    this.presenca();
+  },
+  parar(){ clearInterval(this.timer); clearInterval(this.timerPres); this.timer=this.timerPres=null; },
+
+  async tick(){
+    if(!this.ligado || !S.db || !Store.dirHandle) return;
+    if(S.salvando || $("#ov")) return;          /* gravando ou com janela aberta: espera */
+    const m = await Store.mtime();
+    if(!m || m===this.ultimoMtime) return;
+    this.ultimoMtime = m;
+    let disco; try{ disco = await Store.lerArquivo(); }catch{ return; }
+    const rd = disco?.meta?.revisao ?? 0;
+    if(rd <= Store.revisaoCarregada) return;    /* e o nosso proprio save voltando */
+    this.receber(disco);
+  },
+
+  /* Junta a versao do disco com o que ainda nao foi gravado daqui.
+     Devolve "adotado" | "juntado" | "decidir". */
+  receber(disco, {aoSalvar=false}={}){
+    if(!disco || !Array.isArray(disco.itens)) return "decidir";
+    normalizar(disco);
+    const autor = disco?.meta?.ultimoAutor || (LANG==="pt"?"outra pessoa":"someone else");
+
+    /* compacta o diario: um registro por item+campo, do primeiro "de" ao ultimo "para" */
+    const meus = new Map();
+    let naoRebasavel = null;
+    for(const e of Pend.diario){
+      if(e.t==="campo"){
+        const k = e.item+"\u0000"+e.campo;
+        if(meus.has(k)) meus.get(k).para = e.para;
+        else meus.set(k, {...e});
+      }else if(e.t==="obs"){ meus.set("obs:"+e.obj.id, {...e});
+      }else naoRebasavel = e;
+    }
+
+    const adotar = ()=>{
+      const modal = !!$("#ov");
+      S.db = disco; Store.revisaoCarregada = disco.meta.revisao ?? 0;
+      Pend.diario = []; S.sujo = false;
+      R._hs=null; R._hsRev=-1;
+      IDB.set("espelho", disco);
+      if(!modal) Render.atual(); else Render.badgePendentes();
+      marcarEstado(LANG==="pt"?"atualizado do disco":"updated from disk");
+    };
+
+    if(!meus.size && !naoRebasavel){
+      adotar();
+      toast(LANG==="pt"? `Base atualizada por ${autor}` : `Database updated by ${autor}`);
+      return "adotado";
+    }
+    if(naoRebasavel){ this.decidir(disco, [...meus.values()], [], autor); return "decidir"; }
+
+    /* separa o que pode ser reaplicado do que colide de verdade */
+    const ok=[], colide=[];
+    for(const e of meus.values()){
+      if(e.t==="obs"){ ok.push(e); continue; }
+      const it = disco.itens.find(i=>i.item===e.item);
+      if(!it){ colide.push({...e, remoto:null}); continue; }
+      const rv = it[e.campo] ?? "";
+      if(String(rv)===String(e.de) || String(rv)===String(e.para)) ok.push(e);
+      else colide.push({...e, remoto:rv});
+    }
+    if(colide.length){ this.decidir(disco, ok, colide, autor); return "decidir"; }
+
+    adotar();
+    this.reaplicar(ok);
+    Render.atual();
+    toast(LANG==="pt"
+      ? `${autor} atualizou a base; suas ${ok.length} alteração(ões) foram mantidas`
+      : `${autor} updated the database; your ${ok.length} change(s) were kept`, "ok");
+    return "juntado";
+  },
+
+  reaplicar(lista){
+    for(const e of lista){
+      if(e.t==="obs"){
+        if(!S.db.observacoes.some(o=>o.id===e.obj.id)) S.db.observacoes.push(e.obj);
+        Pend.registrar(e);
+      }else{
+        Pend.alterar(e.item, e.campo, e.para, {dataEfetiva:e.dataEfetiva, motivo:e.motivo});
+      }
+    }
+    if(lista.length) Pend.agendarAutosave();
+  },
+
+  /* Colisao real no mesmo campo: nada e escolhido por conta propria. */
+  decidir(disco, seguras, colide, autor){
+    this.ligado = false;
+    const lin = colide.map((c,k)=>`<tr>
+      <td class="num"><b>${esc(c.item)}</b></td><td>${esc(c.campo)}</td>
+      <td><label class="rowflex" style="gap:6px;align-items:flex-start">
+        <input type="radio" name="cf${k}" value="meu" checked>
+        <span style="white-space:pre-wrap">${esc(c.para)||"—"}</span></label></td>
+      <td><label class="rowflex" style="gap:6px;align-items:flex-start">
+        <input type="radio" name="cf${k}" value="deles">
+        <span style="white-space:pre-wrap">${esc(c.remoto??"")||"—"}</span></label></td></tr>`).join("");
+    UI.modal(LANG==="pt"?"A base mudou enquanto você editava":"The database changed while you were editing",
+     `<p>${LANG==="pt"
+        ? `<b>${esc(autor)}</b> gravou uma versão nova da base. O que não se cruza já foi juntado automaticamente.`
+        : `<b>${esc(autor)}</b> saved a new version. Everything that does not overlap was merged automatically.`}</p>
+      ${colide.length? `<p class="muted">${LANG==="pt"
+        ? "Estes campos foram alterados dos dois lados. Escolha, para cada um, qual valor vale:"
+        : "These fields were changed on both sides. Pick which value wins for each:"}</p>
+      <table><thead><tr><th>${T("item")}</th><th>${T("campo")}</th>
+        <th>${LANG==="pt"?"Seu valor":"Your value"}</th>
+        <th>${esc(autor)}</th></tr></thead><tbody>${lin}</tbody></table>`
+      : `<p class="muted">${LANG==="pt"
+        ? "Há alterações aqui (configuração, conflito de migração ou restauração) que não podem ser reaplicadas sozinhas sobre a versão nova."
+        : "There are local changes (settings, migration conflict or restore) that cannot be replayed on the new version."}</p>`}
+      <div class="sep"></div>
+      <p class="muted" style="font-size:11.5px">${LANG==="pt"
+        ? "Nada foi apagado: sua versão continua em memória até você escolher, e o valor descartado fica registrado no histórico."
+        : "Nothing was deleted: your version stays in memory until you choose, and the discarded value is logged in the history."}</p>`,
+     [{txt:LANG==="pt"?"Baixar minha versão":"Download my version",cls:"btn",
+       fn:()=>dl(`minha-versao-${hoje()}.json`,JSON.stringify(S.db,null,1),"application/json")},
+      {txt:LANG==="pt"?"Manter tudo meu":"Keep all mine",cls:"btn",fn:()=>{
+        const meus = colide.map(c=>({...c}));
+        UI.fechar(); this.ligado=true;
+        S.db=disco; Store.revisaoCarregada=disco.meta.revisao??0; Pend.diario=[]; R._hs=null; R._hsRev=-1;
+        this.reaplicar([...seguras,...meus]); Render.atual();
+        toast(LANG==="pt"?"Sua versão prevaleceu nos campos em disputa":"Your values won the disputed fields","ok");}},
+      {txt:LANG==="pt"?"Aplicar escolhas":"Apply choices",cls:"btn pri",fn:()=>{
+        const fica=[];
+        colide.forEach((c,k)=>{ const r=$(`input[name="cf${k}"]:checked`);
+          if(r && r.value==="meu") fica.push(c); });
+        UI.fechar(); this.ligado=true;
+        S.db=disco; Store.revisaoCarregada=disco.meta.revisao??0; Pend.diario=[]; R._hs=null; R._hsRev=-1;
+        this.reaplicar([...seguras,...fica]); Render.atual();
+        toast(LANG==="pt"?"Versões conciliadas":"Versions reconciled","ok");}}]);
+  },
+
+  /* ---- presenca: um arquivo por pessoa, sem disputa de escrita ---- */
+  slug(n){ return (String(n).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"")
+            .replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"").slice(0,40)) || "anonimo"; },
+  async presenca(){
+    if(!Store.dirHandle) return;
+    const eu = Usuario.nome(); if(!eu) return;
+    try{
+      const d = await Store.dirHandle.getDirectoryHandle("presenca",{create:true});
+      const fh = await d.getFileHandle(this.slug(eu)+".json",{create:true});
+      const w = await fh.createWritable();
+      await w.write(JSON.stringify({nome:eu, em:agora()})); await w.close();
+      const vivos=[], limite=Date.now()-90000;
+      for await (const [n,h] of d.entries()){
+        if(h.kind!=="file" || !n.endsWith(".json")) continue;
+        try{ const j=JSON.parse(await (await h.getFile()).text());
+          if(j?.nome && new Date(j.em).getTime()>=limite) vivos.push(j.nome); }catch{}
+      }
+      this.presentes=[...new Set(vivos)];
+    }catch{ this.presentes=[]; }
+    this.pintar();
+  },
+  async sair(){
+    try{ const d=await Store.dirHandle?.getDirectoryHandle("presenca");
+      await d?.removeEntry(this.slug(Usuario.nome())+".json"); }catch{}
+  },
+  pintar(){
+    const el=$("#presenca"); if(!el) return;
+    const outros=this.presentes.filter(n=>n!==Usuario.nome());
+    if(!outros.length){ el.style.display="none"; return; }
+    el.style.display="inline-flex";
+    el.textContent = `\u25cf ${outros.length+1} ${LANG==="pt"?"na base":"online"}`;
+    el.title = (LANG==="pt"?"Também com a base aberta: ":"Also working on this database: ")+outros.join(", ");
+  },
 };
 
 function marcarEstado(txt){ $("#saveState").textContent = txt; }
@@ -638,6 +913,19 @@ const M = {
     const mud=itens.filter(i=>R.mudouNoCiclo(i)).length;
     return {total:itens.length, aberto:ab, validado:val, mudou:mud,
             pct: itens.length? (itens.length-ab)/itens.length : 0};
+  },
+  /* Contagem por status com a variacao desde o marco anterior, como nos
+     paineis impressos ("Validated: 152 (-)"). */
+  statusComDelta(lista){
+    const ma=R.marcoAnterior()?.data;
+    const at=new Map(), an=new Map();
+    for(const i of lista){
+      at.set(i.status,(at.get(i.status)||0)+1);
+      if(ma){ const s=R.statusEm(i.item,ma); if(s) an.set(s,(an.get(s)||0)+1); }
+    }
+    return [...new Set([...at.keys(),...an.keys()])]
+      .map(st=>({st, n:at.get(st)||0, ant:ma? (an.get(st)||0) : undefined}))
+      .sort((a,b)=>R.ordemDe(a.st)-R.ordemDe(b.st)||cmpAlfa(a.st,b.st));
   },
   porStatus(itens){ const m=new Map();
     for(const i of itens) m.set(i.status,(m.get(i.status)||0)+1);
@@ -723,32 +1011,35 @@ const G = {
     if(!dados.length) return `<div class="empty">&mdash;</div>`;
     const W=600, mx = max ?? Math.max(1,...dados.map(d=>d.v)), bw=W/dados.length;
     return `<svg viewBox="0 0 ${W} ${h}" style="width:100%;height:auto;display:block">
+      <line x1="0" y1="${h-13}" x2="${W}" y2="${h-13}" stroke="var(--line)" stroke-width="2"/>
       ${dados.map((d,k)=>{
-        const bh=(d.v/mx)*(h-30), x=k*bw, y=h-14-bh;
-        return `<rect x="${(x+bw*.18).toFixed(1)}" y="${y.toFixed(1)}" width="${(bw*.64).toFixed(1)}"
-                 height="${Math.max(bh,d.v?2:0).toFixed(1)}" fill="${d.cor||cor}" rx="2">
+        const bh=(d.v/mx)*(h-34), x=k*bw, y=h-14-bh, c=d.cor||cor;
+        return `<rect x="${(x+bw*.16).toFixed(1)}" y="${y.toFixed(1)}" width="${(bw*.68).toFixed(1)}"
+                 height="${Math.max(bh,d.v?3:0).toFixed(1)}" fill="${c}" rx="3" stroke="${c}" stroke-width="1.5">
                  <title>${esc(d.l)}: ${d.v}</title></rect>
-          ${d.v?`<text x="${(x+bw/2).toFixed(1)}" y="${(y-4).toFixed(1)}" text-anchor="middle" font-size="12"
-             fill="var(--fg-2)" font-family="var(--mono)">${fmt(d.v)}</text>`:""}`;}).join("")}
+          ${d.v?`<text x="${(x+bw/2).toFixed(1)}" y="${(y-5).toFixed(1)}" text-anchor="middle" font-size="13"
+             font-weight="700" fill="${c}" font-family="var(--mono)">${fmt(d.v)}</text>`:""}`;}).join("")}
       </svg>
       <div style="display:grid;grid-template-columns:repeat(${dados.length},1fr);margin-top:3px">
-      ${dados.map(d=>`<div style="font-size:10px;color:var(--fg-3);text-align:center;overflow:hidden;
+      ${dados.map(d=>`<div style="font-size:10.5px;color:var(--fg-2);font-weight:600;text-align:center;overflow:hidden;
         text-overflow:ellipsis;white-space:nowrap" title="${esc(d.l)}">${esc(d.l)}</div>`).join("")}</div>`;
   },
   barrasEmpilhadas(linhas,chaves,cores,{h=220}={}){
     if(!linhas.length) return `<div class="empty">&mdash;</div>`;
     const W=600, mx=Math.max(1,...linhas.map(l=>chaves.reduce((s,k)=>s+(l.v[k]||0),0))), bw=W/linhas.length;
     return `<svg viewBox="0 0 ${W} ${h}" style="width:100%;height:auto;display:block">
+      <line x1="0" y1="${h-9}" x2="${W}" y2="${h-9}" stroke="var(--line)" stroke-width="2"/>
       ${linhas.map((l,k)=>{ let acc=0; const x=k*bw; const tot=chaves.reduce((s,c)=>s+(l.v[c]||0),0);
         const barras = chaves.map((key,ki)=>{ const v=l.v[key]||0; if(!v) return "";
-          const bh=(v/mx)*(h-26); acc+=bh;
-          return `<rect x="${(x+bw*.18).toFixed(1)}" y="${(h-10-acc).toFixed(1)}" width="${(bw*.64).toFixed(1)}"
-            height="${Math.max(bh-2,1).toFixed(1)}" fill="${cores[ki]}" rx="2"><title>${esc(l.l)} \u2014 ${esc(key)}: ${v}</title></rect>`;}).join("");
-        return barras + (tot?`<text x="${(x+bw/2).toFixed(1)}" y="${(h-14-acc).toFixed(1)}" text-anchor="middle"
-          font-size="11" fill="var(--fg-2)" font-family="var(--mono)">${tot}</text>`:"");}).join("")}
+          const bh=(v/mx)*(h-30); acc+=bh;
+          return `<rect x="${(x+bw*.16).toFixed(1)}" y="${(h-10-acc).toFixed(1)}" width="${(bw*.68).toFixed(1)}"
+            height="${Math.max(bh-2.5,1.5).toFixed(1)}" fill="${cores[ki]}" rx="2.5" stroke="var(--panel)"
+            stroke-width="1.5"><title>${esc(l.l)} \u2014 ${esc(key)}: ${v}</title></rect>`;}).join("");
+        return barras + (tot?`<text x="${(x+bw/2).toFixed(1)}" y="${(h-16-acc).toFixed(1)}" text-anchor="middle"
+          font-size="12" font-weight="700" fill="var(--fg-2)" font-family="var(--mono)">${tot}</text>`:"");}).join("")}
       </svg>
       <div style="display:grid;grid-template-columns:repeat(${linhas.length},1fr);margin-top:3px">
-      ${linhas.map(l=>`<div style="font-size:10px;color:var(--fg-3);text-align:center;overflow:hidden;
+      ${linhas.map(l=>`<div style="font-size:10.5px;color:var(--fg-2);font-weight:600;text-align:center;overflow:hidden;
         text-overflow:ellipsis;white-space:nowrap" title="${esc(l.l)}">${esc(l.l)}</div>`).join("")}</div>`;
   },
   linhas(serie,series,{h=200}={}){
@@ -758,27 +1049,33 @@ const G = {
     const py=v=>h-16-(v/mx)*(h-30);
     return `<svg viewBox="0 0 ${W} ${h}" style="width:100%;height:auto;display:block">
       ${[0,.25,.5,.75,1].map(f=>`<line x1="${L}" y1="${py(mx*f).toFixed(1)}" x2="${W-6}" y2="${py(mx*f).toFixed(1)}"
-          stroke="var(--line-2)" stroke-width="1.5"/>
-        <text x="${L-5}" y="${(py(mx*f)+4).toFixed(1)}" text-anchor="end" font-size="11" fill="var(--fg-3)"
-          font-family="var(--mono)">${Math.round(mx*f)}</text>`).join("")}
-      ${series.map(s=>`<polyline fill="none" stroke="${s.cor}" stroke-width="3.2" stroke-linejoin="round" stroke-linecap="round"
+          stroke="${f?"var(--line-2)":"var(--line)"}" stroke-width="${f?1.5:2.5}"/>
+        <text x="${L-5}" y="${(py(mx*f)+4).toFixed(1)}" text-anchor="end" font-size="11.5" fill="var(--fg-2)"
+          font-weight="600" font-family="var(--mono)">${Math.round(mx*f)}</text>`).join("")}
+      ${series.map(s=>`<polyline fill="none" stroke="${s.cor}" stroke-width="4.5" stroke-linejoin="round" stroke-linecap="round"
          points="${serie.map((p,k)=>`${px(k).toFixed(1)},${py(p[s.k]).toFixed(1)}`).join(" ")}"/>
-        ${serie.map((p,k)=>`<circle cx="${px(k).toFixed(1)}" cy="${py(p[s.k]).toFixed(1)}" r="4.5" fill="${s.cor}" stroke="var(--panel)" stroke-width="2"
-          opacity="0"><title>${fmtD(p.data)} \u2014 ${s.nome}: ${p[s.k]}</title><animate attributeName="opacity"
-          begin="mouseover" dur="0.1s" to="1" fill="freeze"/></circle>`).join("")}`).join("")}
+        ${serie.map((p,k)=>{ const pta=(k===0||k===serie.length-1)||serie.length<=20;
+          return (pta?`<circle cx="${px(k).toFixed(1)}" cy="${py(p[s.k]).toFixed(1)}" r="${k===0||k===serie.length-1?5.5:3.6}"
+            fill="${s.cor}" stroke="var(--panel)" stroke-width="2"/>`:"")
+          + `<circle cx="${px(k).toFixed(1)}" cy="${py(p[s.k]).toFixed(1)}" r="7" fill="transparent"
+            ><title>${fmtD(p.data)} \u2014 ${s.nome}: ${p[s.k]}</title></circle>`;}).join("")}`).join("")}
       </svg>
       <div class="rowflex" style="justify-content:space-between;font-size:10px;color:var(--fg-3);margin-top:2px;padding:0 6px 0 34px">
         <span>${fmtD(serie[0].data)}</span><span>${fmtD(serie[serie.length-1].data)}</span></div>
-      <div class="rowflex" style="gap:12px;margin-top:6px;font-size:11px">
-      ${series.map(s=>`<span class="rowflex" style="gap:5px"><i class="dot" style="background:${s.cor}"></i>${esc(s.nome)}</span>`).join("")}</div>`;
+      <div class="rowflex" style="gap:14px;margin-top:6px;font-size:11.5px;font-weight:600">
+      ${series.map(s=>`<span class="rowflex" style="gap:6px"><i class="dot" style="background:${s.cor};width:11px;height:11px"></i>
+        <span style="color:${s.cor}">${esc(s.nome)}</span></span>`).join("")}</div>`;
   },
   /* Diagrama de fluxo no mesmo esquema da aba "Evidence Flow" do Excel:
      cadeia principal com setas, desvio acima, bloqueio abaixo e os grupos de
      rebaixamento a direita. Coordenadas fixas, escala uniforme, sem deformar texto. */
   fluxo(conta, total, layout){
-    const W=1256, BW=196, BH=92, GAP=54, YT=30, M=14;
+    if(!layout || !Array.isArray(layout.principal) || !layout.principal.length)
+      return `<div class="empty">&mdash;</div>`;
+    const W=1256, BW=196, BH=98, GAP=54, YT=26, M=14;
     const temDesvio=!!layout.desvio;
-    const YP=temDesvio?170:34, YB=YP+150, ALT=YB+126;
+    const temOutros=!!(layout.grupoC && layout.grupoC.length);
+    const YP=temDesvio?172:34, YB=YP+152, ALT=YB+Math.max(132, temOutros?30+layout.grupoC.length*30+22:0);
     const prin=layout.principal||[];
     /* Cadeia alinhada a esquerda e o "Validated" ancorado na borda direita,
        como na planilha: a seta longa ate ele mostra o caminho de conclusao.
@@ -787,45 +1084,56 @@ const G = {
     const px=k=> k===ult ? W-M-BW : M+k*(BW+GAP);
     const n=st=>conta.get(st)||0;
     const pc=v=>total? (v/total*100) : 0;
-    /* nos grupos o prefixo se repete em todas as linhas: mostramos so o que muda */
-    const curto=st=>{
+    /* nos grupos o prefixo se repete em todas as linhas: mostramos so o que muda.
+       O corte vem da largura util do quadro (rotulo -> valor), nao de um numero
+       fixo de caracteres, para o texto nunca encostar no numero. */
+    const curto=(st,w=228)=>{
       const t=st.replace(/^\d+ - /,"").replace(/^Under Analysis [Tt]o /,"→ ");
-      return t.length>22 ? t.slice(0,21)+"…" : t;   /* o nome completo fica no tooltip */
+      const cabe=Math.max(8, Math.floor((w-34-60)/7.0));
+      return t.length>cabe ? t.slice(0,cabe-1)+"…" : t;  /* o nome inteiro fica no tooltip */
     };
 
+    /* Caixa com faixa cheia no topo, fundo no tom do status e contorno grosso:
+       a cor identifica o passo mesmo de longe, como na planilha. */
     const caixa=(st,x,y,w=BW,h=BH,forte=false)=>{
       const c=R.corDe(st), v=n(st);
-      return `<g><rect x="${x}" y="${y}" width="${w}" height="${h}" rx="10" fill="${c}"
-          fill-opacity="${v?0.14:0.05}" stroke="${c}" stroke-width="${forte?3:2}"/>
-        <text x="${x+w/2}" y="${y+22}" text-anchor="middle" font-weight="600"
+      return `<g><rect x="${x}" y="${y}" width="${w}" height="${h}" rx="11" fill="${c}"
+          fill-opacity="${v?0.17:0.06}" stroke="${c}" stroke-width="${forte?4:2.8}"/>
+        <rect x="${x+4}" y="${y+2.5}" width="${w-8}" height="8" rx="4" fill="${c}"/>
+        <text x="${x+w/2}" y="${y+31}" text-anchor="middle" font-weight="700"
           font-size="${st.length>28?10.5:st.length>23?11.5:12.5}"
-          fill="var(--fg-2)">${esc(st)}</text>
-        <text x="${x+w/2}" y="${y+h*0.63}" text-anchor="middle" font-size="27" font-weight="700"
+          fill="${c}">${esc(st)}</text>
+        <text x="${x+w/2}" y="${y+h*0.70}" text-anchor="middle" font-size="30" font-weight="800"
           fill="${v?c:"var(--fg-3)"}" font-family="var(--mono)">${v}</text>
-        <text x="${x+w/2}" y="${y+h-11}" text-anchor="middle" font-size="12"
-          fill="var(--fg-3)" font-family="var(--mono)">${pc(v).toFixed(v?2:0)}%</text>
+        <text x="${x+w/2}" y="${y+h-10}" text-anchor="middle" font-size="12.5" font-weight="600"
+          fill="var(--fg-2)" font-family="var(--mono)">${pc(v).toFixed(v?2:0)}%</text>
         <title>${esc(st)}: ${v} de ${total} (${pc(v).toFixed(2)}%)</title></g>`;
     };
-    const grupo=(lista,x,y,w)=>{
-      const h=24+lista.length*30;
-      return `<g><rect x="${x}" y="${y}" width="${w}" height="${h}" rx="10" fill="var(--panel-2)"
-          stroke="var(--line)" stroke-width="2"/>
-        ${lista.map((st,k)=>{const c=R.corDe(st), v=n(st), cy=y+30+k*30;
+    let nG=0;
+    const grupo=(lista,x,y,w,titulo)=>{
+      const h=24+lista.length*30+(titulo?20:0);
+      const cid=`gcl${nG++}`;
+      return `<g><clipPath id="${cid}"><rect x="${x+26}" y="${y}" width="${w-84}" height="${h}"/></clipPath>
+        <rect x="${x}" y="${y}" width="${w}" height="${h}" rx="10" fill="var(--panel-2)"
+          stroke="var(--line)" stroke-width="2.5"/>
+        ${titulo?`<text x="${x+14}" y="${y+18}" font-size="10.5" font-weight="700" fill="var(--fg-3)"
+          letter-spacing="0.6">${esc(titulo)}</text>`:""}
+        ${lista.map((st,k)=>{const c=R.corDe(st), v=n(st), cy=y+30+(titulo?20:0)+k*30;
           return `<g><title>${esc(st)}: ${v} (${pc(v).toFixed(2)}%)</title>
-            <circle cx="${x+17}" cy="${cy-4}" r="5" fill="${c}"/>
-            <text x="${x+30}" y="${cy}" font-size="${curto(st).length>22?10.5:11.5}"
-              fill="var(--fg-2)">${esc(curto(st))}</text>
-            <text x="${x+w-44}" y="${cy}" text-anchor="end" font-size="14.5" font-weight="700"
+            <rect x="${x+11}" y="${cy-12}" width="11" height="11" rx="3" fill="${c}"/>
+            <text x="${x+30}" y="${cy}" font-size="11.5" font-weight="600" clip-path="url(#${cid})"
+              fill="${v?c:"var(--fg-2)"}">${esc(curto(st,w))}</text>
+            <text x="${x+w-44}" y="${cy}" text-anchor="end" font-size="15.5" font-weight="800"
               font-family="var(--mono)" fill="${v?c:"var(--fg-3)"}">${v}</text>
-            <text x="${x+w-10}" y="${cy}" text-anchor="end" font-size="11"
-              font-family="var(--mono)" fill="var(--fg-3)">${pc(v).toFixed(0)}%</text></g>`;}).join("")}
+            <text x="${x+w-10}" y="${cy}" text-anchor="end" font-size="11.5" font-weight="600"
+              font-family="var(--mono)" fill="var(--fg-2)">${pc(v).toFixed(0)}%</text></g>`;}).join("")}
         </g>`;
     };
-    const seta=(x1,y1,x2,y2,cor="var(--fg-3)")=>
-      `<path d="M${x1} ${y1} L${x2} ${y2}" stroke="${cor}" stroke-width="2.5" fill="none"
+    const seta=(x1,y1,x2,y2,cor="var(--fg-2)")=>
+      `<path d="M${x1} ${y1} L${x2} ${y2}" stroke="${cor}" stroke-width="3.4" fill="none"
         marker-end="url(#pf)" stroke-linecap="round"/>`;
-    const cotovelo=(x1,y1,x2,y2,cor="var(--fg-3)")=>
-      `<path d="M${x1} ${y1} V${(y1+y2)/2} H${x2} V${y2}" stroke="${cor}" stroke-width="2.5" fill="none"
+    const cotovelo=(x1,y1,x2,y2,cor="var(--fg-2)")=>
+      `<path d="M${x1} ${y1} V${(y1+y2)/2} H${x2} V${y2}" stroke="${cor}" stroke-width="3.4" fill="none"
         marker-end="url(#pf)" stroke-linejoin="round" stroke-linecap="round"/>`;
 
     let svg="";
@@ -844,25 +1152,35 @@ const G = {
       svg+=caixa(layout.bloqueio,bx,YB,BW,BH,true);
       svg+=cotovelo(px(iA)+BW/2-34,YP+BH+5,bx+BW/2-34,YB-9,R.corDe(layout.bloqueio));
       svg+=cotovelo(bx+BW/2+44,YB-9,px(iA)+BW/2+44,YP+BH+5);
-      const gw=238, gx=bx+BW+42;          /* 502+196+42 = 740 -> 978 */
-      const hw=228, hx=gx+gw+36;          /* 1014 -> 1242 = W-M      */
+      const gx=bx+BW+42, sobra=(W-M)-gx-30;
+      const gw=Math.round(sobra*0.47), hw=sobra-gw;
+      const hx=gx+gw+30;
       svg+=grupo(layout.grupoA,gx,YB-6,gw);
       svg+=seta(bx+BW+5,YB+BH/2,gx-9,YB+BH/2);
       svg+=grupo(layout.grupoB,hx,YB-6,hw);
       svg+=seta(gx+gw+5,YB+BH/2,hx-9,YB+BH/2);
+      /* Nenhum item pode ficar fora da conta: status sem lugar no desenho
+         aparecem num quadro proprio, a esquerda. */
+      if(temOutros) svg+=grupo(layout.grupoC, M, YB+BH+18, Math.max(300,bx-M-24),
+        LANG==="pt"?"OUTROS STATUS":"OTHER STATUSES");
+    }else if(temOutros){
+      svg+=grupo(layout.grupoC, M, YP+BH+30, Math.max(300,W/2),
+        LANG==="pt"?"OUTROS STATUS":"OTHER STATUSES");
     }
-    return `<svg viewBox="0 0 ${W} ${ALT}" style="width:100%;height:auto;display:block;min-width:780px">
-      <defs><marker id="pf" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5.5" markerHeight="5.5"
-        orient="auto-start-reverse"><path d="M0 1 L9 5 L0 9 z" fill="var(--fg-3)"/></marker></defs>
-      ${svg}</svg>`;
+    const mk="pf"+Math.random().toString(36).slice(2,7);
+    return `<svg viewBox="0 0 ${W} ${ALT}" style="width:100%;height:auto;display:block;min-width:860px">
+      <defs><marker id="${mk}" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="5" markerHeight="5"
+        orient="auto-start-reverse"><path d="M0 0.5 L9.5 5 L0 9.5 z" fill="context-stroke"/></marker></defs>
+      ${svg.replace(/url\(#pf\)/g,"url(#"+mk+")")
+            .replace(/(id="|url\(#)gcl/g,(m)=>m.replace("gcl",mk+"gcl"))}</svg>`;
   },
   donut(dados,{size=128}={}){
     const tot=dados.reduce((s,d)=>s+d.v,0)||1; let acc=0; const r=15.915;
     return `<div class="rowflex" style="gap:16px;align-items:center">
       <svg viewBox="0 0 42 42" style="width:${size}px;height:${size}px;flex:none">
-        <circle cx="21" cy="21" r="${r}" fill="none" stroke="var(--line-2)" stroke-width="6"/>
+        <circle cx="21" cy="21" r="${r}" fill="none" stroke="var(--line-2)" stroke-width="8"/>
         ${dados.filter(d=>d.v).map(d=>{const p=d.v/tot*100; const el=`<circle cx="21" cy="21" r="${r}" fill="none"
-          stroke="${d.cor}" stroke-width="6" stroke-dasharray="${p.toFixed(2)} ${(100-p).toFixed(2)}"
+          stroke="${d.cor}" stroke-width="8" stroke-dasharray="${p.toFixed(2)} ${(100-p).toFixed(2)}"
           stroke-dashoffset="${(25-acc).toFixed(2)}" transform="rotate(0 21 21)"><title>${esc(d.l)}: ${d.v}</title></circle>`;
           acc+=p; return el;}).join("")}
         <text x="21" y="20.5" text-anchor="middle" font-size="7" font-weight="700" fill="var(--fg)">${tot}</text>
@@ -961,13 +1279,11 @@ const Render = {
     const serie = M.serie(itens, serieDe, hoje());
     const cores = st=>R.corDe(st);
 
-    const cfgFluxo = R.cfg().fluxo || {};
     const contaDe = l => { const m=new Map(); l.forEach(i=>m.set(i.status,(m.get(i.status)||0)+1)); return m; };
-    const flow = (b,lista,titulo,layout)=>`<div class="panel">
+    const flow = (b,lista,titulo,qual)=>`<div class="panel">
       <h3>${titulo}<span class="sub"><b style="color:var(--fg)">${b.aberto}</b> ${LANG==="pt"?"em aberto de":"open of"} ${b.total}</span></h3>
-      <div class="pad" style="overflow-x:auto;overscroll-behavior-x:contain">${layout
-        ? G.fluxo(contaDe(lista), b.total, layout)
-        : `<div class="empty">—</div>`}</div></div>`;
+      <div class="pad" style="overflow-x:auto;overscroll-behavior-x:contain">${
+        G.fluxo(contaDe(lista), b.total, R.fluxoLayout(qual, lista))}</div></div>`;
 
     $("#view").innerHTML = `
     <div class="grid kpis" style="margin-bottom:14px">
@@ -978,21 +1294,24 @@ const Render = {
       ${kpi(T("alterados"),k.mudou, ma?`${LANG==="pt"?"desde":"since"} ${fmtD(ma.data)}`:"")}
     </div>
     <div class="grid" style="grid-template-columns:1fr;margin-bottom:14px">
-      ${flow(ef.b05, itens.filter(i=>i.isB05), LANG==="pt"?'Evidências "somente" B05':'Evidences "only" B05', cfgFluxo.b05)}
-      ${flow(ef.exceto, itens.filter(i=>!i.isB05), LANG==="pt"?'Evidências "exceto" B05':'Evidences "except" B05', cfgFluxo.exceto)}
+      ${flow(ef.b05, itens.filter(i=>i.isB05), LANG==="pt"?'Evidências "somente" B05':'Evidences "only" B05', "b05")}
+      ${flow(ef.exceto, itens.filter(i=>!i.isB05), LANG==="pt"?'Evidências "exceto" B05':'Evidences "except" B05', "exceto")}
     </div>
     <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(min(330px,100%),1fr));margin-bottom:14px">
       <div class="panel"><h3>Shipyard Prerequisites <span class="sub">OriginalJx = J08</span></h3>
-        <div class="pad"><div class="rowflex" style="justify-content:space-between;margin-bottom:10px">
-          <span class="muted">${LANG==="pt"?"Em aberto":"Remaining"}</span>
-          <b style="font-size:19px">${sy.aberto} <span class="muted" style="font-size:12px;font-weight:400">/ ${sy.total}</span></b></div>
-          ${sy.status.map(([st,n])=>linhaStatus(st,n,sy.total)).join("")||`<div class="muted">—</div>`}
+        <div class="pad">${cabecalhoRemaining(sy.aberto, sy.total)}
+          ${M.statusComDelta(sy.itens).map(r=>linhaStatus(r.st,r.n,sy.total,r.ant)).join("")||`<div class="muted">—</div>`}
+        </div></div>
+      <div class="panel"><h3>B05 Status <span class="sub">inspType = B05</span></h3>
+        <div class="pad">${cabecalhoRemaining(ef.b05.aberto, ef.b05.total)}
+          ${M.statusComDelta(itens.filter(i=>i.isB05)).map(r=>linhaStatus(r.st,r.n,ef.b05.total,r.ant)).join("")||`<div class="muted">—</div>`}
         </div></div>
       <div class="panel"><h3>Functional Insp. Type <span class="sub">${fu.aberto} ${LANG==="pt"?"em aberto de":"open of"} ${fu.total}</span></h3>
         <div class="pad">${fu.linhas.filter(l=>l.total).map(l=>`
           <div class="rowflex" style="justify-content:space-between;padding:3px 0;border-bottom:1px solid var(--line-2)">
-            <span>${esc(l.tipo)}</span>
-            <span class="rowflex" style="gap:9px"><b class="mono">${String(l.atual).padStart(2,"0")}</b>
+            <span style="font-weight:600;color:var(--fg)">${esc(l.tipo)}</span>
+            <span class="rowflex" style="gap:9px"><b class="mono" style="font-size:13.5px;
+              color:${l.atual?"var(--bad)":"var(--ok)"}">${String(l.atual).padStart(2,"0")}</b>
             <span style="min-width:48px;text-align:right">${G.seta(l.atual-l.anterior,{menorMelhor:true})}</span>
             <span class="muted mono" style="font-size:10.5px;min-width:34px;text-align:right">/${l.total}</span></span>
           </div>`).join("")}</div></div>
@@ -1018,10 +1337,27 @@ const Render = {
 
 function kpi(lab,val,dlt){ return `<div class="kpi"><div class="lab">${esc(lab)}</div>
   <div class="val">${val}</div><div class="dlt">${dlt||"&nbsp;"}</div></div>`; }
-function linhaStatus(st,n,tot){ return `<div class="rowflex" style="justify-content:space-between;padding:3px 0;border-bottom:1px solid var(--line-2)">
-  <span class="rowflex" style="gap:6px;min-width:0"><i class="dot" style="background:${R.corDe(st)}"></i>
-  <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(st)}</span></span>
-  <b class="mono">${String(n).padStart(2,"0")}</b></div>`; }
+/* "Remaining X on a total of Y", como no relatorio impresso. */
+function cabecalhoRemaining(aberto,total){
+  return `<div class="rowflex" style="justify-content:space-between;margin-bottom:9px;
+    padding-bottom:8px;border-bottom:2px solid var(--line)">
+    <span class="muted" style="font-weight:600">${LANG==="pt"?"Em aberto":"Remaining"}</span>
+    <b style="font-size:20px;color:${aberto?"var(--bad)":"var(--ok)"}">${aberto}
+      <span class="muted" style="font-size:12px;font-weight:400">${LANG==="pt"?"de":"of"} ${total}</span></b></div>`;
+}
+/* Cada status na sua propria cor, com a variacao desde o marco anterior. */
+function linhaStatus(st,n,tot,ant){
+  const c=R.corDe(st);
+  return `<div class="rowflex" style="justify-content:space-between;gap:8px;padding:4px 0;border-bottom:1px solid var(--line-2)">
+  <span class="rowflex" style="gap:7px;min-width:0;flex:1">
+    <i style="width:11px;height:11px;border-radius:3px;background:${c};flex:none"></i>
+    <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:${c};font-weight:600"
+      title="${esc(st)}">${esc(st)}</span></span>
+  <span class="rowflex" style="gap:10px;flex:none">
+    <b class="mono" style="color:${c};font-size:13.5px">${String(n).padStart(2,"0")}</b>
+    ${ant===undefined?"":`<span style="min-width:46px;text-align:right">${G.seta(n-ant,{menorMelhor:R.aberto(st)})}</span>`}
+  </span></div>`;
+}
 function pilhaPor(itens,campo,maxLinhas=10){
   const dados=M.abertoPorCampo(itens,campo).slice(0,maxLinhas);
   if(!dados.length) return `<div class="empty">—</div>`;
@@ -1099,29 +1435,50 @@ const Filtros = {
 Render.itens = function(){
   $("#pageTitle").textContent=T("itens");
   $("#headerExtra").innerHTML = Filtros.resumoHTML()+
+    `<button class="btn ${S.textoCompleto?"pri":""}" id="btnTxt" title="${LANG==="pt"
+       ? "Alterna entre uma linha por item (com o texto completo ao passar o mouse) e o texto inteiro na tabela"
+       : "Switch between one line per item (full text on hover) and the whole text in the table"}">${
+       S.textoCompleto? (LANG==="pt"?"⇕ Texto completo":"⇕ Full text")
+                      : (LANG==="pt"?"⇔ Uma linha":"⇔ Single line")}</button>`+
     `<button class="btn" id="btnExpTab">↓ CSV</button>`;
   const lista = ordenar(itensFiltrados());
   const cols = [
-    ["item",T("item"),"num"],["status",T("status"),""],["inspType",T("tipoInsp"),""],
-    ["originalJx",T("origem"),""],["evidence","Evidence",""],["description",LANG==="pt"?"Descrição":"Description",""],
-    ["updatedStatusObs",LANG==="pt"?"Obs. do status":"Status note",""],["aging",T("aging"),"num"],
+    ["item",T("item"),"num","7%"],["status",T("status"),"","17%"],["inspType",T("tipoInsp"),"","11%"],
+    ["originalJx",T("origem"),"","8%"],["evidence","Evidence","","13%"],
+    ["description",LANG==="pt"?"Descrição":"Description","","22%"],
+    ["updatedStatusObs",LANG==="pt"?"Obs. do status":"Status note","","16%"],["aging",T("aging"),"num","6%"],
   ];
+  /* Celula de texto: corta com reticencias e entrega o conteudo inteiro no
+     balao ao passar o mouse; no modo "texto completo" nada e cortado. */
+  const cel = (valor, rotulo) => {
+    const v = String(valor ?? "");
+    if(!v) return `<td><span class="muted">—</span></td>`;
+    const tip = (!S.textoCompleto && v.length>26)
+      ? ` data-tip="${esc(v)}" data-tip-l="${esc(rotulo)}"` : "";
+    return `<td><span class="trunc"${tip}>${esc(v)}</span></td>`;
+  };
   $("#view").innerHTML = `<div class="panel">
     <h3>${lista.length} ${LANG==="pt"?"itens":"items"}${lista.length!==S.db.itens.length?` <span class="sub">${LANG==="pt"?"de":"of"} ${S.db.itens.length}</span>`:""}</h3>
-    <div class="tblwrap"><table><thead><tr>
+    <div class="tblwrap"><table class="${S.textoCompleto?"livre":""}" style="table-layout:fixed">
+    <colgroup>${cols.map(c=>`<col style="width:${c[3]}">`).join("")}</colgroup>
+    <thead><tr>
       ${cols.map(c=>`<th data-s="${c[0]}" title="${LANG==="pt"?"Ordenar por":"Sort by"} ${esc(c[1])}"${S.ordenacao.campo===c[0]?' style="color:var(--accent)"':""}>${esc(c[1])} <span style="opacity:${S.ordenacao.campo===c[0]?1:.25}">${S.ordenacao.campo===c[0]&&S.ordenacao.dir<0?"▼":"▲"}</span></th>`).join("")}
     </tr></thead><tbody>
       ${lista.length? lista.map(i=>{
         const mud=R.mudouNoCiclo(i);
         return `<tr data-i="${esc(i.item)}" class="${mud?"":""}">
         <td class="num"><b>${esc(i.item)}</b></td>
-        <td class="${mud?"chgmark":""}"><span class="pill" style="background:${R.corDe(i.status)}22;color:${R.corDe(i.status)};border-color:${R.corDe(i.status)}55">
-          <i class="dot" style="background:${R.corDe(i.status)}"></i>${esc(i.status)}</span></td>
-        <td>${esc(i.inspType)}${i.isB05?` <span class="tag">B05</span>`:""}</td>
+        <td class="${mud?"chgmark":""}"><span class="pill" style="background:${R.corDe(i.status)}26;color:${R.corDe(i.status)};
+          border-color:${R.corDe(i.status)};max-width:100%;overflow:hidden;text-overflow:ellipsis;display:inline-flex"
+          title="${esc(i.status)}"><i class="dot" style="background:${R.corDe(i.status)}"></i>
+          <span style="overflow:hidden;text-overflow:ellipsis">${esc(i.status)}</span></span></td>
+        <td><span class="rowflex" style="gap:4px;flex-wrap:nowrap;min-width:0">
+          <span class="trunc">${esc(i.inspType)}</span>${
+          i.isB05&&i.inspType!=="B05"?`<span class="tag" style="flex:none">B05</span>`:""}</span></td>
         <td>${esc(i.originalJx)}</td>
-        <td><span class="trunc" style="max-width:180px">${esc(i.evidence)}</span></td>
-        <td><span class="trunc">${esc(i.description)}</span></td>
-        <td><span class="trunc" style="max-width:200px">${esc(i.updatedStatusObs)}</span></td>
+        ${cel(i.evidence,"Evidence")}
+        ${cel(i.description,LANG==="pt"?"Descrição":"Description")}
+        ${cel(i.updatedStatusObs,LANG==="pt"?"Obs. do status":"Status note")}
         <td class="num" style="color:${R.aberto(i.status)&&R.diasSemAtualizacao(i)>(S.db.config.diasAlertaAging??60)?"var(--bad)":"var(--fg-3)"}">${R.diasSemAtualizacao(i)}</td>
       </tr>`;}).join("")
       : `<tr><td colspan="${cols.length}"><div class="empty">${T("nenhumItem")}</div></td></tr>`}
@@ -1132,6 +1489,8 @@ Render.itens = function(){
     Render.atual();});
   $$("tbody tr[data-i]").forEach(tr=>tr.onclick=()=>UI.detalhe(tr.dataset.i));
   $("#btnExpTab").onclick=()=>Export.csv(lista);
+  $("#btnTxt").onclick=()=>{ S.textoCompleto=!S.textoCompleto;
+    localStorage.setItem("sm.textoCompleto", S.textoCompleto?"1":"0"); Render.atual(); };
   Filtros.ligar();
 };
 
@@ -1155,6 +1514,9 @@ Render.kanban = function(){
        <select id="kbOrd">${ORD_KANBAN.map(o=>`<option value="${o.id}" ${S.kbOrd.campo===o.id?"selected":""}>
          ${esc(LANG==="pt"?o.pt:o.en)}</option>`).join("")}</select></label>
      <button class="btn sm" id="kbDir" title="${LANG==="pt"?"Inverter":"Reverse"}">${S.kbOrd.dir>0?"A→Z":"Z→A"}</button>
+     <button class="btn sm" id="kbLay" title="${LANG==="pt"?"Alternar entre colunas lado a lado e faixas empilhadas"
+        :"Switch between side-by-side columns and stacked rows"}">${S.kbLayout==="h"
+        ? (LANG==="pt"?"▥ Horizontal":"▥ Horizontal") : (LANG==="pt"?"▤ Vertical":"▤ Vertical")}</button>
      <button class="btn sm" id="kbTodas">${LANG==="pt"?"Expandir tudo":"Expand all"}</button>`;
 
   const lista = itensFiltrados();
@@ -1172,7 +1534,7 @@ Render.kanban = function(){
     });
   };
 
-  $("#view").innerHTML=`<div class="kb">${fams.map(f=>{
+  $("#view").innerHTML=`<div class="kb ${S.kbLayout==="h"?"h":"v"}">${fams.map(f=>{
     const itens=ordFam(porFam[f.id]||[]);
     const rec=S.recolhidas.has(f.id);
     const ab=itens.filter(i=>R.aberto(i.status)).length;
@@ -1182,7 +1544,9 @@ Render.kanban = function(){
         <i class="dot" style="background:${f.cor};width:10px;height:10px"></i>
         <span class="nm">${esc(R.nomeFamilia(f.id))}</span>
         <span class="n">${itens.length}</span>
-        ${ab?`<span class="tag" style="color:${f.cor};border-color:${f.cor}">${ab} ${LANG==="pt"?"em aberto":"open"}</span>`:""}
+        ${ab && ab!==itens.length ?`<span class="tag" title="${ab} ${LANG==="pt"?"em aberto":"open"}"
+          style="color:${f.cor};border-color:${f.cor};flex:none">${
+          S.kbLayout==="h"? ab : `${ab} ${LANG==="pt"?"em aberto":"open"}`}</span>`:""}
         <span class="ch"><span class="muted" style="font-size:11px">
           ${S.db.config.status.filter(x=>x.familia===f.id&&itens.some(i=>i.status===x.codigo))
             .map(x=>esc(x.codigo)).join(" \u00b7 ")}</span></span>
@@ -1235,6 +1599,8 @@ Render.kanban = function(){
   });
   $("#kbOrd").onchange=e=>{S.kbOrd.campo=e.target.value; Render.atual();};
   $("#kbDir").onclick=()=>{S.kbOrd.dir=-S.kbOrd.dir; Render.atual();};
+  $("#kbLay").onclick=()=>{S.kbLayout = S.kbLayout==="h"?"v":"h";
+    localStorage.setItem("sm.kbLayout",S.kbLayout); Render.atual();};
   $("#kbTodas").onclick=()=>{
     if(S.recolhidas.size) S.recolhidas.clear(); else R.familias().forEach(f=>S.recolhidas.add(f.id));
     localStorage.setItem("sm.recolhidas",JSON.stringify([...S.recolhidas])); Render.atual();};
@@ -1502,6 +1868,10 @@ Render.config = function(){
         <input type="number" id="cSem" min="1" value="${c.diasSemAtualizacao??30}"></label>
       <label class="fld"><span>${LANG==="pt"?"Dias para alerta de aging":"Aging alert threshold (days)"}</span>
         <input type="number" id="cAge" min="1" value="${c.diasAlertaAging??60}"></label>
+      <label class="fld"><span>${LANG==="pt"
+        ? "Segundos entre verificações da base (trabalho simultâneo)"
+        : "Seconds between database checks (concurrent work)"}</span>
+        <input type="number" id="cSync" min="3" max="120" value="${c.segundosSync??7}"></label>
       <label class="fld"><span>${LANG==="pt"?"Seu nome (autor do histórico)":"Your name (history author)"}</span>
         <input type="text" id="cAutor" value="${esc(Usuario.nome())}"></label>
       <label class="fld"><span>${LANG==="pt"
@@ -1572,10 +1942,12 @@ Render.config = function(){
     c.minutosConsolidacao=+$("#cCons").value; c.diasSemAtualizacao=+$("#cSem").value;
     c.diasAlertaAging=+$("#cAge").value;
     c.statusPosExecucao=$("#cPos").value.split("\n").map(x=>x.trim()).filter(Boolean);
+    c.segundosSync=Math.min(120,Math.max(3,+$("#cSync").value||7));
     const a=$("#cAutor").value.trim(); if(a) localStorage.setItem("sm.autor",a);
-    Pend.agendarAutosave(); toast(LANG==="pt"?"Configurações salvas":"Settings saved","ok"); Render.atual();};
+    Pend.registrar({t:"outro", o:"config"}); Pend.agendarAutosave(); Sync.iniciar(); toast(LANG==="pt"?"Configurações salvas":"Settings saved","ok"); Render.atual();};
   $$("input[data-st]").forEach(cb=>cb.onchange=()=>{
-    c.status[+cb.dataset.st].ativo=cb.checked; Pend.agendarAutosave();});
+    c.status[+cb.dataset.st].ativo=cb.checked;
+    Pend.registrar({t:"outro", o:"status-ativo"}); Pend.agendarAutosave();});
   $("#bFazer").onclick=async()=>{try{const n=await Store.backup(S.db,"manual");
     toast((LANG==="pt"?"Backup criado: ":"Backup created: ")+n,"ok");}catch(e){toast(String(e.message),"bad");}};
   $("#bBaixar").onclick=()=>dl(`database-${hoje()}.json`,JSON.stringify(S.db,null,1),"application/json");
@@ -1660,7 +2032,7 @@ const UI = {
   async carregarBase(){
     try{
       S.db = await Store.carregar();
-      normalizar(S.db);
+      normalizar(S.db); Pend.diario=[]; S.sujo=false;
       Usuario.garantir();
       await Store.backup(S.db,"abertura").catch(()=>{});
       Pend.iniciar();
@@ -1711,12 +2083,14 @@ const UI = {
         <li><b>${LANG==="pt"?"Recarregar":"Reload"}</b> — ${LANG==="pt"?"descarta suas alterações não gravadas e traz a versão do disco.":"discards your unsaved changes and loads the disk version."}</li>
         <li><b>${LANG==="pt"?"Salvar cópia":"Save a copy"}</b> — ${LANG==="pt"?"baixa a sua versão para comparação manual.":"downloads your version for manual comparison."}</li>
         <li><b>${LANG==="pt"?"Forçar gravação":"Force write"}</b> — ${LANG==="pt"?"sobrescreve o disco. Um backup da versão do disco é criado antes.":"overwrites the disk. A backup of the disk version is created first."}</li></ul>`,
-      [{txt:LANG==="pt"?"Recarregar":"Reload",cls:"btn",fn:async()=>{this.fechar(); await this.carregarBase();}},
+      [{txt:LANG==="pt"?"Recarregar":"Reload",cls:"btn",fn:async()=>{
+          this.fechar(); Pend.diario=[]; S.sujo=false; await this.carregarBase();}},
        {txt:LANG==="pt"?"Salvar cópia":"Save a copy",cls:"btn",fn:()=>dl(`minha-versao-${hoje()}.json`,JSON.stringify(S.db,null,1),"application/json")},
        {txt:LANG==="pt"?"Forçar gravação":"Force write",cls:"btn danger",fn:async()=>{
           try{ await Store.backup(err.disco,"pre-sobrescrita"); }catch{}
           S.db.meta.revisao = err.revisaoDisco;
           await Store.gravar(S.db,{forcar:true});
+          Pend.diario=[]; Sync.ultimoMtime = await Store.mtime();
           this.fechar(); marcarEstado(LANG==="pt"?"gravado (forçado)":"written (forced)");}}]);
   },
 
@@ -1807,7 +2181,8 @@ const UI = {
         ["d","h","o","x"].forEach(t=>$("#tp-"+t).hidden = t!==b.dataset.t); };});
     $("#oAdd").onclick=()=>{
       const t=$("#oTxt").value.trim(); if(!t) return;
-      S.db.observacoes.push({id:uid(),item:itemId,texto:t,criadoEm:agora(),autor:Usuario.garantir()});
+      const o={id:uid(),item:itemId,texto:t,criadoEm:agora(),autor:Usuario.garantir()};
+      S.db.observacoes.push(o); Pend.registrar({t:"obs",obj:o});
       Pend.autosave(); this.detalhe(itemId);   // observações gravam na hora (não passam por pendentes)
       $$(".tabs button")[2].click();
       toast(LANG==="pt"?"Observação salva":"Note saved","ok");};
@@ -1905,6 +2280,7 @@ const UI = {
           observacao:justificativa||(LANG==="pt"?"Resolução de conflito de migração":"Migration conflict resolution")});
       }
     }
+    Pend.registrar({t:"outro", o:"conflito:"+c.id});
     c.resolvido=true; c.valorAplicado=valor;
     c.resolvidoPor=Usuario.garantir(); c.resolvidoEm=agora();
     c.justificativa=justificativa||null;
@@ -1961,6 +2337,7 @@ const UI = {
       const b=await Store.restaurarBackup(nome);
       normalizar(b); b.meta.revisao=S.db.meta.revisao;
       S.db=b; await Store.gravar(S.db,{forcar:true});
+      Pend.diario=[]; Sync.ultimoMtime = await Store.mtime(); Sync.iniciar();
       Render.atual(); toast(LANG==="pt"?"Backup restaurado":"Backup restored","ok");
     }catch(e){ toast(String(e.message),"bad"); }
   },
@@ -2066,6 +2443,11 @@ function normalizar(db){
   db.observacoes ??= []; db.conflitos ??= [];
   const c=db.config;
   c.minutosConsolidacao ??= 10; c.diasSemAtualizacao ??= 30; c.diasAlertaAging ??= 60;
+  c.segundosSync ??= 7;
+  /* Bases geradas antes do diagrama nao traziam este desenho; sem ele o painel
+     "Evidências somente/exceto B05" ficava em branco. */
+  c.fluxo ??= {};
+  for(const k of ["b05","exceto"]) c.fluxo[k] ??= structuredClone(R.FLUXO_PADRAO[k]);
   c.status ??= []; c.familias ??= []; c.inspTypesFuncionais ??= [];
   c.statusPosExecucao ??= ["7 - Missing Vacuum Test or Sign"];
   if(!c.familias.length) c.familias=[
@@ -2126,7 +2508,31 @@ $("#pendBadge").onclick=()=>{
     [{txt:T("descartar"),cls:"btn danger",fn:()=>{UI.fechar(); Pend.descartarTudo();}},
      {txt:T("salvarAgora"),cls:"btn pri",fn:()=>{UI.fechar(); Pend.consolidarTudo();}}]);
 };
-addEventListener("beforeunload",e=>{ if(S.sujo){ e.preventDefault(); e.returnValue=""; } });
+/* Balao com o conteudo inteiro da celula cortada. */
+(function balao(){
+  let alvo=null;
+  const d=()=>$("#tip");
+  const esconder=()=>{ alvo=null; const t=d(); if(t) t.style.display="none"; };
+  const posicionar=e=>{
+    const t=d(); const r=t.getBoundingClientRect();
+    let x=e.clientX+15, y=e.clientY+18;
+    if(x+r.width  > innerWidth-10)  x = Math.max(8, e.clientX-14-r.width);
+    if(y+r.height > innerHeight-10) y = Math.max(8, e.clientY-14-r.height);
+    t.style.left=x+"px"; t.style.top=y+"px";
+  };
+  addEventListener("mouseover",e=>{
+    const el=e.target.closest?.("[data-tip]"); if(!el || el===alvo) return;
+    alvo=el; const t=d(); if(!t) return;
+    t.innerHTML=(el.dataset.tipL?`<b>${esc(el.dataset.tipL)}</b>`:"")+esc(el.dataset.tip);
+    t.style.display="block"; posicionar(e);
+  });
+  addEventListener("mousemove",e=>{ if(alvo) posicionar(e); });
+  addEventListener("mouseout",e=>{ if(alvo && !e.relatedTarget?.closest?.("[data-tip]")) esconder(); });
+  addEventListener("scroll",esconder,true);
+  addEventListener("keydown",e=>{ if(e.key==="Escape") esconder(); });
+})();
+
+addEventListener("beforeunload",e=>{ Sync.sair(); if(S.sujo){ e.preventDefault(); e.returnValue=""; } });
 addEventListener("keydown",e=>{
   if(e.key==="Escape") UI.fechar();
   if((e.ctrlKey||e.metaKey)&&e.key==="s"){ e.preventDefault(); if(S.db) Pend.consolidarTudo(); }
