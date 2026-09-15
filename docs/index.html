@@ -115,7 +115,19 @@ thead th{position:sticky;top:0;z-index:2;background:var(--panel-2);font-size:10.
 thead th:hover{color:var(--fg)}
 tbody tr{cursor:pointer;transition:background .1s}
 tbody tr:hover{background:var(--accent-soft)}
+/* Estado da gravacao: o ponto colorido le-se de longe; o texto some no
+   celular, onde o espaco do cabecalho e disputado. */
+.estado{display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--fg-3)}
+.estado .dot{width:9px;height:9px;border-radius:50%;background:var(--fg-3);flex:none}
+.estado[data-e="alterado"] .dot{background:var(--chg-line)}
+.estado[data-e="salvando"] .dot{background:var(--warn);animation:pulsa 1s ease-in-out infinite}
+.estado[data-e="salvo"] .dot{background:var(--ok)}
+.estado[data-e="falha"] .dot,.estado[data-e="conflito"] .dot{background:var(--bad)}
+@keyframes pulsa{50%{opacity:.35}}
+@media(prefers-reduced-motion:reduce){.estado .dot{animation:none}}
 tbody tr.sel{background:var(--accent-soft)}
+tbody tr.cursor>td{box-shadow:inset 0 2px 0 var(--accent),inset 0 -2px 0 var(--accent)}
+th.selcol,td.selcol{width:34px;text-align:center;padding-left:6px;padding-right:6px}
 td.num{font:500 12px/1.5 var(--mono)}
 .trunc{max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block}
 /* leitura integral: desliga o corte e deixa o texto quebrar linha */
@@ -195,11 +207,6 @@ body.arrastando .colh{cursor:copy}
 
 /* ---------- diversos ---------- */
 .flow{display:grid;gap:8px;grid-template-columns:repeat(auto-fit,minmax(min(135px,100%),1fr))}
-.fbox{border:2px solid var(--line);border-left-width:6px;border-radius:6px;padding:8px 10px;background:var(--panel-2)}
-.fbox .fn{font:650 21px/1.1 var(--sans)}
-.fbox .fl{font-size:10.5px;color:var(--fg-2);margin-top:3px;line-height:1.35}
-.fbox .fp{font:500 11px/1 var(--mono);color:var(--fg-3);margin-top:4px}
-.bar{height:9px;border-radius:5px;background:var(--line-2);overflow:hidden;display:flex;border:1px solid var(--line)}
 .empty{text-align:center;padding:56px 20px;color:var(--fg-3)}
 .empty h3{font-size:15px;color:var(--fg-2);margin-bottom:6px}
 .toast{position:fixed;bottom:16px;right:16px;z-index:200;display:flex;flex-direction:column;gap:7px;align-items:flex-end}
@@ -229,6 +236,22 @@ dl.kv dd{margin:0;white-space:pre-wrap;word-break:break-word}
   header{padding:10px 14px}
   .brand,.sidefoot{display:none}
 }
+/* Telefone e tablet em pe: a tabela de itens vira uma pilha de cartoes, cada
+   celula com o nome da coluna ao lado - oito colunas lado a lado nao cabem. */
+@media(max-width:700px){
+  #itensTbl{table-layout:auto!important}
+  #itensTbl colgroup,#itensTbl thead{display:none}
+  #itensTbl,#itensTbl tbody,#itensTbl tr,#itensTbl td{display:block;width:auto!important}
+  #itensTbl tr{border:1px solid var(--line);border-radius:10px;margin:0 0 9px;padding:7px 10px;background:var(--panel)}
+  #itensTbl tr.sel{background:var(--accent-soft)}
+  #itensTbl td{border:0;padding:3px 0;display:flex;gap:10px;align-items:flex-start}
+  #itensTbl td::before{content:attr(data-r);flex:0 0 38%;color:var(--fg-3);font-size:10.5px;
+    text-transform:uppercase;letter-spacing:.04em;padding-top:2px}
+  #itensTbl td.selcol{justify-content:flex-start}
+  #itensTbl td.selcol::before{content:""}
+  #itensTbl .trunc{max-width:none;white-space:normal;word-break:break-word}
+  .tblwrap{max-height:none;overflow:visible}
+}
 @media print{#side,header,.noprint{display:none!important}#app{display:block}main{padding:0}}
 </style>
 </head>
@@ -252,7 +275,8 @@ dl.kv dd{margin:0;white-space:pre-wrap;word-break:break-word}
         <button class="btn" id="btnSaveNow" style="display:none" data-i="salvarAgora">Salvar altera&ccedil;&otilde;es agora</button>
         <span id="presenca" class="pill noprint" style="display:none;background:var(--accent-soft);
           color:var(--accent);border-color:var(--accent)"></span>
-        <span id="saveState" class="muted" style="font-size:11px"></span>
+        <span id="saveState" class="estado" role="status" aria-live="polite" data-e="info"
+          ><i class="dot"></i><span class="txt"></span></span>
       </div>
     </header>
     <main id="view"></main>
@@ -271,7 +295,7 @@ dl.kv dd{margin:0;white-space:pre-wrap;word-break:break-word}
 /* ------------------------------- i18n ---------------------------------- */
 const I18N = {
  pt:{dashboard:"Dashboard",itens:"Itens",kanban:"Kanban",historico:"Histórico",relatorios:"Relatórios",
-   conflitos:"Conflitos",config:"Configurações",tema:"Tema",salvarAgora:"Salvar alterações agora",
+   conflitos:"Conflitos",config:"Configurações",tema:"Tema",fluxo:"Evidence Flow",salvarAgora:"Salvar alterações agora",
    total:"Total de itens",emAberto:"Em aberto",validados:"Validados",conclusao:"Conclusão",
    alterados:"Alterados no ciclo",selecionarPasta:"Selecionar pasta da base",
    semBase:"Nenhuma base carregada",semBaseTxt:"Selecione a pasta onde fica o arquivo database.json. Pode ser uma pasta no seu computador ou na rede compartilhada.",
@@ -290,7 +314,7 @@ const I18N = {
    aplicado:"aplicado hoje",emLote:"Resolver em lote",incoerente:"Texto não combina com o status atual",
    semConflito:"Nenhum conflito em aberto",tudoResolvido:"Todos os conflitos foram decididos."},
  en:{dashboard:"Dashboard",itens:"Items",kanban:"Kanban",historico:"History",relatorios:"Reports",
-   conflitos:"Conflicts",config:"Settings",tema:"Theme",salvarAgora:"Save changes now",
+   conflitos:"Conflicts",config:"Settings",tema:"Theme",fluxo:"Evidence Flow",salvarAgora:"Save changes now",
    total:"Total items",emAberto:"Open",validados:"Validated",conclusao:"Completion",
    alterados:"Changed in cycle",selecionarPasta:"Select database folder",
    semBase:"No database loaded",semBaseTxt:"Select the folder holding database.json. It can be a local folder or a shared network folder.",
@@ -352,7 +376,6 @@ const IDB = (()=>{
   return {
     get:k=>tx("readonly",s=>s.get(k)).catch(()=>null),
     set:(k,v)=>tx("readwrite",s=>s.put(v,k)).catch(()=>null),
-    del:k=>tx("readwrite",s=>s.delete(k)).catch(()=>null),
   };
 })();
 
@@ -386,47 +409,132 @@ const Store = {
     const fh = await this.dirHandle.getFileHandle(nome);
     return JSON.parse(await (await fh.getFile()).text());
   },
+  /* Classificacao do erro de leitura. So "arquivo inexistente" pode ser tratado
+     como pasta vazia: permissao negada, JSON invalido ou falha de I/O sao coisas
+     diferentes e, na hora de gravar, nenhuma delas autoriza sobrescrever. */
+  tipoErroLeitura(e){
+    if(e?.name === "NotFoundError") return "INEXISTENTE";
+    if(e?.name === "NotAllowedError" || e?.name === "SecurityError") return "PERMISSAO";
+    if(e instanceof SyntaxError) return "JSON_INVALIDO";
+    return "LEITURA";
+  },
   async carregar(){
     if(!this.dirHandle) throw new Error("sem pasta");
     let db;
     try{ db = await this.lerArquivo(); }
     catch(e){
-      if(e.name==="NotFoundError") throw new Error("NAO_ENCONTRADO");
-      throw new Error("CORROMPIDO: "+e.message);
+      const tipo = this.tipoErroLeitura(e);
+      if(tipo==="INEXISTENTE")   throw new Error("NAO_ENCONTRADO");
+      if(tipo==="JSON_INVALIDO") throw new Error("CORROMPIDO: "+e.message);
+      const err = new Error("LEITURA_"+tipo); err.causa=e; err.detalhe=e?.message||String(e);
+      throw err;
     }
     this.revisaoCarregada = db?.meta?.revisao ?? 0;
     await IDB.set("espelho", db);
     return db;
   },
+  /* Uma escrita por vez. Autosave, consolidacao manual, varredura automatica e
+     resolucao de conflito podem disparar quase juntos; sem fila, dois writers
+     abrem no mesmo arquivo. Uma falha nao trava a fila: a tarefa seguinte roda. */
+  _fila:null,
+  enfileirar(tarefa){
+    const atual = (this._fila ?? Promise.resolve()).then(tarefa);
+    this._fila = atual.catch(()=>{});
+    return atual;
+  },
   /* Controle de concorrencia: rele o arquivo e compara a revisao antes de gravar. */
-  async gravar(db,{forcar=false}={}){
-    if(!this.dirHandle) throw new Error("sem pasta");
+  gravar(db,{forcar=false}={}){
+    if(!this.dirHandle) return Promise.reject(new Error("sem pasta"));
+    return this.enfileirar(()=>this._gravar(db,{forcar}));
+  },
+  async _gravar(db,{forcar=false}={}){
     if(!forcar){
-      try{
-        const disco = await this.lerArquivo();
+      let disco = null;
+      try{ disco = await this.lerArquivo(); }
+      catch(e){
+        const tipo = this.tipoErroLeitura(e);
+        /* So seguimos quando o arquivo comprovadamente nao existe. Qualquer outra
+           falha interrompe: gravar por cima do que nao conseguimos ler apagaria
+           trabalho alheio sem nem detectar o conflito. */
+        if(tipo !== "INEXISTENTE"){
+          const err = new Error("LEITURA_"+tipo); err.causa=e; err.detalhe=e?.message||String(e);
+          throw err;
+        }
+      }
+      if(disco){
         const rd = disco?.meta?.revisao ?? 0;
         if(rd !== this.revisaoCarregada){
           const err = new Error("CONFLITO_REVISAO"); err.revisaoDisco = rd;
           err.autorDisco = disco?.meta?.ultimoAutor; err.disco = disco; throw err;
         }
-      }catch(e){ if(e.message==="CONFLITO_REVISAO") throw e; /* arquivo novo: segue */ }
+      }
     }
-    db.meta.revisao = (db.meta.revisao||0)+1;
-    db.meta.atualizadoEm = agora();
-    db.meta.ultimoAutor = Usuario.nome();
-    const fh = await this.dirHandle.getFileHandle("database.json",{create:true});
-    const w = await fh.createWritable();
-    await w.write(JSON.stringify(db,null,1)); await w.close();
-    this.revisaoCarregada = db.meta.revisao;
+    /* Os metadados novos ficam num snapshot ate o close() terminar. Se a escrita
+       falhar, a revisao em memoria continua igual a ultima efetivamente gravada. */
+    const meta = {...(db.meta||{}), revisao:(db.meta?.revisao||0)+1,
+                  atualizadoEm:agora(), ultimoAutor:Usuario.nome()};
+    const texto = JSON.stringify({...db, meta}, null, 1);
+    let w = null;
+    try{
+      const fh = await this.dirHandle.getFileHandle("database.json",{create:true});
+      w = await fh.createWritable();
+      await w.write(texto);
+      await w.close();
+    }catch(e){
+      try{ await w?.abort?.(); }catch{}
+      const err = new Error("FALHA_ESCRITA"); err.causa=e; err.detalhe=e?.message||String(e);
+      throw err;
+    }
+    db.meta = meta;                       /* so agora a base ativa avanca de revisao */
+    this.revisaoCarregada = meta.revisao;
     await IDB.set("espelho", db);
-    return db.meta.revisao;
+    return meta.revisao;
   },
-  async backup(db,rotulo="manual"){
+  /* O backup so e dado como feito depois de reler e conferir o arquivo gravado:
+     quem depende dele (sobrescrita forcada, restauracao) precisa dessa certeza. */
+  backup(db,rotulo="manual"){
+    if(!this.dirHandle) return Promise.reject(new Error("sem pasta"));
+    return this.enfileirar(()=>this._backup(db,rotulo));
+  },
+  async _backup(db,rotulo="manual"){
     const bdir = await this.dirHandle.getDirectoryHandle("backups",{create:true});
     const nome = `database-${agora().replace(/[:.]/g,"-").slice(0,19)}-${rotulo}.json`;
     const fh = await bdir.getFileHandle(nome,{create:true});
     const w = await fh.createWritable(); await w.write(JSON.stringify(db,null,1)); await w.close();
+    let lido;
+    try{
+      const conf = await bdir.getFileHandle(nome);
+      lido = JSON.parse(await (await conf.getFile()).text());
+    }catch(e){
+      const err = new Error("BACKUP_NAO_CONFIRMADO"); err.causa=e; err.detalhe=e?.message||String(e);
+      throw err;
+    }
+    if(!lido || typeof lido!=="object" || !Array.isArray(lido.itens))
+      throw new Error("BACKUP_NAO_CONFIRMADO");
     await this.limparBackupsAntigos(bdir);
+    return nome;
+  },
+  /* Historico arquivado: mesma exigencia do backup - so conta como gravado
+     depois de reler e conferir, porque a base perde esses eventos em seguida. */
+  arquivarHistorico(nome, dados){
+    if(!this.dirHandle) return Promise.reject(new Error("sem pasta"));
+    return this.enfileirar(()=>this._arquivarHistorico(nome, dados));
+  },
+  async _arquivarHistorico(nome, dados){
+    const hdir = await this.dirHandle.getDirectoryHandle("historico",{create:true});
+    let w=null;
+    try{
+      const fh = await hdir.getFileHandle(nome,{create:true});
+      w = await fh.createWritable(); await w.write(JSON.stringify(dados,null,1)); await w.close();
+    }catch(e){
+      try{ await w?.abort?.(); }catch{}
+      const err=new Error("ARQUIVO_NAO_CONFIRMADO"); err.causa=e; err.detalhe=e?.message; throw err;
+    }
+    let lido;
+    try{ lido = JSON.parse(await (await (await hdir.getFileHandle(nome)).getFile()).text()); }
+    catch(e){ const err=new Error("ARQUIVO_NAO_CONFIRMADO"); err.causa=e; err.detalhe=e?.message; throw err; }
+    if(!Array.isArray(lido?.eventos) || lido.eventos.length !== dados.eventos.length)
+      throw new Error("ARQUIVO_NAO_CONFIRMADO");
     return nome;
   },
   async listarBackups(){
@@ -466,7 +574,10 @@ const Usuario = {
 /* ============================== estado ================================= */
 const S = {
   db:null, rota:"dashboard", filtros:filtrosVazios(), ordenacao:{campo:"item",dir:1},
-  selecionado:null, salvando:false, sujo:false, sujoEstrutural:false,
+  selecionado:null, salvando:false, sujo:false,
+  novidades:null, rotaInicial:null,
+  selecao:new Set(), cursor:null,          /* edicao em lote e cursor do teclado */
+  colunas: JSON.parse(localStorage.getItem("sm.colunas")||"null"),
   kbLayout: localStorage.getItem("sm.kbLayout") || "h",
   dobradas: new Set(JSON.parse(localStorage.getItem("sm.dobradas")||"[]")),
   textoCompleto: localStorage.getItem("sm.textoCompleto")==="1",
@@ -535,21 +646,47 @@ const R = {
   statusAtivos(){ const a=this.statusDefs().filter(s=>s.ativo).map(s=>s.codigo);
     const usados=[...new Set((S.db?.itens??[]).map(i=>i.status))];
     return [...new Set([...a,...usados])].sort((x,y)=>this.ordemDe(x)-this.ordemDe(y)||x.localeCompare(y)); },
-  /* Definicao canonica de "em aberto", identica a usada nos dois Excel. */
-  aberto(st){ if(!st) return false;
-    return !(st==="1 - Validated by ICN" || st.startsWith("2 - Not Blocking") || st==="2 - Not Available Jx"); },
+  /* Definicao canonica de "em aberto" - fonte unica, lida da base.
+     A lista vive em config.statusAbertoExcecoes e vale POR PREFIXO: e assim que
+     "2 - Not Blocking" sempre cobriu "2 - Not Blocking - Downgraded" nos dois
+     Excel. Lista vazia ou ausente cai no padrao, para que um campo apagado sem
+     querer nas Configuracoes nao mude todos os indicadores em silencio.
+     Status vazio nao conta como aberto (era assim antes e mexer nisso mudaria
+     numero de painel); item sem status e sinalizado pelo verificador de
+     integridade, que e onde esse problema tem de aparecer. */
+  ABERTO_PADRAO:["1 - Validated by ICN","2 - Not Blocking","2 - Not Available Jx"],
+  abertoExcecoes(){
+    const l = S.db?.config?.statusAbertoExcecoes;
+    return Array.isArray(l) && l.length? l : this.ABERTO_PADRAO;
+  },
+  aberto(st){
+    if(!st) return false;
+    const st1 = String(st);
+    return !this.abertoExcecoes().some(e => e && st1.startsWith(e));
+  },
+  /* Tamanho da base em bytes - o JSON e o que vai para o disco. */
+  tamanhoBase(){ try{ return JSON.stringify(S.db||{}).length; }catch{ return 0; } },
   /* Reconstroi o status de um item numa data (event sourcing). */
   statusEm(item,data){
     const evs = this.histStatus()[item]; if(!evs) return null;
     let st=null; for(const e of evs){ if(e.dataEfetiva<=data) st=e.valorNovo; else break; } return st;
   },
-  _hs:null, _hsRev:-1,
+  /* Indice do historico por item. A validade e amarrada ao objeto da base e a uma
+     invalidacao explicita - nao a meta.revisao, que so muda quando o arquivo e
+     gravado: um evento consolidado agora precisa aparecer nos calculos agora. */
+  _hs:null, _hsDb:null,
+  invalidarHist(){ this._hs=null; this._hsDb=null; },
+  /* Ordem deterministica: data do fato, data do registro como desempate, id no fim. */
+  cmpEventos(a,b){
+    return String(a.dataEfetiva??"").localeCompare(String(b.dataEfetiva??"")) ||
+           String(a.consolidadoEm??"").localeCompare(String(b.consolidadoEm??"")) ||
+           String(a.id??"").localeCompare(String(b.id??""));
+  },
   histStatus(){
-    if(this._hsRev === S.db?.meta?.revisao && this._hs) return this._hs;
+    if(this._hs && this._hsDb === S.db) return this._hs;
     const m={}; for(const h of (S.db?.historico??[])) if(h.campo==="status") (m[h.item] ??= []).push(h);
-    for(const k in m) m[k].sort((a,b)=>a.dataEfetita<b.dataEfetiva?-1:a.dataEfetiva>b.dataEfetiva?1:0);
-    for(const k in m) m[k].sort((a,b)=>a.dataEfetiva.localeCompare(b.dataEfetiva));
-    this._hs=m; this._hsRev=S.db?.meta?.revisao; return m;
+    for(const k in m) m[k].sort(this.cmpEventos);
+    this._hs=m; this._hsDb=S.db; return m;
   },
   marcos(){ return [...(S.db?.marcos??[])].sort((a,b)=>a.data.localeCompare(b.data)); },
   marcoAnterior(){ const m=this.marcos(); return m.length>1?m[m.length-2]:m[0]; },
@@ -626,6 +763,11 @@ const Pend = {
     let p = S.db.pendentes.find(x=>x.item===itemId && x.campo===campo);
     if(!p){
       p = {id:uid(), item:itemId, campo, valorOriginal:atual, valorAtual:valorNovo,
+           /* Estado dos campos derivados antes da PRIMEIRA alteracao: e o que o
+              descarte precisa devolver. Em A -> B -> C o snapshot continua sendo
+              o de antes de A, porque so e gravado na criacao da pendencia. */
+           origUltimaAlteracaoStatus: it.ultimaAlteracaoStatus ?? null,
+           origAtualizadoEm: it.atualizadoEm ?? null,
            primeiraAlteracaoEm:agora(), ultimaAlteracaoEm:agora(),
            dataEfetiva:dataEfetiva||hoje(), autor:Usuario.garantir(), motivo};
       S.db.pendentes.push(p);
@@ -645,37 +787,76 @@ const Pend = {
 
   agendarAutosave(){
     clearTimeout(this.timerAuto);
-    marcarEstado(LANG==="pt"?"alterado...":"changed...");
+    marcarEstado(LANG==="pt"?"alterado...":"changed...", "alterado");
     this.timerAuto = setTimeout(()=>this.autosave(), 3000);
   },
-  async autosave(tentativa=0){
+  /* Store.gravar ja serializa as escritas; aqui o cuidado e com o que acontece
+     ENQUANTO uma escrita corre: o que entrar no diario depois da marca nao pode
+     ser dado como salvo, senao a alteracao some do diario sem estar no disco. */
+  async autosave(){
     if(!S.db || !Store.dirHandle) return;
     await IDB.set("espelho", S.db);              // rede técnica: recuperação após queda
     S.salvando = true;
+    marcarEstado(LANG==="pt"?"salvando...":"saving...", "salvando");
     try{
-      await Store.gravar(S.db);
-      this.diario = []; S.sujo=false;
-      marcarEstado(LANG==="pt"?"salvo "+new Date().toLocaleTimeString().slice(0,5)
-                              :"saved "+new Date().toLocaleTimeString().slice(0,5));
-      Sync.ultimoMtime = await Store.mtime();
-    }catch(e){
-      if(e.message==="CONFLITO_REVISAO"){
-        /* Outra pessoa gravou antes. Se as alteracoes nao se cruzam, junta as duas
-           versoes e grava de novo; se cruzam, quem decide e o usuario. */
-        if(tentativa<2 && Sync.receber(e.disco,{aoSalvar:true})!=="decidir"){
-          S.salvando=false; return this.autosave(tentativa+1);
+      for(let tentativa=0; ; tentativa++){
+        /* guarda a identidade dos registros, nao o tamanho: durante a escrita o
+           diario pode crescer (edicao) ou encolher (descarte de pendencia). */
+        const enviados = new Set(this.diario);
+        try{
+          await Store.gravar(S.db);
+          this.diario = this.diario.filter(e=>!enviados.has(e));
+          S.sujo = this.diario.length > 0;       /* so limpa se nada entrou no meio */
+          marcarEstado(LANG==="pt"?"salvo "+new Date().toLocaleTimeString().slice(0,5)
+                                  :"saved "+new Date().toLocaleTimeString().slice(0,5), "salvo");
+          Sync.ultimoMtime = await Store.mtime();
+          Visita.marcar();                       /* estamos aqui: ja vimos isto */
+          if(S.sujo) this.agendarAutosave();
+          return;
+        }catch(e){
+          if(e.message!=="CONFLITO_REVISAO"){
+            /* S.sujo continua como estava: o que esta em memoria nao chegou ao disco. */
+            marcarEstado(LANG==="pt"?"falha ao salvar":"save failed", "falha");
+            toast(mensagemArmazenamento(e),"bad");
+            return;
+          }
+          /* Outra pessoa gravou antes. Se as alteracoes nao se cruzam, junta as duas
+             versoes e grava de novo; se cruzam, quem decide e o usuario. */
+          if(tentativa<2 && Sync.receber(e.disco,{aoSalvar:true})!=="decidir") continue;
+          return UI.conflitoGravacao(e);
         }
-        S.salvando=false; return UI.conflitoGravacao(e);
       }
-      marcarEstado(LANG==="pt"?"falha ao salvar":"save failed"); toast(String(e.message),"bad");
     }finally{ S.salvando=false; }
   },
 
+  /* Desfaz no item tudo o que as pendencias alteraram - inclusive os derivados.
+     Sem isso, "descartar" devolvia o campo principal e deixava ultimaAlteracaoStatus
+     e atualizadoEm com a data da alteracao desfeita, mexendo no aging e nos filtros. */
+  desfazer(pends){
+    const porItem = new Map();
+    for(const p of pends){ if(!porItem.has(p.item)) porItem.set(p.item,[]); porItem.get(p.item).push(p); }
+    for(const [itemId, lista] of porItem){
+      const it = S.db.itens.find(i=>i.item===itemId); if(!it) continue;
+      for(const p of lista) it[p.campo] = p.valorOriginal;
+      const st = lista.find(p=>p.campo==="status");
+      if(st && st.origUltimaAlteracaoStatus != null) it.ultimaAlteracaoStatus = st.origUltimaAlteracaoStatus;
+      /* atualizadoEm so volta quando nao resta nenhuma outra pendencia do item:
+         uma pendencia que continua de pe alterou a data legitimamente. */
+      if(S.db.pendentes.some(x=>x.item===itemId && !lista.includes(x))) continue;
+      const orig = lista.map(p=>p.origAtualizadoEm).filter(v=>v!=null).sort()[0];
+      if(orig != null) it.atualizadoEm = orig;
+      else if(lista.every(p=>"origAtualizadoEm" in p)) delete it.atualizadoEm;
+    }
+  },
   /* consolida um pendente no histórico definitivo (ou descarta se voltou ao original) */
   consolidar(p, {forcado=false}={}){
     const idx = S.db.pendentes.indexOf(p); if(idx<0) return;
     S.db.pendentes.splice(idx,1);
-    if(String(p.valorOriginal) === String(p.valorAtual)) return "descartado";  // ida-e-volta
+    if(String(p.valorOriginal) === String(p.valorAtual)){   // ida-e-volta: A -> B -> A
+      this.desfazer([p]);                                   // aging volta ao que era
+      return "descartado";
+    }
+    R.invalidarHist();                       /* o evento novo vale a partir de agora */
     S.db.historico.push({
       id:uid(), item:p.item, campo:p.campo,
       valorAnterior:p.valorOriginal, valorNovo:p.valorAtual,
@@ -697,19 +878,42 @@ const Pend = {
     const n = S.db.pendentes.length; if(!n) return toast(LANG==="pt"?"Nada pendente":"Nothing pending");
     let c=0,d=0;
     for(const p of [...S.db.pendentes]) (this.consolidar(p,{forcado:true})==="consolidado"?c++:d++);
-    this.autosave(); Render.badgePendentes(); Render.atual();
+    const gravacao = this.autosave(); Render.badgePendentes(); Render.atual();
     toast(LANG==="pt" ? `${c} consolidada(s), ${d} descartada(s) por retorno ao valor original`
                       : `${c} consolidated, ${d} discarded (returned to original)`, "ok");
+    return gravacao;                       /* quem chama pode aguardar a gravacao */
+  },
+  /* Descarta UMA pendencia. Ate aqui so existia o tudo-ou-nada do descartarTudo,
+     entao desfazer um toque errado num item obrigava a perder o trabalho dos outros. */
+  descartarUma(p, {perguntar=true}={}){
+    const idx = S.db.pendentes.indexOf(p); if(idx<0) return false;
+    if(perguntar && !confirmar(LANG==="pt"
+      ? `Descartar a alteração de ${p.item} / ${p.campo}?\n\n"${p.valorOriginal}" → "${p.valorAtual}"`
+      : `Discard the change to ${p.item} / ${p.campo}?\n\n"${p.valorOriginal}" → "${p.valorAtual}"`)) return false;
+    (S.db.logDescartes ??= []).push({em:agora(), autor:Usuario.garantir(), itens:structuredClone([p])});
+    S.db.pendentes.splice(idx,1);
+    this.desfazer([p]);
+    this.esquecerNoDiario([p]);
+    this.autosave(); Render.badgePendentes(); Render.atual();
+    toast(LANG==="pt"?"Alteração descartada. Recuperável em Configurações > Log técnico."
+                     :"Change discarded. Recoverable in Settings > Technical log.","ok");
+    return true;
+  },
+  /* O diario existe para reaplicar o nosso trabalho sobre a versao de outra
+     pessoa. O que foi descartado nao e mais nosso trabalho: sai do diario. */
+  esquecerNoDiario(pends){
+    const chaves = new Set(pends.map(p=>p.item+"\u0000"+p.campo));
+    this.diario = this.diario.filter(e=>!(e.t==="campo" && chaves.has(e.item+"\u0000"+e.campo)));
   },
   descartarTudo(){
     const n=S.db.pendentes.length; if(!n) return;
     const lista = S.db.pendentes.map(p=>`  ${p.item} / ${p.campo}: "${p.valorOriginal}" -> "${p.valorAtual}"`).join("\n");
     if(!confirmar((LANG==="pt"?`Descartar ${n} alteração(ões) pendente(s)?\n\n`:`Discard ${n} pending change(s)?\n\n`)+lista)) return;
     (S.db.logDescartes ??= []).push({em:agora(),autor:Usuario.garantir(),itens:structuredClone(S.db.pendentes)});
-    for(const p of S.db.pendentes){
-      const it=S.db.itens.find(i=>i.item===p.item); if(it) it[p.campo]=p.valorOriginal;
-    }
+    const descartadas = [...S.db.pendentes];
     S.db.pendentes=[];
+    this.desfazer(descartadas);
+    this.esquecerNoDiario(descartadas);
     this.autosave(); Render.badgePendentes(); Render.atual();
     toast(LANG==="pt"?"Descartado. Recuperável em Configurações > Log técnico.":"Discarded. Recoverable in Settings > Technical log.","ok");
   },
@@ -717,6 +921,50 @@ const Pend = {
     Sync.iniciar(); },
 };
 
+
+/* ==================== arquivamento de historico ========================
+   O JSON e um arquivo so: passando de alguns MB a abertura comeca a pesar. A
+   saida prevista na arquitetura e tirar da base os eventos antigos SEM perder
+   a capacidade de reconstruir o presente: para cada item sai um evento-marco
+   com o ultimo status conhecido antes do corte. A reconstrucao a partir dai
+   continua exata; o que e anterior ao corte passa a viver no arquivo gravado
+   em historico/, que nunca e apagado.                                     */
+const Arquivamento = {
+  antigos(corte){ return (S.db?.historico ?? []).filter(h=>String(h.dataEfetiva||"") < corte); },
+  previa(corte){
+    const a = this.antigos(corte);
+    return {eventos:a.length, itens:new Set(a.filter(h=>h.campo==="status").map(h=>h.item)).size,
+            restam:(S.db?.historico?.length ?? 0) - a.length};
+  },
+  /* Um evento-marco por item: o ultimo status que ele tinha entre os que saem. */
+  marcos(antigos, corte){
+    const porItem = {};
+    for(const h of antigos) if(h.campo==="status") (porItem[h.item] ??= []).push(h);
+    return Object.keys(porItem).map(item=>{
+      const ultimo = porItem[item].slice().sort(R.cmpEventos).pop();
+      return {id:uid(), item, campo:"status", valorAnterior:"", valorNovo:ultimo.valorNovo,
+        dataEfetiva:ultimo.dataEfetiva, primeiraAlteracaoEm:ultimo.primeiraAlteracaoEm ?? ultimo.dataEfetiva,
+        consolidadoEm:agora(), autor:"sistema", origem:"arquivamento", tipo:"status",
+        observacao:(LANG==="pt"?"Estado consolidado no arquivamento de ":"State consolidated when archiving on ")+corte};
+    });
+  },
+  /* Grava o arquivo PRIMEIRO e so depois tira os eventos da base. */
+  async executar(corte){
+    const antigos = this.antigos(corte);
+    if(!antigos.length) return {arquivados:0};
+    const nome = `historico-ate-${corte}-${agora().replace(/[:.]/g,"-").slice(0,19)}.json`;
+    await Store.arquivarHistorico(nome, {corte, criadoEm:agora(), autor:Usuario.garantir(),
+      revisao:S.db.meta?.revisao ?? 0, eventos:antigos});
+    const marcos = this.marcos(antigos, corte);
+    S.db.historico = S.db.historico.filter(h=>!(String(h.dataEfetiva||"") < corte)).concat(marcos);
+    (S.db.logArquivamentos ??= []).push({em:agora(), autor:Usuario.garantir(), corte,
+      arquivados:antigos.length, marcos:marcos.length, arquivo:nome});
+    R.invalidarHist();
+    Pend.registrar({t:"outro", o:"arquivamento"});
+    await Pend.autosave();
+    return {arquivados:antigos.length, marcos:marcos.length, arquivo:nome};
+  },
+};
 
 /* ==================== sincronizacao entre duas ou mais pessoas ==========
    A base continua sendo um unico database.json numa pasta compartilhada.
@@ -759,7 +1007,9 @@ const Sync = {
   /* Junta a versao do disco com o que ainda nao foi gravado daqui.
      Devolve "adotado" | "juntado" | "decidir". */
   receber(disco, {aoSalvar=false}={}){
-    if(!disco || !Array.isArray(disco.itens)) return "decidir";
+    /* Versao de outra pessoa tambem passa pela porta: se nao for uma base
+       valida, nada e adotado e quem esta aqui decide. */
+    if(!validarBase(disco).valido) return "decidir";
     normalizar(disco);
     const autor = disco?.meta?.ultimoAutor || (LANG==="pt"?"outra pessoa":"someone else");
 
@@ -779,10 +1029,10 @@ const Sync = {
       const modal = !!$("#ov");
       S.db = disco; Store.revisaoCarregada = disco.meta.revisao ?? 0;
       Pend.diario = []; S.sujo = false;
-      R._hs=null; R._hsRev=-1;
+      R.invalidarHist(); Visita.marcar();
       IDB.set("espelho", disco);
       if(!modal) Render.atual(); else Render.badgePendentes();
-      marcarEstado(LANG==="pt"?"atualizado do disco":"updated from disk");
+      marcarEstado(LANG==="pt"?"atualizado do disco":"updated from disk", "info");
     };
 
     if(!meus.size && !naoRebasavel){
@@ -858,7 +1108,7 @@ const Sync = {
       {txt:LANG==="pt"?"Manter tudo meu":"Keep all mine",cls:"btn",fn:()=>{
         const meus = colide.map(c=>({...c}));
         UI.fechar(); this.ligado=true;
-        S.db=disco; Store.revisaoCarregada=disco.meta.revisao??0; Pend.diario=[]; R._hs=null; R._hsRev=-1;
+        S.db=disco; Store.revisaoCarregada=disco.meta.revisao??0; Pend.diario=[]; R.invalidarHist();
         this.reaplicar([...seguras,...meus]); Render.atual();
         toast(LANG==="pt"?"Sua versão prevaleceu nos campos em disputa":"Your values won the disputed fields","ok");}},
       {txt:LANG==="pt"?"Aplicar escolhas":"Apply choices",cls:"btn pri",fn:()=>{
@@ -866,9 +1116,30 @@ const Sync = {
         colide.forEach((c,k)=>{ const r=$(`input[name="cf${k}"]:checked`);
           if(r && r.value==="meu") fica.push(c); });
         UI.fechar(); this.ligado=true;
-        S.db=disco; Store.revisaoCarregada=disco.meta.revisao??0; Pend.diario=[]; R._hs=null; R._hsRev=-1;
+        S.db=disco; Store.revisaoCarregada=disco.meta.revisao??0; Pend.diario=[]; R.invalidarHist();
         this.reaplicar([...seguras,...fica]); Render.atual();
         toast(LANG==="pt"?"Versões conciliadas":"Versions reconciled","ok");}}]);
+  },
+
+  /* O que ESTA pessoa esta mexendo agora: o que ainda nao foi gravado (diario)
+     mais o item aberto no detalhe. Anunciar isso deixa a colisao visivel antes
+     de acontecer, em vez de so resolve-la depois na tela de decisao. */
+  editando:new Map(),
+  meusItens(){
+    const s=new Set();
+    for(const e of Pend.diario) if(e?.item) s.add(e.item);
+    for(const p of (S.db?.pendentes||[])) if(p.autor===Usuario.nome()) s.add(p.item);
+    if($("#ov") && S.selecionado) s.add(S.selecionado);
+    return [...s].slice(0,200);
+  },
+  quemEdita(item){ return this.editando.get(item) || []; },
+  /* Atualiza as marcas sem redesenhar a tela (redesenhar perderia a rolagem). */
+  pintarEdicao(){
+    $$("[data-ed]").forEach(el=>{
+      const quem=this.quemEdita(el.dataset.ed);
+      el.innerHTML = quem.length? `<span class="tag" style="color:var(--warn);border-color:var(--warn)"
+        title="${esc(quem.join(", "))} ${LANG==="pt"?"está com este item aberto":"has this item open"}">✎</span>` : "";
+    });
   },
 
   /* ---- presenca: um arquivo por pessoa, sem disputa de escrita ---- */
@@ -881,15 +1152,22 @@ const Sync = {
       const d = await Store.dirHandle.getDirectoryHandle("presenca",{create:true});
       const fh = await d.getFileHandle(this.slug(eu)+".json",{create:true});
       const w = await fh.createWritable();
-      await w.write(JSON.stringify({nome:eu, em:agora()})); await w.close();
-      const vivos=[], limite=Date.now()-90000;
+      await w.write(JSON.stringify({nome:eu, em:agora(), itens:this.meusItens()})); await w.close();
+      const vivos=[], limite=Date.now()-90000, editando=new Map();
       for await (const [n,h] of d.entries()){
         if(h.kind!=="file" || !n.endsWith(".json")) continue;
         try{ const j=JSON.parse(await (await h.getFile()).text());
-          if(j?.nome && new Date(j.em).getTime()>=limite) vivos.push(j.nome); }catch{}
+          if(!j?.nome || new Date(j.em).getTime()<limite) continue;
+          vivos.push(j.nome);
+          if(j.nome!==eu) for(const it of (Array.isArray(j.itens)? j.itens : []).slice(0,200)){
+            if(!editando.has(it)) editando.set(it, []);
+            if(!editando.get(it).includes(j.nome)) editando.get(it).push(j.nome);
+          }
+        }catch{}
       }
       this.presentes=[...new Set(vivos)];
-    }catch{ this.presentes=[]; }
+      this.editando=editando;
+    }catch{ this.presentes=[]; this.editando=new Map(); }
     this.pintar();
   },
   async sair(){
@@ -897,6 +1175,7 @@ const Sync = {
       await d?.removeEntry(this.slug(Usuario.nome())+".json"); }catch{}
   },
   pintar(){
+    this.pintarEdicao();
     const el=$("#presenca"); if(!el) return;
     const outros=this.presentes.filter(n=>n!==Usuario.nome());
     if(!outros.length){ el.style.display="none"; return; }
@@ -906,7 +1185,37 @@ const Sync = {
   },
 };
 
-function marcarEstado(txt){ $("#saveState").textContent = txt; }
+/* tipo: info | alterado | salvando | salvo | falha | conflito - vira a cor do ponto */
+function marcarEstado(txt, tipo="info"){
+  const el=$("#saveState"); if(!el) return;
+  el.dataset.e = tipo; el.title = txt;
+  const t=$(".txt", el); if(t) t.textContent = txt; else el.textContent = txt;
+}
+/* Mensagem acionavel para as falhas de leitura/escrita da base - nada de stack trace. */
+function mensagemArmazenamento(e){
+  const pt = LANG==="pt";
+  switch(e?.message){
+    case "LEITURA_PERMISSAO": return pt
+      ? "Sem permissão para ler o database.json da pasta. Nada foi gravado — reautorize a pasta e tente de novo."
+      : "No permission to read database.json in the folder. Nothing was written — re-authorize the folder and try again.";
+    case "LEITURA_JSON_INVALIDO": return pt
+      ? "O database.json da pasta está ilegível (JSON inválido). Nada foi gravado, para não apagá-lo. Restaure um backup da subpasta backups/ ou baixe a sua versão em Configurações."
+      : "The database.json in the folder is unreadable (invalid JSON). Nothing was written, so it is not destroyed. Restore a backup from backups/ or download your version in Settings.";
+    case "LEITURA_LEITURA": return pt
+      ? "Não foi possível ler o database.json antes de gravar. Nada foi gravado. Verifique o acesso à pasta e tente de novo."
+      : "Could not read database.json before writing. Nothing was written. Check folder access and try again.";
+    case "FALHA_ESCRITA": return pt
+      ? "Falha ao gravar o database.json. Suas alterações continuam aqui e na cópia local; tente de novo quando a pasta estiver acessível."
+      : "Failed to write database.json. Your changes are still here and in the local copy; try again when the folder is reachable.";
+    case "ARQUIVO_NAO_CONFIRMADO": return pt
+      ? "O arquivo de histórico não pôde ser confirmado na subpasta historico/. Nada foi tirado da base."
+      : "The history archive could not be confirmed in the historico/ subfolder. Nothing was removed from the database.";
+    case "BACKUP_NAO_CONFIRMADO": return pt
+      ? "O backup não pôde ser confirmado (não foi possível gravar ou reler o arquivo em backups/)."
+      : "The backup could not be confirmed (failed to write or re-read the file in backups/).";
+    default: return String(e?.message ?? e);
+  }
+}
 </script>
 <script>
 "use strict";
@@ -961,9 +1270,6 @@ const M = {
     });
     return {linhas, total:linhas.reduce((s,x)=>s+x.total,0), aberto:linhas.reduce((s,x)=>s+x.atual,0)};
   },
-  porCampo(itens,campo){ const m=new Map();
-    for(const i of itens){ const v=i[campo]||"—"; m.set(v,(m.get(v)||0)+1); }
-    return [...m].sort((a,b)=>b[1]-a[1]); },
   abertoPorCampo(itens,campo){ const m=new Map();
     for(const i of itens){ if(!R.aberto(i.status)) continue;
       const v=i[campo]||"—"; const o=m.get(v)||{}; o[i.status]=(o[i.status]||0)+1; m.set(v,o); }
@@ -1231,6 +1537,7 @@ const ROTAS = [
   {id:"dashboard", ic:"◧", t:"dashboard"},
   {id:"itens",     ic:"▤", t:"itens"},
   {id:"kanban",    ic:"▦", t:"kanban"},
+  {id:"fluxo",     ic:"⇉", t:"fluxo"},
   {id:"historico", ic:"◴", t:"historico"},
   {id:"relatorios",ic:"◰", t:"relatorios"},
   {id:"conflitos", ic:"⚠", t:"conflitos"},
@@ -1253,7 +1560,8 @@ const Render = {
     b.textContent = `${n} ${T("pendentes")}`;
     s.style.display = n? "inline-block":"none";
   },
-  atual(){ this.nav(); this.badgePendentes(); (this[S.rota]||this.dashboard).call(this); },
+  atual(){ Filtros.persistir(); this.nav(); this.badgePendentes();
+    (this[S.rota]||this.dashboard).call(this); },
 
   /* ------------------------------ sem base ----------------------------- */
   semBase(motivo){
@@ -1286,6 +1594,40 @@ const Render = {
     const ba=$("#btnAbrirArq"); if(ba) ba.onclick=()=>UI.abrirArquivoManual();
   },
 
+  /* Faixa de abertura: o que outras pessoas fizeram desde a ultima visita. */
+  faixaNovidades(){
+    const n = S.novidades; if(!n) return "";
+    const quem = n.autores.length? ` — ${esc(n.autores.join(", "))}` : "";
+    const partes = [`${n.eventos} ${LANG==="pt"?"alteração(ões) no histórico":"history change(s)"}`];
+    if(n.obs) partes.push(`${n.obs} ${LANG==="pt"?"observação(ões)":"note(s)"}`);
+    return `<div class="panel pad" style="border-left:3px solid var(--accent);margin-bottom:14px;
+        display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <b>${LANG==="pt"?"Desde a sua última visita":"Since your last visit"} (${fmtDT(n.desde)})</b>
+      <span class="muted">${partes.join(" · ")}${quem}</span>
+      <span style="flex:1"></span>
+      <button class="btn sm" id="novVer">${LANG==="pt"?"Ver no histórico":"See in history"}</button>
+      <button class="btn sm" id="novX" title="${LANG==="pt"?"Dispensar":"Dismiss"}">✕</button></div>`;
+  },
+  /* Os dois diagramas de Evidence Flow saem do dashboard para a tela propria:
+     sao consulta, nao acompanhamento, e ocupavam a maior parte da rolagem. */
+  fluxo(){
+    $("#pageTitle").textContent=T("fluxo");
+    $("#headerExtra").innerHTML = Filtros.resumoHTML();
+    const itens = itensFiltrados();
+    const ef = M.evidenceFlow(itens);
+    const contaDe = l => { const m=new Map(); l.forEach(i=>m.set(i.status,(m.get(i.status)||0)+1)); return m; };
+    const flow = (b,lista,titulo,qual)=>painel(qual, titulo,
+      `<b style="color:var(--fg)">${b.aberto}</b> ${LANG==="pt"?"em aberto de":"open of"} ${b.total}`,
+      `<div class="pad" style="overflow-x:auto;overscroll-behavior-x:contain">${
+        G.fluxo(contaDe(lista), b.total, R.fluxoLayout(qual, lista))}</div>`);
+    $("#view").innerHTML = `<div class="grid" style="grid-template-columns:1fr">
+      ${flow(ef.b05, itens.filter(i=>i.isB05), LANG==="pt"?'Evidências "somente" B05':'Evidences "only" B05', "b05")}
+      ${flow(ef.exceto, itens.filter(i=>!i.isB05), LANG==="pt"?'Evidências "exceto" B05':'Evidences "except" B05', "exceto")}
+    </div>`;
+    ligarDobras();
+    Filtros.ligar();
+  },
+
   /* ------------------------------ dashboard ---------------------------- */
   dashboard(){
     $("#pageTitle").textContent=T("dashboard");
@@ -1302,12 +1644,9 @@ const Render = {
     const cores = st=>R.corDe(st);
 
     const contaDe = l => { const m=new Map(); l.forEach(i=>m.set(i.status,(m.get(i.status)||0)+1)); return m; };
-    const flow = (b,lista,titulo,qual)=>painel(qual, titulo,
-      `<b style="color:var(--fg)">${b.aberto}</b> ${LANG==="pt"?"em aberto de":"open of"} ${b.total}`,
-      `<div class="pad" style="overflow-x:auto;overscroll-behavior-x:contain">${
-        G.fluxo(contaDe(lista), b.total, R.fluxoLayout(qual, lista))}</div>`);
 
     $("#view").innerHTML = `
+    ${this.faixaNovidades()}
     <div class="grid kpis" style="margin-bottom:14px">
       ${kpi(T("total"),k.total,"")}
       ${kpi(T("emAberto"),k.aberto, ma? `${G.seta(k.aberto-abAnt,{menorMelhor:true})} ${LANG==="pt"?"vs":"vs"} ${fmtD(ma.data)}`:"")}
@@ -1353,12 +1692,12 @@ const Render = {
         LANG==="pt"?"pendências por status":"open by status",
         `<div class="pad">${pilhaPor(itens,"numAndDescription",14,{largo:true})}</div>`, "grid-column:1/-1")}
     </div>
-    <div class="grid" style="grid-template-columns:1fr">
-      ${flow(ef.b05, itens.filter(i=>i.isB05), LANG==="pt"?'Evidências "somente" B05':'Evidences "only" B05', "b05")}
-      ${flow(ef.exceto, itens.filter(i=>!i.isB05), LANG==="pt"?'Evidências "exceto" B05':'Evidences "except" B05', "exceto")}
-    </div>`;
+    `;
     ligarDobras();
     Filtros.ligar();
+    const nv=$("#novVer"); if(nv) nv.onclick=()=>{
+      S.histDe = S.novidades.dataDe; S.histAte = hoje(); S.novidades=null; irPara("historico"); };
+    const nx=$("#novX"); if(nx) nx.onclick=()=>{ S.novidades=null; Render.atual(); };
   },
 };
 
@@ -1419,15 +1758,154 @@ function pilhaPor(itens,campo,maxLinhas=10,{largo=false}={}){
 <script>
 "use strict";
 /* ============================== filtros ================================ */
+/* ------------- filtros como endereco: URL, localStorage e vistas -------
+   S.filtros vivia so em memoria: um F5 perdia tudo e nao havia como dizer a
+   outra pessoa "olhe estes 12 itens". O mesmo conjunto agora vira texto
+   (rota + querystring), que serve para o hash da URL, para o localStorage e
+   para as vistas nomeadas guardadas na base.                              */
+const FiltroURL = {
+  LISTAS:["status","familia","inspType","origem","funcao","bigram"],
+  TEXTOS:["busca","b05","aging","dataDe","dataAte"],
+  BOOLS:["alteradas","comObs"],
+  paraTexto(f=S.filtros, rota=S.rota, ord=S.ordenacao){
+    const q = new URLSearchParams();
+    for(const k of this.LISTAS) if(f[k]?.length) q.set(k, f[k].join("~"));
+    for(const k of this.TEXTOS) if(f[k]) q.set(k, f[k]);
+    for(const k of this.BOOLS)  if(f[k]) q.set(k, "1");
+    if(ord && (ord.campo!=="item" || ord.dir!==1)) q.set("ord", ord.campo+"~"+ord.dir);
+    const t = q.toString();
+    return (rota||"dashboard") + (t? "?"+t : "");
+  },
+  doTexto(txt){
+    const [rota, busca] = String(txt||"").replace(/^#/,"").split("?");
+    const f = filtrosVazios(), q = new URLSearchParams(busca||"");
+    for(const k of this.LISTAS) if(q.get(k)) f[k] = q.get(k).split("~").filter(Boolean);
+    for(const k of this.TEXTOS) if(q.get(k)) f[k] = q.get(k);
+    for(const k of this.BOOLS)  f[k] = q.get(k)==="1";
+    let ordenacao = null;
+    if(q.get("ord")){ const [campo,dir] = q.get("ord").split("~"); ordenacao = {campo, dir:+dir||1}; }
+    const valida = ROTAS.some(r=>r.id===rota);
+    return {rota: valida? rota : "dashboard", filtros:f, ordenacao};
+  },
+};
+
+/* ---- o que mudou desde a ultima vez que esta pessoa abriu a base ------
+   Com 2-4 pessoas em horarios diferentes, a pergunta da abertura e sempre
+   "o que aconteceu enquanto eu estava fora". A marca fica no computador de
+   cada um (localStorage), nunca na base compartilhada.                    */
+const Visita = {
+  ler(){ try{ return JSON.parse(localStorage.getItem("sm.visto")||"null"); }catch{ return null; } },
+  marcar(){ try{ localStorage.setItem("sm.visto",
+    JSON.stringify({revisao:S.db?.meta?.revisao ?? 0, em:agora()})); }catch{} },
+  calcular(){
+    const v = this.ler(); if(!v?.em || !S.db) return null;
+    const eu = Usuario.nome();
+    const evs = (S.db.historico||[]).filter(h=>String(h.consolidadoEm||"") > v.em);
+    const obs = (S.db.observacoes||[]).filter(o=>String(o.criadoEm||"") > v.em);
+    if(!evs.length && !obs.length) return null;
+    const autores = [...new Set([...evs,...obs].map(x=>x.autor).filter(a=>a && a!==eu))];
+    return {eventos:evs.length, obs:obs.length, autores, desde:v.em,
+            dataDe: evs.map(e=>e.dataEfetiva).filter(Boolean).sort()[0] || v.em.slice(0,10)};
+  },
+};
+
 const Filtros = {
+  /* Os filtros ligados aparecem como pilulas com "x" na barra: da para ver e
+     desligar um a um sem abrir o painel. */
+  ativos(){
+    const f=S.filtros, out=[];
+    for(const k of FiltroURL.LISTAS)
+      for(const v of f[k]) out.push({chave:k, valor:v, rotulo: k==="familia"? R.nomeFamilia(v) : v});
+    if(f.b05)       out.push({chave:"b05", valor:"", rotulo: f.b05==="sim"? T("b05") : T("naoB05")});
+    if(f.aging)     out.push({chave:"aging", valor:"", rotulo:`${T("semAtualizacao")} ≥ ${f.aging} ${T("dias")}`});
+    if(f.dataDe)    out.push({chave:"dataDe", valor:"", rotulo:`${T("de")} ${fmtD(f.dataDe)}`});
+    if(f.dataAte)   out.push({chave:"dataAte", valor:"", rotulo:`${T("ate")} ${fmtD(f.dataAte)}`});
+    if(f.alteradas) out.push({chave:"alteradas", valor:"", rotulo: LANG==="pt"?"alterados no ciclo":"changed in cycle"});
+    if(f.comObs)    out.push({chave:"comObs", valor:"", rotulo: LANG==="pt"?"com observação":"with notes"});
+    return out;
+  },
+  remover(chave, valor){
+    const f=S.filtros;
+    if(Array.isArray(f[chave])){ const i=f[chave].indexOf(valor); if(i>=0) f[chave].splice(i,1); }
+    else if(typeof f[chave]==="boolean") f[chave]=false;
+    else f[chave]="";
+    Render.atual();
+  },
+  /* Grava o estado atual no computador e no hash - o hash e o link que se manda. */
+  persistir(){
+    const txt = FiltroURL.paraTexto();
+    try{ localStorage.setItem("sm.filtros", txt); }catch{}
+    const alvo = "#"+txt;
+    if(location.hash === alvo) return;
+    this._proprio = alvo;
+    try{ history.replaceState(null,"",alvo); }         /* sem encher o historico */
+    catch{ location.hash = alvo; }                     /* file:// as vezes recusa */
+  },
+  restaurar(){
+    const fonte = location.hash.length>1 ? location.hash : (localStorage.getItem("sm.filtros")||"");
+    if(!fonte) return;
+    const {rota, filtros, ordenacao} = FiltroURL.doTexto(fonte);
+    S.filtros = filtros; if(ordenacao) S.ordenacao = ordenacao;
+    S.rotaInicial = rota;
+  },
+  aplicarTexto(txt){
+    const {rota, filtros, ordenacao} = FiltroURL.doTexto(txt);
+    S.filtros = filtros; S.ordenacao = ordenacao ?? {campo:"item",dir:1};
+    if(S.db) irPara(rota); else S.rotaInicial = rota;
+  },
+  /* ---- vistas nomeadas: ficam na config, logo valem para todo mundo ---- */
+  vistas(){ return S.db?.config?.vistas ?? []; },
+  salvarVista(){
+    const nome = (prompt(LANG==="pt"?"Nome da vista:":"View name:")||"").trim();
+    if(!nome) return;
+    (S.db.config.vistas ??= []).push({id:uid(), nome, filtro:FiltroURL.paraTexto(),
+      autor:Usuario.garantir(), criadoEm:agora()});
+    Pend.registrar({t:"outro", o:"vista"}); Pend.agendarAutosave();
+    UI.fechar(); Render.atual();
+    toast(LANG==="pt"?`Vista "${nome}" salva para todos`:`View "${nome}" saved for everyone`,"ok");
+  },
+  aplicarVista(id){
+    const v = this.vistas().find(x=>x.id===id); if(!v) return;
+    UI.fechar(); this.aplicarTexto(v.filtro);
+  },
+  removerVista(id){
+    const l = S.db.config.vistas||[], i = l.findIndex(x=>x.id===id); if(i<0) return;
+    if(!confirmar(LANG==="pt"?`Remover a vista "${l[i].nome}"?`:`Remove the view "${l[i].nome}"?`)) return;
+    l.splice(i,1);
+    Pend.registrar({t:"outro", o:"vista"}); Pend.agendarAutosave();
+    this.painelVistas();
+  },
+  painelVistas(){
+    const l = this.vistas();
+    UI.modal(LANG==="pt"?"Vistas salvas":"Saved views",
+      (l.length? `<table><thead><tr><th>${LANG==="pt"?"Nome":"Name"}</th><th>${T("autor")}</th>
+          <th>${LANG==="pt"?"Filtro":"Filter"}</th><th></th></tr></thead><tbody>
+        ${l.map(v=>`<tr><td><b>${esc(v.nome)}</b></td><td>${esc(v.autor||"")}</td>
+          <td class="muted mono" style="font-size:10.5px">${esc(v.filtro)}</td>
+          <td style="white-space:nowrap"><button class="btn sm" data-va="${esc(v.id)}">${LANG==="pt"?"Abrir":"Open"}</button>
+            <button class="btn sm danger" data-vr="${esc(v.id)}">✕</button></td></tr>`).join("")}
+        </tbody></table>`
+        : `<div class="empty">${LANG==="pt"?"Nenhuma vista salva ainda.":"No saved views yet."}</div>`)
+      + `<p class="muted" style="margin-top:12px">${LANG==="pt"
+          ? "As vistas ficam na base, então todo mundo que abre o database.json enxerga as mesmas."
+          : "Views live in the database, so everyone who opens database.json sees the same ones."}</p>`,
+      [{txt:LANG==="pt"?"Salvar a busca atual":"Save current search",cls:"btn pri",fn:()=>this.salvarVista()}]);
+    $$("[data-va]").forEach(b=>b.onclick=()=>this.aplicarVista(b.dataset.va));
+    $$("[data-vr]").forEach(b=>b.onclick=()=>this.removerVista(b.dataset.vr));
+  },
   resumoHTML(){
     const f=S.filtros;
-    const n = f.status.length+f.familia.length+f.inspType.length+f.origem.length+f.bigram.length+
-              f.funcao.length+(f.b05?1:0)+(f.aging?1:0)+(f.alteradas?1:0)+(f.comObs?1:0)+
-              (f.dataDe?1:0)+(f.dataAte?1:0);
+    const ativos = this.ativos();
+    const nv = this.vistas().length;
+    const chips = ativos.slice(0,8).map(a=>`<span class="chip on" data-rm="${esc(a.chave)}"
+        data-rmv="${esc(a.valor)}" title="${LANG==="pt"?"Remover este filtro":"Remove this filter"}"
+        >${esc(a.rotulo)} <b style="opacity:.6">✕</b></span>`).join("")
+      + (ativos.length>8? `<span class="chip" data-mais="1">+${ativos.length-8}</span>` : "");
     return `<input type="search" id="fBusca" placeholder="${T("buscar")}" value="${esc(f.busca)}" style="width:250px">
-      <button class="btn" id="fAbrir">⚟ ${LANG==="pt"?"Filtros":"Filters"}${n?` <b>(${n})</b>`:""}</button>
-      ${n||f.busca?`<button class="btn sm" id="fLimpar">${T("limpar")}</button>`:""}`;
+      <button class="btn" id="fAbrir">⚟ ${LANG==="pt"?"Filtros":"Filters"}${ativos.length?` <b>(${ativos.length})</b>`:""}</button>
+      <button class="btn sm" id="fVistas" title="${LANG==="pt"?"Vistas salvas na base":"Views saved in the database"}">★ ${LANG==="pt"?"Vistas":"Views"}${nv?` (${nv})`:""}</button>
+      ${ativos.length||f.busca?`<button class="btn sm" id="fLimpar">${T("limpar")}</button>`:""}
+      ${chips}`;
   },
   ligar(){
     const b=$("#fBusca");
@@ -1435,7 +1913,10 @@ const Filtros = {
       this._t=setTimeout(()=>{const p=b.selectionStart; Render.atual();
         const nb=$("#fBusca"); if(nb){nb.focus(); nb.setSelectionRange(p,p);} },220); }; }
     const a=$("#fAbrir"); if(a) a.onclick=()=>this.painel();
+    const v=$("#fVistas"); if(v) v.onclick=()=>this.painelVistas();
     const l=$("#fLimpar"); if(l) l.onclick=()=>{S.filtros=filtrosVazios(); Render.atual();};
+    $$("[data-rm]").forEach(c=>c.onclick=()=>this.remover(c.dataset.rm, c.dataset.rmv));
+    const m=$("[data-mais]"); if(m) m.onclick=()=>this.painel();
   },
   painel(){
     const f=S.filtros;
@@ -1480,9 +1961,109 @@ const Filtros = {
 };
 
 /* =============================== itens ================================= */
+/* Catalogo de colunas da tabela de itens. Cada pessoa escolhe as suas (fica no
+   navegador, nao na base): quem acompanha Bigram nao quer Description ocupando
+   um quinto da largura. `peso` e a largura relativa, normalizada na hora. */
+const COLUNAS_ITENS = [
+  {id:"item", pt:"Item", en:"Item", peso:7, cls:"num",
+    cel:i=>`<b>${esc(i.item)}</b> <span data-ed="${esc(i.item)}"></span>`},
+  {id:"status", pt:"Status", en:"Status", peso:17, cel:i=>
+    `<span class="pill" style="background:${R.corDe(i.status)}26;color:${R.corDe(i.status)};
+       border-color:${R.corDe(i.status)};max-width:100%;overflow:hidden;text-overflow:ellipsis;display:inline-flex"
+       title="${esc(i.status)}"><i class="dot" style="background:${R.corDe(i.status)}"></i>
+       <span style="overflow:hidden;text-overflow:ellipsis">${esc(i.status)}</span></span>`,
+    marca:i=>R.mudouNoCiclo(i)?"chgmark":""},
+  {id:"inspType", pt:"Tipo de inspeção", en:"Inspection type", peso:11, cel:i=>
+    `<span class="rowflex" style="gap:4px;flex-wrap:nowrap;min-width:0">
+       <span class="trunc">${esc(i.inspType)}</span>${
+       i.isB05&&i.inspType!=="B05"?`<span class="tag" style="flex:none">B05</span>`:""}</span>`},
+  {id:"insp", pt:"Insp", en:"Insp", peso:8},
+  {id:"originalJx", pt:"Marco de origem", en:"Origin milestone", peso:8},
+  {id:"actualJx", pt:"Marco atual", en:"Current milestone", peso:8},
+  {id:"evidence", pt:"Evidence", en:"Evidence", peso:13},
+  {id:"numAndDescription", pt:"Função vital", en:"Vital function", peso:14},
+  {id:"description", pt:"Descrição", en:"Description", peso:22},
+  {id:"updatedStatusObs", pt:"Obs. do status", en:"Status note", peso:16},
+  {id:"generalObs", pt:"Obs. geral", en:"General note", peso:16},
+  {id:"ncr", pt:"NCR's", en:"NCR's", peso:9},
+  {id:"tests", pt:"Tests", en:"Tests", peso:14},
+  {id:"performance", pt:"Performance", en:"Performance", peso:10},
+  {id:"mode", pt:"Mode", en:"Mode", peso:8},
+  {id:"positionAC", pt:"Position AC", en:"Position AC", peso:9},
+  {id:"bigram", pt:"Bigram", en:"Bigram", peso:9, cel:i=>
+    (i.bigram||[]).map(b=>`<span class="tag">${esc(b)}</span>`).join(" ")||`<span class="muted">—</span>`},
+  {id:"ultimaAlteracaoStatus", pt:"Última mudança", en:"Last change", peso:9, cls:"num",
+    cel:i=>fmtD(i.ultimaAlteracaoStatus)},
+  {id:"aging", pt:"Aging", en:"Aging", peso:6, cls:"num", cel:i=>
+    `<span style="color:${R.aberto(i.status)&&R.diasSemAtualizacao(i)>(S.db.config.diasAlertaAging??60)
+      ?"var(--bad)":"var(--fg-3)"}">${R.diasSemAtualizacao(i)}</span>`},
+];
+const COLUNAS_PADRAO = ["item","status","inspType","originalJx","evidence","description","updatedStatusObs","aging"];
+const Colunas = {
+  escolhidas(){
+    const l = S.colunas?.filter(id=>COLUNAS_ITENS.some(c=>c.id===id));
+    return l?.length? l : COLUNAS_PADRAO;
+  },
+  defs(){ const esc0=this.escolhidas(); return esc0.map(id=>COLUNAS_ITENS.find(c=>c.id===id)); },
+  rotulo(c){ return LANG==="pt"? c.pt : c.en; },
+  guardar(l){ S.colunas=l; try{ localStorage.setItem("sm.colunas", JSON.stringify(l)); }catch{} },
+  painel(){
+    const atual = new Set(this.escolhidas());
+    UI.modal(LANG==="pt"?"Colunas da tabela":"Table columns",
+      `<p class="muted">${LANG==="pt"
+        ? "A escolha fica neste navegador — cada pessoa monta a sua tabela sem mexer na base."
+        : "The choice stays in this browser — everyone builds their own table without touching the database."}</p>
+       <div class="chips" style="margin-top:12px">${COLUNAS_ITENS.map(c=>
+         `<span class="chip ${atual.has(c.id)?"on":""}" data-col="${esc(c.id)}">${esc(this.rotulo(c))}</span>`).join("")}</div>`,
+      [{txt:LANG==="pt"?"Padrão":"Default",cls:"btn",fn:()=>{this.guardar([...COLUNAS_PADRAO]); UI.fechar(); Render.atual();}},
+       {txt:LANG==="pt"?"Aplicar":"Apply",cls:"btn pri",fn:()=>{
+          const l=COLUNAS_ITENS.map(c=>c.id).filter(id=>$$(`.chip[data-col="${id}"]`)[0]?.classList.contains("on"));
+          if(!l.length) return toast(LANG==="pt"?"Escolha ao menos uma coluna":"Pick at least one column","bad");
+          this.guardar(l); UI.fechar(); Render.atual();}}]);
+    $$("[data-col]").forEach(c=>c.onclick=()=>c.classList.toggle("on"));
+  },
+};
+
+/* Selecao para edicao em lote: o gesto mais repetido numa reuniao de status e
+   "estes oito vao para o mesmo status". Usa o mesmo Pend.alterar da edicao
+   normal - nenhuma logica paralela, entao agrupa e consolida igual. */
+const Lote = {
+  barra(lista){
+    const n = S.selecao.size; if(!n) return "";
+    const ativos = R.statusAtivos();
+    return `<div class="panel pad rowflex noprint" style="margin-bottom:12px;border-left:3px solid var(--accent)">
+      <b>${n} ${LANG==="pt"?"selecionado(s)":"selected"}</b>
+      <select id="loteStatus" style="min-width:210px">${ativos.map(st=>`<option>${esc(st)}</option>`).join("")}</select>
+      <input type="date" id="loteData" value="${hoje()}" max="${hoje()}" title="${LANG==="pt"?"Data efetiva":"Effective date"}">
+      <input type="text" id="loteMotivo" placeholder="${LANG==="pt"?"motivo (opcional)":"reason (optional)"}" style="flex:1;min-width:140px">
+      <button class="btn pri" id="loteAplicar">${LANG==="pt"?"Aplicar status":"Apply status"}</button>
+      <button class="btn" id="loteLimpar">${LANG==="pt"?"Limpar":"Clear"}</button></div>`;
+  },
+  ligar(lista){
+    const la=$("#loteAplicar"); if(!la) return;
+    la.onclick=()=>{
+      const st=$("#loteStatus").value, dt=$("#loteData").value||hoje(), mot=$("#loteMotivo").value.trim();
+      const alvos=[...S.selecao];
+      if(!confirmar(LANG==="pt"
+        ? `Aplicar "${st}" em ${alvos.length} item(ns)?\n\nCada um vira uma alteração pendente, como na edição normal.`
+        : `Apply "${st}" to ${alvos.length} item(s)?\n\nEach becomes a pending change, just like a normal edit.`)) return;
+      let n=0;
+      for(const id of alvos){
+        const it=S.db.itens.find(x=>x.item===id);
+        if(it && String(it.status)!==String(st)){ Pend.alterar(id,"status",st,{dataEfetiva:dt,motivo:mot}); n++; }
+      }
+      S.selecao.clear(); Render.atual();
+      toast(LANG==="pt"?`${n} item(ns) alterado(s) — ${alvos.length-n} já estavam nesse status`
+                       :`${n} item(s) changed — ${alvos.length-n} were already in that status`, n?"ok":"warn");
+    };
+    $("#loteLimpar").onclick=()=>{ S.selecao.clear(); Render.atual(); };
+  },
+};
+
 Render.itens = function(){
   $("#pageTitle").textContent=T("itens");
   $("#headerExtra").innerHTML = Filtros.resumoHTML()+
+    `<button class="btn sm" id="btnCols" title="${LANG==="pt"?"Escolher colunas":"Choose columns"}">▦ ${LANG==="pt"?"Colunas":"Columns"}</button>`+
     `<button class="btn ${S.textoCompleto?"pri":""}" id="btnTxt" title="${LANG==="pt"
        ? "Alterna entre uma linha por item (com o texto completo ao passar o mouse) e o texto inteiro na tabela"
        : "Switch between one line per item (full text on hover) and the whole text in the table"}">${
@@ -1490,56 +2071,89 @@ Render.itens = function(){
                       : (LANG==="pt"?"⇔ Uma linha":"⇔ Single line")}</button>`+
     `<button class="btn" id="btnExpTab">↓ CSV</button>`;
   const lista = ordenar(itensFiltrados());
-  const cols = [
-    ["item",T("item"),"num","7%"],["status",T("status"),"","17%"],["inspType",T("tipoInsp"),"","11%"],
-    ["originalJx",T("origem"),"","8%"],["evidence","Evidence","","13%"],
-    ["description",LANG==="pt"?"Descrição":"Description","","22%"],
-    ["updatedStatusObs",LANG==="pt"?"Obs. do status":"Status note","","16%"],["aging",T("aging"),"num","6%"],
-  ];
+  const visiveis = new Set(lista.map(i=>i.item));
+  for(const id of [...S.selecao]) if(!visiveis.has(id)) S.selecao.delete(id);  /* filtro mudou */
+  const cols = Colunas.defs();
+  const soma = cols.reduce((a,c)=>a+c.peso,0);
   /* Celula de texto: corta com reticencias e entrega o conteudo inteiro no
      balao ao passar o mouse; no modo "texto completo" nada e cortado. */
   const cel = (valor, rotulo) => {
     const v = String(valor ?? "");
-    if(!v) return `<td><span class="muted">—</span></td>`;
+    if(!v) return `<span class="muted">—</span>`;
     const tip = (!S.textoCompleto && v.length>26)
       ? ` data-tip="${esc(v)}" data-tip-l="${esc(rotulo)}"` : "";
-    return `<td><span class="trunc"${tip}>${esc(v)}</span></td>`;
+    return `<span class="trunc"${tip}>${esc(v)}</span>`;
   };
-  $("#view").innerHTML = `<div class="panel">
+  const todosMarcados = lista.length && lista.every(i=>S.selecao.has(i.item));
+  $("#view").innerHTML = `${Lote.barra(lista)}<div class="panel">
     <h3>${lista.length} ${LANG==="pt"?"itens":"items"}${lista.length!==S.db.itens.length?` <span class="sub">${LANG==="pt"?"de":"of"} ${S.db.itens.length}</span>`:""}</h3>
-    <div class="tblwrap"><table class="${S.textoCompleto?"livre":""}" style="table-layout:fixed">
-    <colgroup>${cols.map(c=>`<col style="width:${c[3]}">`).join("")}</colgroup>
+    <div class="tblwrap"><table id="itensTbl" class="${S.textoCompleto?"livre":""}" style="table-layout:fixed">
+    <colgroup><col style="width:34px">${cols.map(c=>`<col style="width:${(c.peso/soma*100).toFixed(1)}%">`).join("")}</colgroup>
     <thead><tr>
-      ${cols.map(c=>`<th data-s="${c[0]}" title="${LANG==="pt"?"Ordenar por":"Sort by"} ${esc(c[1])}"${S.ordenacao.campo===c[0]?' style="color:var(--accent)"':""}>${esc(c[1])} <span style="opacity:${S.ordenacao.campo===c[0]?1:.25}">${S.ordenacao.campo===c[0]&&S.ordenacao.dir<0?"▼":"▲"}</span></th>`).join("")}
+      <th class="selcol"><input type="checkbox" id="selTodos" ${todosMarcados?"checked":""}
+        title="${LANG==="pt"?"Selecionar tudo que está filtrado":"Select everything filtered"}"></th>
+      ${cols.map(c=>`<th data-s="${c.id}" title="${LANG==="pt"?"Ordenar por":"Sort by"} ${esc(Colunas.rotulo(c))}"${
+        S.ordenacao.campo===c.id?' style="color:var(--accent)"':""}>${esc(Colunas.rotulo(c))} <span style="opacity:${
+        S.ordenacao.campo===c.id?1:.25}">${S.ordenacao.campo===c.id&&S.ordenacao.dir<0?"▼":"▲"}</span></th>`).join("")}
     </tr></thead><tbody>
-      ${lista.length? lista.map(i=>{
-        const mud=R.mudouNoCiclo(i);
-        return `<tr data-i="${esc(i.item)}" class="${mud?"":""}">
-        <td class="num"><b>${esc(i.item)}</b></td>
-        <td class="${mud?"chgmark":""}"><span class="pill" style="background:${R.corDe(i.status)}26;color:${R.corDe(i.status)};
-          border-color:${R.corDe(i.status)};max-width:100%;overflow:hidden;text-overflow:ellipsis;display:inline-flex"
-          title="${esc(i.status)}"><i class="dot" style="background:${R.corDe(i.status)}"></i>
-          <span style="overflow:hidden;text-overflow:ellipsis">${esc(i.status)}</span></span></td>
-        <td><span class="rowflex" style="gap:4px;flex-wrap:nowrap;min-width:0">
-          <span class="trunc">${esc(i.inspType)}</span>${
-          i.isB05&&i.inspType!=="B05"?`<span class="tag" style="flex:none">B05</span>`:""}</span></td>
-        <td>${esc(i.originalJx)}</td>
-        ${cel(i.evidence,"Evidence")}
-        ${cel(i.description,LANG==="pt"?"Descrição":"Description")}
-        ${cel(i.updatedStatusObs,LANG==="pt"?"Obs. do status":"Status note")}
-        <td class="num" style="color:${R.aberto(i.status)&&R.diasSemAtualizacao(i)>(S.db.config.diasAlertaAging??60)?"var(--bad)":"var(--fg-3)"}">${R.diasSemAtualizacao(i)}</td>
-      </tr>`;}).join("")
-      : `<tr><td colspan="${cols.length}"><div class="empty">${T("nenhumItem")}</div></td></tr>`}
+      ${lista.length? lista.map(i=>`<tr data-i="${esc(i.item)}" class="${S.selecao.has(i.item)?"sel":""}${
+          S.cursor===i.item?" cursor":""}">
+        <td class="selcol" data-r=""><input type="checkbox" data-sel="${esc(i.item)}" ${S.selecao.has(i.item)?"checked":""}></td>
+        ${cols.map(c=>`<td class="${c.cls||""} ${c.marca?c.marca(i):""}" data-r="${esc(Colunas.rotulo(c))}">${
+          c.cel? c.cel(i) : cel(i[c.id], Colunas.rotulo(c))}</td>`).join("")}
+      </tr>`).join("")
+      : `<tr><td colspan="${cols.length+1}"><div class="empty">${T("nenhumItem")}</div></td></tr>`}
     </tbody></table></div></div>`;
   $$("thead th[data-s]").forEach(th=>th.onclick=()=>{
     const c=th.dataset.s;
     S.ordenacao = S.ordenacao.campo===c? {campo:c,dir:-S.ordenacao.dir} : {campo:c,dir:1};
     Render.atual();});
-  $$("tbody tr[data-i]").forEach(tr=>tr.onclick=()=>UI.detalhe(tr.dataset.i));
+  $$("tbody tr[data-i]").forEach(tr=>tr.onclick=e=>{
+    if(e.target.closest("input[data-sel]")) return;          /* clique na caixinha nao abre o detalhe */
+    S.cursor=tr.dataset.i; UI.detalhe(tr.dataset.i);});
+  $$("input[data-sel]").forEach(cb=>cb.onclick=e=>{
+    e.stopPropagation();
+    cb.checked? S.selecao.add(cb.dataset.sel) : S.selecao.delete(cb.dataset.sel);
+    Render.atual();});
+  const st=$("#selTodos"); if(st) st.onclick=()=>{
+    st.checked? lista.forEach(i=>S.selecao.add(i.item)) : S.selecao.clear();
+    Render.atual();};
+  Lote.ligar(lista);
+  Sync.pintarEdicao();                    /* quem mais está com cada item aberto */
+  $("#btnCols").onclick=()=>Colunas.painel();
   $("#btnExpTab").onclick=()=>Export.csv(lista);
   $("#btnTxt").onclick=()=>{ S.textoCompleto=!S.textoCompleto;
     localStorage.setItem("sm.textoCompleto", S.textoCompleto?"1":"0"); Render.atual(); };
   Filtros.ligar();
+};
+
+/* Teclado na tabela: revisar 71 itens abertos nao pode exigir mouse a cada
+   linha. Setas andam, Enter abre, espaco marca para o lote. */
+const TecladoItens = {
+  lista(){ return ordenar(itensFiltrados()); },
+  mover(passo){
+    const l=this.lista(); if(!l.length) return;
+    const i=l.findIndex(x=>x.item===S.cursor);
+    const novo=l[Math.max(0, Math.min(l.length-1, i<0? 0 : i+passo))];
+    S.cursor=novo.item;
+    const trs=$$("tbody tr[data-i]");
+    trs.forEach(tr=>tr.classList.toggle("cursor", tr.dataset.i===S.cursor));
+    trs.find(tr=>tr.dataset.i===S.cursor)?.scrollIntoView({block:"nearest"});
+  },
+  marcar(){
+    if(!S.cursor) return;
+    S.selecao.has(S.cursor)? S.selecao.delete(S.cursor) : S.selecao.add(S.cursor);
+    Render.atual();
+  },
+  tecla(e){
+    if(S.rota!=="itens" || $("#ov")) return false;
+    if(/^(INPUT|TEXTAREA|SELECT)$/.test(e.target?.tagName||"")) return false;
+    if(e.key==="ArrowDown"){ this.mover(1); return true; }
+    if(e.key==="ArrowUp"){ this.mover(-1); return true; }
+    if(e.key==="Enter" && S.cursor){ UI.detalhe(S.cursor); return true; }
+    if(e.key===" " && S.cursor){ this.marcar(); return true; }
+    return false;
+  },
 };
 
 /* =============================== kanban ================================ */
@@ -1926,6 +2540,10 @@ Render.config = function(){
         ? "Status posteriores à execução (um por linha) — neles, observação de conclusão não é contradição"
         : "Post-execution statuses (one per line) — a completion note here is not a contradiction"}</span>
         <textarea id="cPos" rows="2">${esc((c.statusPosExecucao||[]).join("\n"))}</textarea></label>
+      <label class="fld"><span>${LANG==="pt"
+        ? "Status que contam como FECHADO (um por linha; vale por prefixo) — é a única fonte de \"em aberto\" em todos os painéis"
+        : "Statuses counted as CLOSED (one per line; prefix match) — the single source of \"open\" in every panel"}</span>
+        <textarea id="cAberto" rows="3">${esc(R.abertoExcecoes().join("\n"))}</textarea></label>
       <div><button class="btn pri" id="cSalvar">${T("salvar")}</button></div>
     </div></div>
 
@@ -1960,6 +2578,25 @@ Render.config = function(){
         : "Automatic backup on load and before important operations, in the <b>backups/</b> subfolder. Keeps the 30 most recent versions."}</p>
     </div></div>
 
+    <div class="panel"><h3>${LANG==="pt"?"Tamanho e arquivamento":"Size and archiving"}</h3><div class="pad">
+      ${(()=>{ const mb=R.tamanhoBase()/1048576, lim=c.mbAvisoTamanho??8;
+        return `<dl class="kv"><dt>${LANG==="pt"?"Tamanho da base":"Database size"}</dt>
+          <dd class="mono" style="color:var(--${mb>lim?"bad":"fg-2"})">${mb.toFixed(2)} MB</dd>
+          <dt>${LANG==="pt"?"Eventos no histórico":"History events"}</dt><dd class="mono">${S.db.historico.length}</dd>
+          <dt>${LANG==="pt"?"Avisar acima de":"Warn above"}</dt><dd class="mono">${lim} MB</dd></dl>`; })()}
+      <div class="sep"></div>
+      <div class="rowflex" style="align-items:flex-end">
+        <label class="fld"><span>${LANG==="pt"?"Arquivar eventos anteriores a":"Archive events before"}</span>
+          <input type="date" id="aCorte" value="${S.arqCorte ?? (R.marcos()[0]?.data || hoje())}"></label>
+        <button class="btn" id="aPrevia">${LANG==="pt"?"Prévia":"Preview"}</button>
+        <button class="btn danger" id="aFazer" ${Store.dirHandle?"":"disabled"}>${LANG==="pt"?"Arquivar":"Archive"}</button>
+      </div>
+      <div id="aInfo" class="muted" style="font-size:11.5px;margin-top:9px"></div>
+      <p class="muted" style="font-size:11.5px;line-height:1.7;margin-top:9px">${LANG==="pt"
+        ? "Os eventos saem da base para a subpasta <b>historico/</b> (nada é apagado) e cada item ganha um evento-marco com o último status antes do corte — por isso a reconstrução <b>a partir do corte</b> continua exata. Datas <b>anteriores</b> ao corte deixam de ser reconstituíveis dentro do sistema: ficam no arquivo gerado."
+        : "Events move out to the <b>historico/</b> subfolder (nothing is deleted) and each item keeps a marker event with its last status before the cut, so reconstruction <b>from the cut onward</b> stays exact. Dates <b>before</b> the cut can no longer be rebuilt inside the app: they live in the generated file."}</p>
+    </div></div>
+
     <div class="panel"><h3>${LANG==="pt"?"Integridade da base":"Database integrity"}</h3><div class="pad">
       <div id="integ"></div>
       <div class="rowflex" style="margin-top:11px"><button class="btn" id="bVerif">${LANG==="pt"?"Verificar agora":"Check now"}</button></div>
@@ -1973,7 +2610,21 @@ Render.config = function(){
         <dt>${LANG==="pt"?"Pendentes":"Pending"}</dt><dd class="mono">${S.db.pendentes.length}</dd>
         <dt>${LANG==="pt"?"Eventos":"Events"}</dt><dd class="mono">${S.db.historico.length}</dd>
         <dt>${LANG==="pt"?"Descartes":"Discards"}</dt><dd class="mono">${(S.db.logDescartes||[]).length}</dd>
+        <dt>${LANG==="pt"?"Sobrescritas forçadas":"Forced overwrites"}</dt><dd class="mono">${(S.db.logSobrescritas||[]).length}</dd>
+        <dt>${LANG==="pt"?"Arquivamentos":"Archivings"}</dt><dd class="mono">${(S.db.logArquivamentos||[]).length}</dd>
       </dl>
+      ${(S.db.logArquivamentos||[]).length?`<div class="sep"></div>
+        <div style="max-height:110px;overflow:auto;font-size:11.5px">
+        ${S.db.logArquivamentos.slice().reverse().map(l=>`<div style="padding:4px 0;border-bottom:1px solid var(--line-2)">
+          <b>${fmtDT(l.em)}</b> — ${esc(l.autor)} — ${l.arquivados} ${LANG==="pt"?"eventos anteriores a":"events before"} ${esc(l.corte)}
+          <div class="muted mono" style="font-size:10.5px">${esc(l.arquivo)}</div></div>`).join("")}</div>`:""}
+      ${(S.db.logSobrescritas||[]).length?`<div class="sep"></div>
+        <div style="max-height:120px;overflow:auto;font-size:11.5px">
+        ${S.db.logSobrescritas.slice().reverse().map(l=>`<div style="padding:4px 0;border-bottom:1px solid var(--line-2)">
+          <b>${fmtDT(l.em)}</b> — ${esc(l.autor)} — ${LANG==="pt"?"revisão":"revision"} ${esc(l.revisaoLocal)} → ${esc(l.revisaoDisco)}
+          <span class="mono" style="color:var(--${l.resultado==="sobrescrito"?"ok":"bad"})">${esc(l.resultado)}</span>
+          <div class="muted mono" style="font-size:10.5px">${esc(l.backup||(LANG==="pt"?"sem backup":"no backup"))}</div>
+        </div>`).join("")}</div>`:""}
       ${(S.db.logDescartes||[]).length?`<div class="sep"></div>
         <div style="max-height:170px;overflow:auto;font-size:11.5px">
         ${S.db.logDescartes.slice().reverse().map(l=>`<div style="padding:4px 0;border-bottom:1px solid var(--line-2)">
@@ -1990,6 +2641,10 @@ Render.config = function(){
     c.minutosConsolidacao=+$("#cCons").value; c.diasSemAtualizacao=+$("#cSem").value;
     c.diasAlertaAging=+$("#cAge").value;
     c.statusPosExecucao=$("#cPos").value.split("\n").map(x=>x.trim()).filter(Boolean);
+    const ab=$("#cAberto").value.split("\n").map(x=>x.trim()).filter(Boolean);
+    if(ab.length) c.statusAbertoExcecoes=ab;      /* lista vazia mudaria todos os numeros: mantem a anterior */
+    else toast(LANG==="pt"?"A lista de status fechados não pode ficar vazia — mantida a anterior"
+                          :"The closed-status list cannot be empty — previous one kept","warn");
     c.segundosSync=Math.min(120,Math.max(3,+$("#cSync").value||7));
     const a=$("#cAutor").value.trim(); if(a) localStorage.setItem("sm.autor",a);
     Pend.registrar({t:"outro", o:"config"}); Pend.agendarAutosave(); Sync.iniciar(); toast(LANG==="pt"?"Configurações salvas":"Settings saved","ok"); Render.atual();};
@@ -2007,6 +2662,30 @@ Render.config = function(){
       <button class="btn sm" data-rb="${esc(b.nome)}">${T("restaurar")}</button></span></div>`).join("")
       : (LANG==="pt"?"Nenhum backup ainda.":"No backups yet.");
     $$("button[data-rb]").forEach(b=>b.onclick=()=>UI.restaurar(b.dataset.rb));};
+  const previaArq=()=>{
+    S.arqCorte=$("#aCorte").value;
+    const pv=Arquivamento.previa(S.arqCorte);
+    $("#aInfo").innerHTML = pv.eventos
+      ? (LANG==="pt"
+        ? `<b>${pv.eventos}</b> evento(s) de <b>${pv.itens}</b> item(ns) sairiam da base; <b>${pv.restam}</b> ficam, mais ${pv.itens} evento(s)-marco.`
+        : `<b>${pv.eventos}</b> event(s) from <b>${pv.itens}</b> item(s) would move out; <b>${pv.restam}</b> stay, plus ${pv.itens} marker event(s).`)
+      : (LANG==="pt"?"Nenhum evento anterior a essa data." : "No events before that date.");
+    return pv;
+  };
+  $("#aPrevia").onclick=previaArq;
+  $("#aCorte").onchange=previaArq;
+  $("#aFazer").onclick=async()=>{
+    const pv=previaArq(); if(!pv.eventos) return;
+    if(!confirmar(LANG==="pt"
+      ? `Arquivar ${pv.eventos} evento(s) anteriores a ${S.arqCorte}?\n\nEles vão para a subpasta historico/ e saem da base. Depois disso, o sistema não reconstrói mais estados anteriores a essa data.`
+      : `Archive ${pv.eventos} event(s) before ${S.arqCorte}?\n\nThey move to the historico/ subfolder and leave the database. After that, the app can no longer rebuild states before that date.`)) return;
+    try{
+      const r=await Arquivamento.executar(S.arqCorte);
+      toast(LANG==="pt"?`${r.arquivados} evento(s) arquivados em ${r.arquivo}`
+                       :`${r.arquivados} event(s) archived to ${r.arquivo}`,"ok");
+      Render.atual();
+    }catch(e){ toast(mensagemArmazenamento(e),"bad"); }
+  };
   $("#bVerif").onclick=()=>{$("#integ").innerHTML=verificarIntegridade();};
   $("#integ").innerHTML=verificarIntegridade();
 };
@@ -2024,6 +2703,76 @@ function relMigracaoHTML(){
     ${lin(LANG==="pt"?"Campos só no Arquivo 2":"Fields only in File 2",esc(r.campos_so_arquivo2.join(", ")||"—"))}
   </dl>`;
 }
+/* ===================== validacao estrutural da base ====================
+   Normalizar e validar sao coisas diferentes: normalizar CONSERTA o que da
+   para consertar (preenche campo que falta), validar apenas OLHA e diz o que
+   impede a base de ser usada. Bloqueante e so o que torna a base inutilizavel
+   - o resto e aviso, senao um evento orfao tranca a pessoa fora da propria
+   base. Funcao pura: nao toca no objeto recebido.                        */
+function validarBase(db){
+  const pt = LANG==="pt", erros=[], avisos=[];
+  const E=(a,b)=>erros.push(pt?a:b), A=(a,b)=>avisos.push(pt?a:b);
+  if(!db || typeof db!=="object" || Array.isArray(db)){
+    E("O arquivo não contém um objeto de base.","The file does not contain a database object.");
+    return {valido:false, erros, avisos};
+  }
+  for(const k of ["itens","historico","pendentes","observacoes","conflitos","marcos"])
+    if(k in db && !Array.isArray(db[k]))
+      E(`"${k}" existe no arquivo mas não é uma lista.`, `"${k}" exists but is not a list.`);
+  for(const k of ["config","meta"])
+    if(k in db && (typeof db[k]!=="object" || db[k]===null || Array.isArray(db[k])))
+      E(`"${k}" existe no arquivo mas não é um objeto.`, `"${k}" exists but is not an object.`);
+  const rev = db.meta?.revisao;
+  if(rev!==undefined && (!Number.isInteger(rev) || rev<0))
+    E(`meta.revisao inválida (${JSON.stringify(rev)}): o controle de versão entre pessoas depende dela.`,
+      `Invalid meta.revisao (${JSON.stringify(rev)}): concurrent-write control depends on it.`);
+  if(erros.length) return {valido:false, erros, avisos};
+
+  const itens = Array.isArray(db.itens)? db.itens : [];
+  if(!("itens" in db)) A("O arquivo não traz a lista de itens.","The file has no items list.");
+  if(itens.some(i=>!i || typeof i!=="object" || Array.isArray(i)))
+    E("Há itens que não são objetos.","Some items are not objects.");
+  const semId = itens.filter(i=>i && typeof i==="object" && !i.item).length;
+  if(semId) E(`${semId} item(ns) sem identificador.`, `${semId} item(s) without an identifier.`);
+  const ids = itens.map(i=>i?.item).filter(Boolean);
+  const dup = [...new Set(ids.filter((x,k)=>ids.indexOf(x)!==k))];
+  if(dup.length) E(`Identificadores repetidos: ${dup.slice(0,10).join(", ")}${dup.length>10?"…":""}.`,
+                   `Duplicate identifiers: ${dup.slice(0,10).join(", ")}${dup.length>10?"…":""}.`);
+
+  /* daqui para baixo: avisos - a base abre, mas alguem precisa olhar */
+  const conjunto = new Set(ids);
+  const hist = Array.isArray(db.historico)? db.historico : [];
+  const orf = hist.filter(h=>h?.item && !conjunto.has(h.item)).length;
+  if(orf) A(`${orf} evento(s) de histórico apontam para itens que não existem.`,
+            `${orf} history event(s) point to items that do not exist.`);
+  const hid = hist.map(h=>h?.id).filter(Boolean);
+  const hdup = [...new Set(hid.filter((x,k)=>hid.indexOf(x)!==k))];
+  if(hdup.length) A(`${hdup.length} id(s) de evento repetidos.`, `${hdup.length} duplicate event id(s).`);
+  const ISO = /^\d{4}-\d{2}-\d{2}/;
+  const datas = hist.filter(h=>h?.dataEfetiva && !ISO.test(String(h.dataEfetiva))).length;
+  if(datas) A(`${datas} evento(s) com data fora do formato AAAA-MM-DD.`,
+              `${datas} event(s) with a date outside YYYY-MM-DD.`);
+  const dom = new Set((db.config?.status||[]).map(x=>x?.codigo).filter(Boolean));
+  if(dom.size){
+    const fora = [...new Set(itens.map(i=>i?.status).filter(st=>st && !dom.has(st)))];
+    if(fora.length) A(`Status fora do domínio configurado: ${fora.slice(0,6).join(", ")}${fora.length>6?"…":""}.`,
+                      `Statuses outside the configured domain: ${fora.slice(0,6).join(", ")}${fora.length>6?"…":""}.`);
+  }
+  const semSt = itens.filter(i=>i && !i.status).length;
+  if(semSt) A(`${semSt} item(ns) sem status.`, `${semSt} item(s) without a status.`);
+  const pend = Array.isArray(db.pendentes)? db.pendentes : [];
+  const pOrf = pend.filter(x=>x?.item && !conjunto.has(x.item)).length;
+  if(pOrf) A(`${pOrf} pendência(s) apontam para itens que não existem.`,
+             `${pOrf} pending change(s) point to items that do not exist.`);
+  const pCampo = pend.filter(x=>!x?.campo || !Pend.campoEditavel.includes(x.campo)).length;
+  if(pCampo) A(`${pCampo} pendência(s) em campo que não é editável.`,
+               `${pCampo} pending change(s) on a non-editable field.`);
+  const cAb = (Array.isArray(db.conflitos)? db.conflitos : []).filter(c=>c && !c.resolvido).length;
+  if(cAb) A(`${cAb} conflito(s) de migração aguardando decisão.`,
+            `${cAb} migration conflict(s) awaiting a decision.`);
+  return {valido: !erros.length, erros, avisos};
+}
+
 function verificarIntegridade(){
   const p=[], itens=S.db.itens;
   const ids=itens.map(i=>i.item);
@@ -2040,6 +2789,10 @@ function verificarIntegridade(){
   if(orf) p.push([`${orf} ${LANG==="pt"?"eventos de histórico órfãos":"orphan history events"}`,"warn"]);
   const conf=(S.db.conflitos||[]).filter(c=>!c.resolvido).length;
   if(conf) p.push([`${conf} ${LANG==="pt"?"conflitos aguardando decisão":"conflicts awaiting decision"}`,"warn"]);
+  const mb = R.tamanhoBase()/1048576, limite = S.db.config.mbAvisoTamanho ?? 8;
+  if(mb > limite) p.push([`${LANG==="pt"?"Base grande":"Large database"}: ${mb.toFixed(1)} MB ${LANG==="pt"
+    ? `(acima de ${limite} MB) — considere arquivar histórico antigo em Configurações`
+    : `(over ${limite} MB) — consider archiving old history in Settings`}`,"warn"]);
   const incoer=itens.filter(i=>incoerente(i.status,i.updatedStatusObs)).length;
   if(incoer) p.push([`${incoer} ${LANG==="pt"?"itens com status incoerente com a observação":"items whose status conflicts with their note"}`,"warn"]);
   if(!p.length) return `<div class="rowflex" style="color:var(--ok)"><b>✓ ${LANG==="pt"?"Nenhum problema encontrado":"No problems found"}</b></div>`;
@@ -2079,17 +2832,26 @@ const UI = {
   },
   async carregarBase(){
     try{
-      S.db = await Store.carregar();
+      const lida = await Store.carregar();
+      const val = validarBase(lida);
+      if(!val.valido){
+        Render.semBase(LANG==="pt"
+          ? "O database.json da pasta não passou na verificação estrutural. Nada foi gravado."
+          : "The database.json in the folder failed the structural check. Nothing was written.");
+        return this.baseRecusada("database.json", val, JSON.stringify(lida,null,1));
+      }
+      S.db = lida;
       normalizar(S.db); Pend.diario=[]; S.sujo=false;
       Usuario.garantir();
+      S.novidades = Visita.calcular(); Visita.marcar();
       await Store.backup(S.db,"abertura").catch(()=>{});
       Pend.iniciar();
-      marcarEstado(LANG==="pt"?"base carregada":"database loaded");
+      marcarEstado(LANG==="pt"?"base carregada":"database loaded", "info");
       toast(`${S.db.itens.length} ${LANG==="pt"?"itens carregados":"items loaded"}`,"ok");
-      irPara("dashboard");
+      irPara(S.rotaInicial || "dashboard"); S.rotaInicial=null;
     }catch(e){
       if(e.message==="NAO_ENCONTRADO") return this.baseNova();
-      Render.semBase(String(e.message));
+      Render.semBase(mensagemArmazenamento(e));
     }
   },
   baseNova(){
@@ -2102,6 +2864,8 @@ const UI = {
   async recuperarEspelho(){
     const e=await IDB.get("espelho");
     if(!e) return toast(LANG==="pt"?"Nenhuma cópia local encontrada":"No local copy found","bad");
+    const val = validarBase(e);
+    if(!val.valido) return this.baseRecusada(LANG==="pt"?"cópia local":"local copy", val, JSON.stringify(e,null,1));
     if(!confirmar(LANG==="pt"
       ? `Cópia local de ${fmtDT(e.meta?.atualizadoEm)} com ${e.itens?.length||0} itens. Carregar?`
       : `Local copy from ${fmtDT(e.meta?.atualizadoEm)} with ${e.itens?.length||0} items. Load it?`)) return;
@@ -2111,15 +2875,24 @@ const UI = {
   abrirArquivoManual(){
     const inp=document.createElement("input"); inp.type="file"; inp.accept=".json";
     inp.onchange=async()=>{ const f=inp.files[0]; if(!f) return;
-      try{ S.db=JSON.parse(await f.text()); normalizar(S.db); Usuario.garantir(); Pend.iniciar(); irPara("dashboard");
-        toast(LANG==="pt"?"Base aberta em modo leitura/baixar":"Database opened in read/download mode","ok");
-      }catch(e){ toast("JSON inválido","bad"); } };
+      let texto, lida;
+      try{ texto = await f.text(); lida = JSON.parse(texto); }
+      catch(e){ return this.baseRecusada(f.name, {erros:[LANG==="pt"
+        ? "O arquivo não é um JSON válido: "+e.message : "The file is not valid JSON: "+e.message], avisos:[]}, null); }
+      /* uma base invalida nunca substitui a que esta aberta */
+      const val = validarBase(lida);
+      if(!val.valido) return this.baseRecusada(f.name, val, texto);
+      S.db=lida; normalizar(S.db); Usuario.garantir(); Pend.iniciar(); irPara("dashboard");
+      if(val.avisos.length) toast(LANG==="pt"
+        ? `Base aberta com ${val.avisos.length} aviso(s) — veja Configurações > Integridade`
+        : `Database opened with ${val.avisos.length} warning(s) — see Settings > Integrity`, "warn");
+      else toast(LANG==="pt"?"Base aberta em modo leitura/baixar":"Database opened in read/download mode","ok"); };
     inp.click();
   },
 
   /* ---- conflito de gravação concorrente ---- */
   conflitoGravacao(err){
-    marcarEstado(LANG==="pt"?"conflito de gravação":"write conflict");
+    marcarEstado(LANG==="pt"?"conflito de gravação":"write conflict", "conflito");
     this.modal(LANG==="pt"?"Conflito de gravação":"Write conflict",
       `<p>${LANG==="pt"
         ? `O arquivo na pasta foi alterado por <b>${esc(err.autorDisco||"outra pessoa")}</b> (revisão ${err.revisaoDisco}) depois que você carregou esta base (revisão ${Store.revisaoCarregada}).`
@@ -2130,22 +2903,110 @@ const UI = {
        <ul class="muted" style="line-height:1.8">
         <li><b>${LANG==="pt"?"Recarregar":"Reload"}</b> — ${LANG==="pt"?"descarta suas alterações não gravadas e traz a versão do disco.":"discards your unsaved changes and loads the disk version."}</li>
         <li><b>${LANG==="pt"?"Salvar cópia":"Save a copy"}</b> — ${LANG==="pt"?"baixa a sua versão para comparação manual.":"downloads your version for manual comparison."}</li>
-        <li><b>${LANG==="pt"?"Forçar gravação":"Force write"}</b> — ${LANG==="pt"?"sobrescreve o disco. Um backup da versão do disco é criado antes.":"overwrites the disk. A backup of the disk version is created first."}</li></ul>`,
+        <li><b>${LANG==="pt"?"Forçar gravação":"Force write"}</b> — ${LANG==="pt"?"sobrescreve o disco, mas só depois de gravar e conferir um backup da versão que está lá. Se o backup não puder ser confirmado, nada é sobrescrito.":"overwrites the disk, but only after a backup of the version on disk is written and verified. If the backup cannot be confirmed, nothing is overwritten."}</li></ul>`,
       [{txt:LANG==="pt"?"Recarregar":"Reload",cls:"btn",fn:async()=>{
           this.fechar(); Pend.diario=[]; S.sujo=false; await this.carregarBase();}},
        {txt:LANG==="pt"?"Salvar cópia":"Save a copy",cls:"btn",fn:()=>dl(`minha-versao-${hoje()}.json`,JSON.stringify(S.db,null,1),"application/json")},
        {txt:LANG==="pt"?"Forçar gravação":"Force write",cls:"btn danger",fn:async()=>{
-          try{ await Store.backup(err.disco,"pre-sobrescrita"); }catch{}
-          S.db.meta.revisao = err.revisaoDisco;
-          await Store.gravar(S.db,{forcar:true});
-          Pend.diario=[]; Sync.ultimoMtime = await Store.mtime();
-          this.fechar(); marcarEstado(LANG==="pt"?"gravado (forçado)":"written (forced)");}}]);
+          /* O backup da versao do disco e pre-requisito, nao tentativa: sem ele
+             confirmado, a sobrescrita nao acontece e o conflito continua aberto. */
+          const registro = {em:agora(), autor:Usuario.garantir(), acao:"sobrescrita-forcada",
+                            revisaoDisco:err.revisaoDisco, revisaoLocal:Store.revisaoCarregada,
+                            backup:null, resultado:"tentativa"};
+          (S.db.logSobrescritas ??= []).push(registro);
+          let nome;
+          try{ nome = await Store.backup(err.disco,"pre-sobrescrita"); }
+          catch(e){
+            registro.resultado = "backup-falhou";
+            marcarEstado(LANG==="pt"?"conflito de gravação":"write conflict", "conflito");
+            return toast((LANG==="pt"
+              ? "Backup da versão em disco falhou — nada foi sobrescrito. "
+              : "Backup of the disk version failed — nothing was overwritten. ")
+              + mensagemArmazenamento(e), "bad");
+          }
+          registro.backup = nome;
+          try{
+            S.db.meta.revisao = err.revisaoDisco;
+            await Store.gravar(S.db,{forcar:true});
+          }catch(e){
+            registro.resultado = "gravacao-falhou";
+            return toast(mensagemArmazenamento(e),"bad");
+          }
+          registro.resultado = "sobrescrito";
+          registro.revisaoGravada = S.db.meta.revisao;
+          Pend.diario=[]; S.sujo=false; Sync.ultimoMtime = await Store.mtime();
+          this.fechar(); marcarEstado(LANG==="pt"?"gravado (forçado)":"written (forced)", "salvo");
+          toast(LANG==="pt"?`Sobrescrito. Backup da versão anterior: ${nome}`
+                           :`Overwritten. Backup of the previous version: ${nome}`,"ok");}}]);
+  },
+
+  /* ---- relatorio de uma base recusada, com saida para recuperacao ---- */
+  baseRecusada(origem, res, texto){
+    const lista = (t,l,cor)=> l.length? `<div style="margin-top:10px"><b style="color:var(--${cor})">${t}</b>
+      <ul style="margin:6px 0 0 18px;line-height:1.7">${l.map(x=>`<li>${esc(x)}</li>`).join("")}</ul></div>` : "";
+    this.modal(LANG==="pt"?"Base recusada":"Database rejected",
+      `<p>${LANG==="pt"
+        ? `O conteúdo de <b>${esc(origem)}</b> não pode ser usado como base. <b>Nada foi alterado aqui</b>: a base que estava aberta continua intacta.`
+        : `The contents of <b>${esc(origem)}</b> cannot be used as a database. <b>Nothing was changed here</b>: the database you had open is intact.`}</p>
+       ${lista(LANG==="pt"?"Impedimentos":"Blocking problems", res.erros, "bad")}
+       ${lista(LANG==="pt"?"Avisos":"Warnings", res.avisos, "warn")}`,
+      texto? [{txt:LANG==="pt"?"Baixar o arquivo":"Download the file",cls:"btn",
+               fn:()=>dl(`base-recusada-${hoje()}.json`, texto, "application/json")},
+              {txt:T("fechar"),cls:"btn pri",fn:()=>this.fechar()}]
+            : [{txt:T("fechar"),cls:"btn pri",fn:()=>this.fechar()}]);
+  },
+
+  /* ---- alteracoes pendentes: lista com descarte linha a linha ---- */
+  painelPendentes(){
+    const p=S.db?.pendentes||[]; if(!p.length) return this.fechar();
+    this.modal(LANG==="pt"?"Alterações pendentes":"Pending changes",
+      `<p class="muted">${LANG==="pt"
+        ? `Estas alterações já estão salvas na base, mas ainda não viraram histórico definitivo. Consolidam sozinhas após ${S.db.config.minutosConsolidacao} minutos sem novo toque.`
+        : `These changes are already saved, but not yet consolidated into the permanent history. They consolidate automatically after ${S.db.config.minutosConsolidacao} minutes without further edits.`}</p>
+       <table style="margin-top:12px"><thead><tr><th>${T("item")}</th><th>${T("campo")}</th>
+         <th>${T("anterior")}</th><th>${T("novo")}</th><th>${LANG==="pt"?"Desde":"Since"}</th><th></th></tr></thead><tbody>
+       ${p.map(x=>`<tr><td class="num"><b>${esc(x.item)}</b></td><td>${esc(x.campo)}</td>
+         <td>${esc(x.valorOriginal)||"—"}</td><td><b>${esc(x.valorAtual)}</b></td>
+         <td class="num">${fmtDT(x.primeiraAlteracaoEm)}</td>
+         <td><button class="btn sm danger" data-pd="${esc(x.id)}"
+           title="${LANG==="pt"?"Descartar só esta":"Discard just this one"}">✕</button></td></tr>`).join("")}</tbody></table>`,
+      [{txt:T("descartar"),cls:"btn danger",fn:()=>{UI.fechar(); Pend.descartarTudo();}},
+       {txt:T("salvarAgora"),cls:"btn pri",fn:()=>{UI.fechar(); Pend.consolidarTudo();}}]);
+    $$("[data-pd]").forEach(b=>b.onclick=()=>{
+      const x=S.db.pendentes.find(y=>y.id===b.dataset.pd);
+      if(x && Pend.descartarUma(x)) this.painelPendentes();
+    });
+  },
+
+  /* Grava os cinco campos editaveis do detalhe. Pend.alterar ignora os que
+     nao mudaram, entao nao ha risco de criar pendencia a toa. */
+  salvarDetalhe(itemId){
+    const dt=$("#dData")?.value||hoje(), mot=$("#dMotivo")?.value.trim()||"";
+    const campos=[["dStatus","status"],["dObs","updatedStatusObs"],["dGer","generalObs"],
+                  ["dNcr","ncr"],["dTests","tests"]];
+    for(const [el,campo] of campos){
+      const v=$("#"+el); if(v) Pend.alterar(itemId,campo,v.value,{dataEfetiva:dt,motivo:mot});
+    }
+  },
+  /* Anda na lista filtrada sem fechar o detalhe: revisar item a item vira
+     um fluxo continuo em vez de abrir-fechar-procurar. */
+  irrItem(passo, {semSalvar=false}={}){
+    const l = ordenar(itensFiltrados()).map(x=>x.item);
+    const k = l.indexOf(S.selecionado);
+    const alvo = l[k + passo];
+    if(alvo===undefined){ this.fechar(); Render.atual();
+      return toast(LANG==="pt"?"Fim da lista":"End of list"); }
+    S.cursor = alvo;
+    Render.atual();                     /* a tabela atras acompanha */
+    this.detalhe(alvo);
   },
 
   /* ---- detalhe do item ---- */
   detalhe(itemId){
     const i=S.db.itens.find(x=>x.item===itemId); if(!i) return;
-    S.selecionado=itemId;
+    S.selecionado=itemId; S.cursor=itemId;
+    const vizinhos = ordenar(itensFiltrados()).map(x=>x.item);
+    const pos = vizinhos.indexOf(itemId);
     const hist=(S.db.historico||[]).filter(h=>h.item===itemId)
                 .sort((a,b)=>b.dataEfetiva.localeCompare(a.dataEfetiva));
     const obs=(S.db.observacoes||[]).filter(o=>o.item===itemId)
@@ -2155,9 +3016,16 @@ const UI = {
     const ativos=R.statusAtivos();
 
     const aba=(id,txt)=>`<button data-t="${id}">${esc(txt)}</button>`;
-    this.modal(`${LANG==="pt"?"Item":"Item"} ${itemId}`, `
+    this.modal(`${LANG==="pt"?"Item":"Item"} ${itemId}`
+      + (pos>=0 && vizinhos.length>1? `  (${pos+1}/${vizinhos.length})` : ""), `
       <div class="tabs">${aba("d",T("detalhes"))}${aba("h",T("historico"))}${aba("o",T("observacoes"))}${aba("x",T("dados"))}</div>
       <div id="tp-d">
+        ${(()=>{ const quem=Sync.quemEdita(itemId); return quem.length
+          ? `<div class="panel pad" style="border-left:3px solid var(--warn);margin-bottom:12px">
+              <b style="color:var(--warn)">✎ ${esc(quem.join(", "))}</b> ${LANG==="pt"
+                ? "está com este item aberto agora. Se os dois mudarem o mesmo campo, o sistema vai pedir uma decisão."
+                : "has this item open right now. If you both change the same field, the app will ask for a decision."}</div>`
+          : ""; })()}
         ${confl.length?`<div class="panel pad" style="border-left:3px solid var(--warn);margin-bottom:12px">
           <b style="color:var(--warn)">⚠ ${confl.length} ${LANG==="pt"?"conflito(s) de migração em aberto":"open migration conflict(s)"}</b>
           ${confl.map(c=>`<div style="margin-top:6px;font-size:12px"><b>${esc(c.campo)}</b><br>
@@ -2165,8 +3033,11 @@ const UI = {
             <span class="muted">${T("arquivo2")}:</span> ${esc(c.valorArquivo2)}</div>`).join("")}</div>`:""}
         ${pend.length?`<div class="panel pad" style="border-left:3px solid var(--chg-line);margin-bottom:12px">
           <b>${pend.length} ${LANG==="pt"?"alteração(ões) pendente(s) de consolidação":"change(s) pending consolidation"}</b>
-          ${pend.map(p=>`<div class="muted" style="font-size:11.5px;margin-top:4px">${esc(p.campo)}:
-            "${esc(p.valorOriginal)}" → "${esc(p.valorAtual)}" · ${LANG==="pt"?"desde":"since"} ${fmtDT(p.primeiraAlteracaoEm)}</div>`).join("")}</div>`:""}
+          ${pend.map(p=>`<div class="rowflex muted" style="font-size:11.5px;margin-top:4px">
+            <span style="flex:1">${esc(p.campo)}: "${esc(p.valorOriginal)}" → "${esc(p.valorAtual)}"
+              · ${LANG==="pt"?"desde":"since"} ${fmtDT(p.primeiraAlteracaoEm)}</span>
+            <button class="btn sm danger" data-pd="${esc(p.id)}">${LANG==="pt"?"Descartar":"Discard"}</button>
+          </div>`).join("")}</div>`:""}
         <div class="grid" style="grid-template-columns:1fr 1fr;gap:12px">
           <label class="fld"><span>${T("status")}</span>
             <select id="dStatus">${ativos.map(s=>`<option ${s===i.status?"selected":""}>${esc(s)}</option>`).join("")}</select></label>
@@ -2214,16 +3085,19 @@ const UI = {
            [LANG==="pt"?"Presente em":"Present in",i.presenteEm],
         ].map(([k,v])=>`<dt>${esc(k)}</dt><dd>${k==="Bigram"||String(v).includes("<span")?v:esc(v??"")}</dd>`).join("")}
       </dl></div>`,
-      [{txt:T("fechar"),cls:"btn",fn:()=>this.fechar()},
+      [...(vizinhos.length>1? [
+        {txt:"‹ "+(LANG==="pt"?"Anterior":"Previous"),cls:"btn",fn:()=>this.irrItem(-1)},
+        {txt:(LANG==="pt"?"Próximo":"Next")+" ›",cls:"btn",fn:()=>this.irrItem(1)}] : []),
+       {txt:T("fechar"),cls:"btn",fn:()=>this.fechar()},
+       {txt:LANG==="pt"?"Salvar e próximo":"Save and next",cls:"btn",
+        fn:()=>{ this.salvarDetalhe(itemId); this.irrItem(1, {semSalvar:true}); }},
        {txt:T("salvar"),cls:"btn pri",fn:()=>{
-          const dt=$("#dData").value||hoje(), mot=$("#dMotivo").value.trim();
-          Pend.alterar(itemId,"status",$("#dStatus").value,{dataEfetiva:dt,motivo:mot});
-          Pend.alterar(itemId,"updatedStatusObs",$("#dObs").value,{dataEfetiva:dt,motivo:mot});
-          Pend.alterar(itemId,"generalObs",$("#dGer").value,{dataEfetiva:dt,motivo:mot});
-          Pend.alterar(itemId,"ncr",$("#dNcr").value,{dataEfetiva:dt,motivo:mot});
-          Pend.alterar(itemId,"tests",$("#dTests").value,{dataEfetiva:dt,motivo:mot});
-          this.fechar(); Render.atual();}}]);
+          this.salvarDetalhe(itemId); this.fechar(); Render.atual();}}]);
 
+    $$("[data-pd]").forEach(b=>b.onclick=()=>{
+      const x=S.db.pendentes.find(y=>y.id===b.dataset.pd);
+      if(x && Pend.descartarUma(x)) this.detalhe(itemId);
+    });
     $$(".tabs button").forEach((b,k)=>{ if(!k) b.classList.add("on");
       b.onclick=()=>{ $$(".tabs button").forEach(x=>x.classList.remove("on")); b.classList.add("on");
         ["d","h","o","x"].forEach(t=>$("#tp-"+t).hidden = t!==b.dataset.t); };});
@@ -2322,6 +3196,7 @@ const UI = {
       if(String(antes)!==String(valor)){
         it[campo] = campo==="bigram"? String(valor).split(/[;,]/).map(x=>x.trim()).filter(Boolean) : valor;
         it.atualizadoEm = agora();
+        R.invalidarHist();
         S.db.historico.push({id:uid(),item:c.item,campo:c.campo,valorAnterior:antes,valorNovo:valor,
           dataEfetiva:hoje(),consolidadoEm:agora(),primeiraAlteracaoEm:agora(),autor:Usuario.garantir(),
           origem:"conflito",tipo:"conflito",
@@ -2383,6 +3258,8 @@ const UI = {
     try{
       await Store.backup(S.db,"pre-restauracao");
       const b=await Store.restaurarBackup(nome);
+      const val = validarBase(b);
+      if(!val.valido) return this.baseRecusada(nome, val, JSON.stringify(b,null,1));
       normalizar(b); b.meta.revisao=S.db.meta.revisao;
       S.db=b; await Store.gravar(S.db,{forcar:true});
       Pend.diario=[]; Sync.ultimoMtime = await Store.mtime(); Sync.iniciar();
@@ -2512,6 +3389,8 @@ function normalizar(db){
     if(d.corEscura===r[2]) d.corEscura=r[3];
   }
   c.status ??= []; c.familias ??= []; c.inspTypesFuncionais ??= [];
+  c.vistas ??= [];                      /* vistas salvas viajam com a base */
+  c.mbAvisoTamanho ??= 8;               /* acima disso, a tela avisa (ver Arquivamento) */
   c.statusPosExecucao ??= ["7 - Missing Vacuum Test or Sign"];
   if(!c.familias.length) c.familias=[
     {id:"pendente",pt:"Pendente",en:"Pending",cor:"#8a8f98",ordem:1},
@@ -2539,7 +3418,7 @@ function normalizar(db){
                     "inspType","insp","originalJx","actualJx","actualJxDescription",
                     "numAndDescription","performance","mode","positionAC","hullPassageParts","sbr"]) i[k] ??= "";
   }
-  R._hs=null; R._hsRev=-1;
+  R.invalidarHist();
 }
 
 /* ============================== arranque =============================== */
@@ -2557,20 +3436,7 @@ $("#btnTheme").onclick=()=>{
 $("#btnLang").onclick=()=>{ LANG = LANG==="pt"?"en":"pt"; localStorage.setItem("sm.lang",LANG);
   document.documentElement.lang = LANG==="pt"?"pt-BR":"en"; Render.atual(); };
 $("#btnSaveNow").onclick=()=>Pend.consolidarTudo();
-$("#pendBadge").onclick=()=>{
-  const p=S.db?.pendentes||[]; if(!p.length) return;
-  UI.modal(LANG==="pt"?"Alterações pendentes":"Pending changes",
-    `<p class="muted">${LANG==="pt"
-      ? `Estas alterações já estão salvas na base, mas ainda não viraram histórico definitivo. Consolidam sozinhas após ${S.db.config.minutosConsolidacao} minutos sem novo toque.`
-      : `These changes are already saved, but not yet consolidated into the permanent history. They consolidate automatically after ${S.db.config.minutosConsolidacao} minutes without further edits.`}</p>
-     <table style="margin-top:12px"><thead><tr><th>${T("item")}</th><th>${T("campo")}</th>
-       <th>${T("anterior")}</th><th>${T("novo")}</th><th>${LANG==="pt"?"Desde":"Since"}</th></tr></thead><tbody>
-     ${p.map(x=>`<tr><td class="num"><b>${esc(x.item)}</b></td><td>${esc(x.campo)}</td>
-       <td>${esc(x.valorOriginal)||"—"}</td><td><b>${esc(x.valorAtual)}</b></td>
-       <td class="num">${fmtDT(x.primeiraAlteracaoEm)}</td></tr>`).join("")}</tbody></table>`,
-    [{txt:T("descartar"),cls:"btn danger",fn:()=>{UI.fechar(); Pend.descartarTudo();}},
-     {txt:T("salvarAgora"),cls:"btn pri",fn:()=>{UI.fechar(); Pend.consolidarTudo();}}]);
-};
+$("#pendBadge").onclick=()=>UI.painelPendentes();
 /* Balao com o conteudo inteiro da celula cortada. */
 (function balao(){
   let alvo=null;
@@ -2599,11 +3465,28 @@ addEventListener("beforeunload",e=>{ Sync.sair(); if(S.sujo){ e.preventDefault()
 addEventListener("keydown",e=>{
   if(e.key==="Escape") UI.fechar();
   if((e.ctrlKey||e.metaKey)&&e.key==="s"){ e.preventDefault(); if(S.db) Pend.consolidarTudo(); }
+  if(!S.db) return;
+  /* no detalhe: Alt+setas pula de item, Ctrl+Enter salva e avanca */
+  if($("#ov") && S.selecionado){
+    if(e.altKey && (e.key==="ArrowRight"||e.key==="ArrowLeft")){
+      e.preventDefault(); return UI.irrItem(e.key==="ArrowRight"?1:-1); }
+    if((e.ctrlKey||e.metaKey) && e.key==="Enter"){
+      e.preventDefault(); UI.salvarDetalhe(S.selecionado); return UI.irrItem(1); }
+    return;
+  }
+  if(TecladoItens.tecla(e)) e.preventDefault();
+});
+
+/* Link colado por outra pessoa (ou aberto numa aba nova) entra pelo hash. */
+addEventListener("hashchange", ()=>{
+  if(location.hash === Filtros._proprio) return;    /* eco da nossa propria escrita */
+  Filtros.aplicarTexto(location.hash);
 });
 
 (async function iniciar(){
   aplicarTema();
   document.documentElement.lang = LANG==="pt"?"pt-BR":"en";
+  Filtros.restaurar();
   Render.nav();
   if(Store.suportado && await Store.restaurarHandle()){
     await UI.carregarBase();

@@ -65,8 +65,11 @@ Testei em Chromium real, não por suposição:
 | 2.000 itens, 50.000 eventos | ~40 MB | > 8 s | ❌ migrar para SQLite |
 
 Como o escopo é **fechado em 428 itens** (sua decisão C6), o gargalo só pode vir do histórico.
-O sistema já traz o mecanismo de saída: **arquivamento de histórico antigo** em arquivo separado,
-mantendo os marcos. Aviso na tela de Configurações quando a base passar de 8 MB.
+O mecanismo de saída está implementado em Configurações: **arquivamento de histórico antigo** para
+`historico/<arquivo>.json` (o arquivo é gravado e conferido **antes** de os eventos saírem da base),
+deixando um **evento-marco por item** com o último status antes do corte — por isso a reconstrução a
+partir do corte continua exata, e só as datas anteriores passam a viver apenas no arquivo. A mesma
+tela mostra o tamanho do `database.json` e avisa acima de 8 MB (`config.mbAvisoTamanho`).
 
 ### Autosave, pendentes e consolidação
 
@@ -141,7 +144,7 @@ Chave lógica: **(item, campo)** — é o que garante o agrupamento.
 - **`observacoes`**: `id` · `item` · `texto` · `criadoEm` · `autor`. Acumulativas, nunca sobrescrevem.
 - **`conflitos`**: `id` · `item` · `campo` · `valorArquivo1` · `valorArquivo2` · `valorAplicado` · `resolvido` · `resolvidoPor` · `resolvidoEm` · `justificativa`. Resolver gera evento no histórico.
 - **`marcos`**: `id` · `nome` · `data` · `tipo`. São as emissões de relatório (29/07, 09/09, 10/09). É contra eles que se calcula "mudou no ciclo" e as setas ▲▼.
-- **`config`**: status (com `ativo`), famílias/colunas do Kanban, minutos de consolidação, limites de aging, definição de "em aberto", tipos funcionais.
+- **`config`**: status (com `ativo`), famílias/colunas do Kanban, minutos de consolidação, limites de aging, `statusAbertoExcecoes` (a **única** fonte de "em aberto", casada por prefixo), tipos funcionais, `mbAvisoTamanho` e `vistas` (filtros salvos com nome, compartilhados por ficarem na base).
 
 ### Relacionamentos
 
@@ -151,6 +154,16 @@ marcos ──(recorte)─► historico ──(N:1)──► itens ◄──(1:N)
                                               ◄──(1:N)── pendentes
                                               ◄──(1:N)── conflitos
 ```
+
+### Validação estrutural antes do uso
+
+`validarBase(db)` é uma função pura, separada da normalização: normalizar **conserta** o que dá
+(campo ausente), validar apenas **olha**. Só é bloqueante o que torna a base inutilizável — raiz que
+não é objeto, coleção que não é lista, item sem identificador, identificador repetido, `meta.revisao`
+inválida. O resto (evento órfão, status fora do domínio, pendência órfã, data fora do padrão) é
+**aviso**, para não trancar ninguém fora da própria base. Passa por ela tudo que pode virar base
+ativa: o `database.json` da pasta, o arquivo aberto à mão, a cópia do IndexedDB, um backup restaurado
+e a versão que chega de outra pessoa. Uma base recusada **nunca** substitui a que está aberta.
 
 ### Validações implementadas
 
