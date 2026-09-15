@@ -529,6 +529,7 @@ const Usuario = {
 const S = {
   db:null, rota:"dashboard", filtros:filtrosVazios(), ordenacao:{campo:"item",dir:1},
   selecionado:null, salvando:false, sujo:false, sujoEstrutural:false,
+  novidades:null, rotaInicial:null,
   kbLayout: localStorage.getItem("sm.kbLayout") || "h",
   dobradas: new Set(JSON.parse(localStorage.getItem("sm.dobradas")||"[]")),
   textoCompleto: localStorage.getItem("sm.textoCompleto")==="1",
@@ -732,14 +733,17 @@ const Pend = {
     marcarEstado(LANG==="pt"?"salvando...":"saving...");
     try{
       for(let tentativa=0; ; tentativa++){
-        const enviados = this.diario.length;
+        /* guarda a identidade dos registros, nao o tamanho: durante a escrita o
+           diario pode crescer (edicao) ou encolher (descarte de pendencia). */
+        const enviados = new Set(this.diario);
         try{
           await Store.gravar(S.db);
-          this.diario = this.diario.slice(enviados);
+          this.diario = this.diario.filter(e=>!enviados.has(e));
           S.sujo = this.diario.length > 0;       /* so limpa se nada entrou no meio */
           marcarEstado(LANG==="pt"?"salvo "+new Date().toLocaleTimeString().slice(0,5)
                                   :"saved "+new Date().toLocaleTimeString().slice(0,5));
           Sync.ultimoMtime = await Store.mtime();
+          Visita.marcar();                       /* estamos aqui: ja vimos isto */
           if(S.sujo) this.agendarAutosave();
           return;
         }catch(e){
@@ -812,6 +816,28 @@ const Pend = {
                       : `${c} consolidated, ${d} discarded (returned to original)`, "ok");
     return gravacao;                       /* quem chama pode aguardar a gravacao */
   },
+  /* Descarta UMA pendencia. Ate aqui so existia o tudo-ou-nada do descartarTudo,
+     entao desfazer um toque errado num item obrigava a perder o trabalho dos outros. */
+  descartarUma(p, {perguntar=true}={}){
+    const idx = S.db.pendentes.indexOf(p); if(idx<0) return false;
+    if(perguntar && !confirmar(LANG==="pt"
+      ? `Descartar a alteração de ${p.item} / ${p.campo}?\n\n"${p.valorOriginal}" → "${p.valorAtual}"`
+      : `Discard the change to ${p.item} / ${p.campo}?\n\n"${p.valorOriginal}" → "${p.valorAtual}"`)) return false;
+    (S.db.logDescartes ??= []).push({em:agora(), autor:Usuario.garantir(), itens:structuredClone([p])});
+    S.db.pendentes.splice(idx,1);
+    this.desfazer([p]);
+    this.esquecerNoDiario([p]);
+    this.autosave(); Render.badgePendentes(); Render.atual();
+    toast(LANG==="pt"?"Alteração descartada. Recuperável em Configurações > Log técnico."
+                     :"Change discarded. Recoverable in Settings > Technical log.","ok");
+    return true;
+  },
+  /* O diario existe para reaplicar o nosso trabalho sobre a versao de outra
+     pessoa. O que foi descartado nao e mais nosso trabalho: sai do diario. */
+  esquecerNoDiario(pends){
+    const chaves = new Set(pends.map(p=>p.item+"\u0000"+p.campo));
+    this.diario = this.diario.filter(e=>!(e.t==="campo" && chaves.has(e.item+"\u0000"+e.campo)));
+  },
   descartarTudo(){
     const n=S.db.pendentes.length; if(!n) return;
     const lista = S.db.pendentes.map(p=>`  ${p.item} / ${p.campo}: "${p.valorOriginal}" -> "${p.valorAtual}"`).join("\n");
@@ -820,6 +846,7 @@ const Pend = {
     const descartadas = [...S.db.pendentes];
     S.db.pendentes=[];
     this.desfazer(descartadas);
+    this.esquecerNoDiario(descartadas);
     this.autosave(); Render.badgePendentes(); Render.atual();
     toast(LANG==="pt"?"Descartado. Recuperável em Configurações > Log técnico.":"Discarded. Recoverable in Settings > Technical log.","ok");
   },
@@ -889,7 +916,7 @@ const Sync = {
       const modal = !!$("#ov");
       S.db = disco; Store.revisaoCarregada = disco.meta.revisao ?? 0;
       Pend.diario = []; S.sujo = false;
-      R.invalidarHist();
+      R.invalidarHist(); Visita.marcar();
       IDB.set("espelho", disco);
       if(!modal) Render.atual(); else Render.badgePendentes();
       marcarEstado(LANG==="pt"?"atualizado do disco":"updated from disk");
@@ -1385,7 +1412,8 @@ const Render = {
     b.textContent = `${n} ${T("pendentes")}`;
     s.style.display = n? "inline-block":"none";
   },
-  atual(){ this.nav(); this.badgePendentes(); (this[S.rota]||this.dashboard).call(this); },
+  atual(){ Filtros.persistir(); this.nav(); this.badgePendentes();
+    (this[S.rota]||this.dashboard).call(this); },
 
   /* ------------------------------ sem base ----------------------------- */
   semBase(motivo){
@@ -1418,6 +1446,20 @@ const Render = {
     const ba=$("#btnAbrirArq"); if(ba) ba.onclick=()=>UI.abrirArquivoManual();
   },
 
+  /* Faixa de abertura: o que outras pessoas fizeram desde a ultima visita. */
+  faixaNovidades(){
+    const n = S.novidades; if(!n) return "";
+    const quem = n.autores.length? ` — ${esc(n.autores.join(", "))}` : "";
+    const partes = [`${n.eventos} ${LANG==="pt"?"alteração(ões) no histórico":"history change(s)"}`];
+    if(n.obs) partes.push(`${n.obs} ${LANG==="pt"?"observação(ões)":"note(s)"}`);
+    return `<div class="panel pad" style="border-left:3px solid var(--accent);margin-bottom:14px;
+        display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <b>${LANG==="pt"?"Desde a sua última visita":"Since your last visit"} (${fmtDT(n.desde)})</b>
+      <span class="muted">${partes.join(" · ")}${quem}</span>
+      <span style="flex:1"></span>
+      <button class="btn sm" id="novVer">${LANG==="pt"?"Ver no histórico":"See in history"}</button>
+      <button class="btn sm" id="novX" title="${LANG==="pt"?"Dispensar":"Dismiss"}">✕</button></div>`;
+  },
   /* ------------------------------ dashboard ---------------------------- */
   dashboard(){
     $("#pageTitle").textContent=T("dashboard");
@@ -1440,6 +1482,7 @@ const Render = {
         G.fluxo(contaDe(lista), b.total, R.fluxoLayout(qual, lista))}</div>`);
 
     $("#view").innerHTML = `
+    ${this.faixaNovidades()}
     <div class="grid kpis" style="margin-bottom:14px">
       ${kpi(T("total"),k.total,"")}
       ${kpi(T("emAberto"),k.aberto, ma? `${G.seta(k.aberto-abAnt,{menorMelhor:true})} ${LANG==="pt"?"vs":"vs"} ${fmtD(ma.data)}`:"")}
@@ -1491,6 +1534,9 @@ const Render = {
     </div>`;
     ligarDobras();
     Filtros.ligar();
+    const nv=$("#novVer"); if(nv) nv.onclick=()=>{
+      S.histDe = S.novidades.dataDe; S.histAte = hoje(); S.novidades=null; irPara("historico"); };
+    const nx=$("#novX"); if(nx) nx.onclick=()=>{ S.novidades=null; Render.atual(); };
   },
 };
 
@@ -1551,15 +1597,154 @@ function pilhaPor(itens,campo,maxLinhas=10,{largo=false}={}){
 <script>
 "use strict";
 /* ============================== filtros ================================ */
+/* ------------- filtros como endereco: URL, localStorage e vistas -------
+   S.filtros vivia so em memoria: um F5 perdia tudo e nao havia como dizer a
+   outra pessoa "olhe estes 12 itens". O mesmo conjunto agora vira texto
+   (rota + querystring), que serve para o hash da URL, para o localStorage e
+   para as vistas nomeadas guardadas na base.                              */
+const FiltroURL = {
+  LISTAS:["status","familia","inspType","origem","funcao","bigram"],
+  TEXTOS:["busca","b05","aging","dataDe","dataAte"],
+  BOOLS:["alteradas","comObs"],
+  paraTexto(f=S.filtros, rota=S.rota, ord=S.ordenacao){
+    const q = new URLSearchParams();
+    for(const k of this.LISTAS) if(f[k]?.length) q.set(k, f[k].join("~"));
+    for(const k of this.TEXTOS) if(f[k]) q.set(k, f[k]);
+    for(const k of this.BOOLS)  if(f[k]) q.set(k, "1");
+    if(ord && (ord.campo!=="item" || ord.dir!==1)) q.set("ord", ord.campo+"~"+ord.dir);
+    const t = q.toString();
+    return (rota||"dashboard") + (t? "?"+t : "");
+  },
+  doTexto(txt){
+    const [rota, busca] = String(txt||"").replace(/^#/,"").split("?");
+    const f = filtrosVazios(), q = new URLSearchParams(busca||"");
+    for(const k of this.LISTAS) if(q.get(k)) f[k] = q.get(k).split("~").filter(Boolean);
+    for(const k of this.TEXTOS) if(q.get(k)) f[k] = q.get(k);
+    for(const k of this.BOOLS)  f[k] = q.get(k)==="1";
+    let ordenacao = null;
+    if(q.get("ord")){ const [campo,dir] = q.get("ord").split("~"); ordenacao = {campo, dir:+dir||1}; }
+    const valida = ROTAS.some(r=>r.id===rota);
+    return {rota: valida? rota : "dashboard", filtros:f, ordenacao};
+  },
+};
+
+/* ---- o que mudou desde a ultima vez que esta pessoa abriu a base ------
+   Com 2-4 pessoas em horarios diferentes, a pergunta da abertura e sempre
+   "o que aconteceu enquanto eu estava fora". A marca fica no computador de
+   cada um (localStorage), nunca na base compartilhada.                    */
+const Visita = {
+  ler(){ try{ return JSON.parse(localStorage.getItem("sm.visto")||"null"); }catch{ return null; } },
+  marcar(){ try{ localStorage.setItem("sm.visto",
+    JSON.stringify({revisao:S.db?.meta?.revisao ?? 0, em:agora()})); }catch{} },
+  calcular(){
+    const v = this.ler(); if(!v?.em || !S.db) return null;
+    const eu = Usuario.nome();
+    const evs = (S.db.historico||[]).filter(h=>String(h.consolidadoEm||"") > v.em);
+    const obs = (S.db.observacoes||[]).filter(o=>String(o.criadoEm||"") > v.em);
+    if(!evs.length && !obs.length) return null;
+    const autores = [...new Set([...evs,...obs].map(x=>x.autor).filter(a=>a && a!==eu))];
+    return {eventos:evs.length, obs:obs.length, autores, desde:v.em,
+            dataDe: evs.map(e=>e.dataEfetiva).filter(Boolean).sort()[0] || v.em.slice(0,10)};
+  },
+};
+
 const Filtros = {
+  /* Os filtros ligados aparecem como pilulas com "x" na barra: da para ver e
+     desligar um a um sem abrir o painel. */
+  ativos(){
+    const f=S.filtros, out=[];
+    for(const k of FiltroURL.LISTAS)
+      for(const v of f[k]) out.push({chave:k, valor:v, rotulo: k==="familia"? R.nomeFamilia(v) : v});
+    if(f.b05)       out.push({chave:"b05", valor:"", rotulo: f.b05==="sim"? T("b05") : T("naoB05")});
+    if(f.aging)     out.push({chave:"aging", valor:"", rotulo:`${T("semAtualizacao")} ≥ ${f.aging} ${T("dias")}`});
+    if(f.dataDe)    out.push({chave:"dataDe", valor:"", rotulo:`${T("de")} ${fmtD(f.dataDe)}`});
+    if(f.dataAte)   out.push({chave:"dataAte", valor:"", rotulo:`${T("ate")} ${fmtD(f.dataAte)}`});
+    if(f.alteradas) out.push({chave:"alteradas", valor:"", rotulo: LANG==="pt"?"alterados no ciclo":"changed in cycle"});
+    if(f.comObs)    out.push({chave:"comObs", valor:"", rotulo: LANG==="pt"?"com observação":"with notes"});
+    return out;
+  },
+  remover(chave, valor){
+    const f=S.filtros;
+    if(Array.isArray(f[chave])){ const i=f[chave].indexOf(valor); if(i>=0) f[chave].splice(i,1); }
+    else if(typeof f[chave]==="boolean") f[chave]=false;
+    else f[chave]="";
+    Render.atual();
+  },
+  /* Grava o estado atual no computador e no hash - o hash e o link que se manda. */
+  persistir(){
+    const txt = FiltroURL.paraTexto();
+    try{ localStorage.setItem("sm.filtros", txt); }catch{}
+    const alvo = "#"+txt;
+    if(location.hash === alvo) return;
+    this._proprio = alvo;
+    try{ history.replaceState(null,"",alvo); }         /* sem encher o historico */
+    catch{ location.hash = alvo; }                     /* file:// as vezes recusa */
+  },
+  restaurar(){
+    const fonte = location.hash.length>1 ? location.hash : (localStorage.getItem("sm.filtros")||"");
+    if(!fonte) return;
+    const {rota, filtros, ordenacao} = FiltroURL.doTexto(fonte);
+    S.filtros = filtros; if(ordenacao) S.ordenacao = ordenacao;
+    S.rotaInicial = rota;
+  },
+  aplicarTexto(txt){
+    const {rota, filtros, ordenacao} = FiltroURL.doTexto(txt);
+    S.filtros = filtros; S.ordenacao = ordenacao ?? {campo:"item",dir:1};
+    if(S.db) irPara(rota); else S.rotaInicial = rota;
+  },
+  /* ---- vistas nomeadas: ficam na config, logo valem para todo mundo ---- */
+  vistas(){ return S.db?.config?.vistas ?? []; },
+  salvarVista(){
+    const nome = (prompt(LANG==="pt"?"Nome da vista:":"View name:")||"").trim();
+    if(!nome) return;
+    (S.db.config.vistas ??= []).push({id:uid(), nome, filtro:FiltroURL.paraTexto(),
+      autor:Usuario.garantir(), criadoEm:agora()});
+    Pend.registrar({t:"outro", o:"vista"}); Pend.agendarAutosave();
+    UI.fechar(); Render.atual();
+    toast(LANG==="pt"?`Vista "${nome}" salva para todos`:`View "${nome}" saved for everyone`,"ok");
+  },
+  aplicarVista(id){
+    const v = this.vistas().find(x=>x.id===id); if(!v) return;
+    UI.fechar(); this.aplicarTexto(v.filtro);
+  },
+  removerVista(id){
+    const l = S.db.config.vistas||[], i = l.findIndex(x=>x.id===id); if(i<0) return;
+    if(!confirmar(LANG==="pt"?`Remover a vista "${l[i].nome}"?`:`Remove the view "${l[i].nome}"?`)) return;
+    l.splice(i,1);
+    Pend.registrar({t:"outro", o:"vista"}); Pend.agendarAutosave();
+    this.painelVistas();
+  },
+  painelVistas(){
+    const l = this.vistas();
+    UI.modal(LANG==="pt"?"Vistas salvas":"Saved views",
+      (l.length? `<table><thead><tr><th>${LANG==="pt"?"Nome":"Name"}</th><th>${T("autor")}</th>
+          <th>${LANG==="pt"?"Filtro":"Filter"}</th><th></th></tr></thead><tbody>
+        ${l.map(v=>`<tr><td><b>${esc(v.nome)}</b></td><td>${esc(v.autor||"")}</td>
+          <td class="muted mono" style="font-size:10.5px">${esc(v.filtro)}</td>
+          <td style="white-space:nowrap"><button class="btn sm" data-va="${esc(v.id)}">${LANG==="pt"?"Abrir":"Open"}</button>
+            <button class="btn sm danger" data-vr="${esc(v.id)}">✕</button></td></tr>`).join("")}
+        </tbody></table>`
+        : `<div class="empty">${LANG==="pt"?"Nenhuma vista salva ainda.":"No saved views yet."}</div>`)
+      + `<p class="muted" style="margin-top:12px">${LANG==="pt"
+          ? "As vistas ficam na base, então todo mundo que abre o database.json enxerga as mesmas."
+          : "Views live in the database, so everyone who opens database.json sees the same ones."}</p>`,
+      [{txt:LANG==="pt"?"Salvar a busca atual":"Save current search",cls:"btn pri",fn:()=>this.salvarVista()}]);
+    $$("[data-va]").forEach(b=>b.onclick=()=>this.aplicarVista(b.dataset.va));
+    $$("[data-vr]").forEach(b=>b.onclick=()=>this.removerVista(b.dataset.vr));
+  },
   resumoHTML(){
     const f=S.filtros;
-    const n = f.status.length+f.familia.length+f.inspType.length+f.origem.length+f.bigram.length+
-              f.funcao.length+(f.b05?1:0)+(f.aging?1:0)+(f.alteradas?1:0)+(f.comObs?1:0)+
-              (f.dataDe?1:0)+(f.dataAte?1:0);
+    const ativos = this.ativos();
+    const nv = this.vistas().length;
+    const chips = ativos.slice(0,8).map(a=>`<span class="chip on" data-rm="${esc(a.chave)}"
+        data-rmv="${esc(a.valor)}" title="${LANG==="pt"?"Remover este filtro":"Remove this filter"}"
+        >${esc(a.rotulo)} <b style="opacity:.6">✕</b></span>`).join("")
+      + (ativos.length>8? `<span class="chip" data-mais="1">+${ativos.length-8}</span>` : "");
     return `<input type="search" id="fBusca" placeholder="${T("buscar")}" value="${esc(f.busca)}" style="width:250px">
-      <button class="btn" id="fAbrir">⚟ ${LANG==="pt"?"Filtros":"Filters"}${n?` <b>(${n})</b>`:""}</button>
-      ${n||f.busca?`<button class="btn sm" id="fLimpar">${T("limpar")}</button>`:""}`;
+      <button class="btn" id="fAbrir">⚟ ${LANG==="pt"?"Filtros":"Filters"}${ativos.length?` <b>(${ativos.length})</b>`:""}</button>
+      <button class="btn sm" id="fVistas" title="${LANG==="pt"?"Vistas salvas na base":"Views saved in the database"}">★ ${LANG==="pt"?"Vistas":"Views"}${nv?` (${nv})`:""}</button>
+      ${ativos.length||f.busca?`<button class="btn sm" id="fLimpar">${T("limpar")}</button>`:""}
+      ${chips}`;
   },
   ligar(){
     const b=$("#fBusca");
@@ -1567,7 +1752,10 @@ const Filtros = {
       this._t=setTimeout(()=>{const p=b.selectionStart; Render.atual();
         const nb=$("#fBusca"); if(nb){nb.focus(); nb.setSelectionRange(p,p);} },220); }; }
     const a=$("#fAbrir"); if(a) a.onclick=()=>this.painel();
+    const v=$("#fVistas"); if(v) v.onclick=()=>this.painelVistas();
     const l=$("#fLimpar"); if(l) l.onclick=()=>{S.filtros=filtrosVazios(); Render.atual();};
+    $$("[data-rm]").forEach(c=>c.onclick=()=>this.remover(c.dataset.rm, c.dataset.rmv));
+    const m=$("[data-mais]"); if(m) m.onclick=()=>this.painel();
   },
   painel(){
     const f=S.filtros;
@@ -2222,11 +2410,12 @@ const UI = {
       S.db = await Store.carregar();
       normalizar(S.db); Pend.diario=[]; S.sujo=false;
       Usuario.garantir();
+      S.novidades = Visita.calcular(); Visita.marcar();
       await Store.backup(S.db,"abertura").catch(()=>{});
       Pend.iniciar();
       marcarEstado(LANG==="pt"?"base carregada":"database loaded");
       toast(`${S.db.itens.length} ${LANG==="pt"?"itens carregados":"items loaded"}`,"ok");
-      irPara("dashboard");
+      irPara(S.rotaInicial || "dashboard"); S.rotaInicial=null;
     }catch(e){
       if(e.message==="NAO_ENCONTRADO") return this.baseNova();
       Render.semBase(mensagemArmazenamento(e));
@@ -2307,6 +2496,28 @@ const UI = {
                            :`Overwritten. Backup of the previous version: ${nome}`,"ok");}}]);
   },
 
+  /* ---- alteracoes pendentes: lista com descarte linha a linha ---- */
+  painelPendentes(){
+    const p=S.db?.pendentes||[]; if(!p.length) return this.fechar();
+    this.modal(LANG==="pt"?"Alterações pendentes":"Pending changes",
+      `<p class="muted">${LANG==="pt"
+        ? `Estas alterações já estão salvas na base, mas ainda não viraram histórico definitivo. Consolidam sozinhas após ${S.db.config.minutosConsolidacao} minutos sem novo toque.`
+        : `These changes are already saved, but not yet consolidated into the permanent history. They consolidate automatically after ${S.db.config.minutosConsolidacao} minutes without further edits.`}</p>
+       <table style="margin-top:12px"><thead><tr><th>${T("item")}</th><th>${T("campo")}</th>
+         <th>${T("anterior")}</th><th>${T("novo")}</th><th>${LANG==="pt"?"Desde":"Since"}</th><th></th></tr></thead><tbody>
+       ${p.map(x=>`<tr><td class="num"><b>${esc(x.item)}</b></td><td>${esc(x.campo)}</td>
+         <td>${esc(x.valorOriginal)||"—"}</td><td><b>${esc(x.valorAtual)}</b></td>
+         <td class="num">${fmtDT(x.primeiraAlteracaoEm)}</td>
+         <td><button class="btn sm danger" data-pd="${esc(x.id)}"
+           title="${LANG==="pt"?"Descartar só esta":"Discard just this one"}">✕</button></td></tr>`).join("")}</tbody></table>`,
+      [{txt:T("descartar"),cls:"btn danger",fn:()=>{UI.fechar(); Pend.descartarTudo();}},
+       {txt:T("salvarAgora"),cls:"btn pri",fn:()=>{UI.fechar(); Pend.consolidarTudo();}}]);
+    $$("[data-pd]").forEach(b=>b.onclick=()=>{
+      const x=S.db.pendentes.find(y=>y.id===b.dataset.pd);
+      if(x && Pend.descartarUma(x)) this.painelPendentes();
+    });
+  },
+
   /* ---- detalhe do item ---- */
   detalhe(itemId){
     const i=S.db.itens.find(x=>x.item===itemId); if(!i) return;
@@ -2330,8 +2541,11 @@ const UI = {
             <span class="muted">${T("arquivo2")}:</span> ${esc(c.valorArquivo2)}</div>`).join("")}</div>`:""}
         ${pend.length?`<div class="panel pad" style="border-left:3px solid var(--chg-line);margin-bottom:12px">
           <b>${pend.length} ${LANG==="pt"?"alteração(ões) pendente(s) de consolidação":"change(s) pending consolidation"}</b>
-          ${pend.map(p=>`<div class="muted" style="font-size:11.5px;margin-top:4px">${esc(p.campo)}:
-            "${esc(p.valorOriginal)}" → "${esc(p.valorAtual)}" · ${LANG==="pt"?"desde":"since"} ${fmtDT(p.primeiraAlteracaoEm)}</div>`).join("")}</div>`:""}
+          ${pend.map(p=>`<div class="rowflex muted" style="font-size:11.5px;margin-top:4px">
+            <span style="flex:1">${esc(p.campo)}: "${esc(p.valorOriginal)}" → "${esc(p.valorAtual)}"
+              · ${LANG==="pt"?"desde":"since"} ${fmtDT(p.primeiraAlteracaoEm)}</span>
+            <button class="btn sm danger" data-pd="${esc(p.id)}">${LANG==="pt"?"Descartar":"Discard"}</button>
+          </div>`).join("")}</div>`:""}
         <div class="grid" style="grid-template-columns:1fr 1fr;gap:12px">
           <label class="fld"><span>${T("status")}</span>
             <select id="dStatus">${ativos.map(s=>`<option ${s===i.status?"selected":""}>${esc(s)}</option>`).join("")}</select></label>
@@ -2389,6 +2603,10 @@ const UI = {
           Pend.alterar(itemId,"tests",$("#dTests").value,{dataEfetiva:dt,motivo:mot});
           this.fechar(); Render.atual();}}]);
 
+    $$("[data-pd]").forEach(b=>b.onclick=()=>{
+      const x=S.db.pendentes.find(y=>y.id===b.dataset.pd);
+      if(x && Pend.descartarUma(x)) this.detalhe(itemId);
+    });
     $$(".tabs button").forEach((b,k)=>{ if(!k) b.classList.add("on");
       b.onclick=()=>{ $$(".tabs button").forEach(x=>x.classList.remove("on")); b.classList.add("on");
         ["d","h","o","x"].forEach(t=>$("#tp-"+t).hidden = t!==b.dataset.t); };});
@@ -2678,6 +2896,7 @@ function normalizar(db){
     if(d.corEscura===r[2]) d.corEscura=r[3];
   }
   c.status ??= []; c.familias ??= []; c.inspTypesFuncionais ??= [];
+  c.vistas ??= [];                      /* vistas salvas viajam com a base */
   c.statusPosExecucao ??= ["7 - Missing Vacuum Test or Sign"];
   if(!c.familias.length) c.familias=[
     {id:"pendente",pt:"Pendente",en:"Pending",cor:"#8a8f98",ordem:1},
@@ -2723,20 +2942,7 @@ $("#btnTheme").onclick=()=>{
 $("#btnLang").onclick=()=>{ LANG = LANG==="pt"?"en":"pt"; localStorage.setItem("sm.lang",LANG);
   document.documentElement.lang = LANG==="pt"?"pt-BR":"en"; Render.atual(); };
 $("#btnSaveNow").onclick=()=>Pend.consolidarTudo();
-$("#pendBadge").onclick=()=>{
-  const p=S.db?.pendentes||[]; if(!p.length) return;
-  UI.modal(LANG==="pt"?"Alterações pendentes":"Pending changes",
-    `<p class="muted">${LANG==="pt"
-      ? `Estas alterações já estão salvas na base, mas ainda não viraram histórico definitivo. Consolidam sozinhas após ${S.db.config.minutosConsolidacao} minutos sem novo toque.`
-      : `These changes are already saved, but not yet consolidated into the permanent history. They consolidate automatically after ${S.db.config.minutosConsolidacao} minutes without further edits.`}</p>
-     <table style="margin-top:12px"><thead><tr><th>${T("item")}</th><th>${T("campo")}</th>
-       <th>${T("anterior")}</th><th>${T("novo")}</th><th>${LANG==="pt"?"Desde":"Since"}</th></tr></thead><tbody>
-     ${p.map(x=>`<tr><td class="num"><b>${esc(x.item)}</b></td><td>${esc(x.campo)}</td>
-       <td>${esc(x.valorOriginal)||"—"}</td><td><b>${esc(x.valorAtual)}</b></td>
-       <td class="num">${fmtDT(x.primeiraAlteracaoEm)}</td></tr>`).join("")}</tbody></table>`,
-    [{txt:T("descartar"),cls:"btn danger",fn:()=>{UI.fechar(); Pend.descartarTudo();}},
-     {txt:T("salvarAgora"),cls:"btn pri",fn:()=>{UI.fechar(); Pend.consolidarTudo();}}]);
-};
+$("#pendBadge").onclick=()=>UI.painelPendentes();
 /* Balao com o conteudo inteiro da celula cortada. */
 (function balao(){
   let alvo=null;
@@ -2767,9 +2973,16 @@ addEventListener("keydown",e=>{
   if((e.ctrlKey||e.metaKey)&&e.key==="s"){ e.preventDefault(); if(S.db) Pend.consolidarTudo(); }
 });
 
+/* Link colado por outra pessoa (ou aberto numa aba nova) entra pelo hash. */
+addEventListener("hashchange", ()=>{
+  if(location.hash === Filtros._proprio) return;    /* eco da nossa propria escrita */
+  Filtros.aplicarTexto(location.hash);
+});
+
 (async function iniciar(){
   aplicarTema();
   document.documentElement.lang = LANG==="pt"?"pt-BR":"en";
+  Filtros.restaurar();
   Render.nav();
   if(Store.suportado && await Store.restaurarHandle()){
     await UI.carregarBase();

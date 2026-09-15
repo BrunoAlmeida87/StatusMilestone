@@ -141,7 +141,7 @@ Chave lógica: **(item, campo)** — é o que garante o agrupamento.
 - **`observacoes`**: `id` · `item` · `texto` · `criadoEm` · `autor`. Acumulativas, nunca sobrescrevem.
 - **`conflitos`**: `id` · `item` · `campo` · `valorArquivo1` · `valorArquivo2` · `valorAplicado` · `resolvido` · `resolvidoPor` · `resolvidoEm` · `justificativa`. Resolver gera evento no histórico.
 - **`marcos`**: `id` · `nome` · `data` · `tipo`. São as emissões de relatório (29/07, 09/09, 10/09). É contra eles que se calcula "mudou no ciclo" e as setas ▲▼.
-- **`config`**: status (com `ativo`), famílias/colunas do Kanban, minutos de consolidação, limites de aging, definição de "em aberto", tipos funcionais.
+- **`config`**: status (com `ativo`), famílias/colunas do Kanban, minutos de consolidação, limites de aging, definição de "em aberto", tipos funcionais e `vistas` (filtros salvos com nome, compartilhados por ficarem na base).
 
 ### Relacionamentos
 

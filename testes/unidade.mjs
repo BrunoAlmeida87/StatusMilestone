@@ -271,5 +271,128 @@ secao("5. CARACTERIZAÇÃO (regra aberto/fechado)");
   chk("'5 - Waiting Proof' conta como aberto", c.app.R.aberto("5 - Waiting Proof")===true);
 }
 
+
+/* ============ 6. filtros como endereco: URL, localStorage, vistas ======== */
+secao("6. FILTROS PERSISTENTES");
+{
+  const c = cenario({semPasta:true});
+  const {app} = c;
+  app.S.rota = "itens";
+  app.S.filtros = {...app.avaliar("filtrosVazios()"), status:["3 - Blocking","5 - Waiting Proof"],
+                   busca:"solda", aging:"60", comObs:true};
+  app.S.ordenacao = {campo:"aging", dir:-1};
+  const txt = app.FiltroURL.paraTexto();
+  chk("o endereço começa pela rota", txt.startsWith("itens?"), txt);
+  const volta = app.FiltroURL.doTexto(txt);
+  igual("rota sobrevive à ida e volta", volta.rota, "itens");
+  igual("status múltiplo sobrevive", volta.filtros.status, ["3 - Blocking","5 - Waiting Proof"]);
+  igual("busca sobrevive", volta.filtros.busca, "solda");
+  igual("aging sobrevive", volta.filtros.aging, "60");
+  igual("marcadores sobrevivem", [volta.filtros.comObs, volta.filtros.alteradas], [true,false]);
+  igual("ordenação sobrevive", volta.ordenacao, {campo:"aging", dir:-1});
+  igual("filtro vazio não polui o endereço", app.FiltroURL.paraTexto(app.avaliar("filtrosVazios()"),"dashboard",{campo:"item",dir:1}), "dashboard");
+  igual("rota inventada cai no dashboard", app.FiltroURL.doTexto("naoexiste?status=X").rota, "dashboard");
+}
+{
+  const c = cenario({semPasta:true});
+  const {app} = c;
+  app.S.rota = "kanban"; app.S.filtros.inspType = ["FUN"];
+  app.Filtros.persistir();
+  chk("grava no localStorage", app.ctx.localStorage.getItem("sm.filtros")==="kanban?inspType=FUN",
+      String(app.ctx.localStorage.getItem("sm.filtros")));
+  chk("e no hash da URL (o link que se manda)", app.ctx.location.hash==="#kanban?inspType=FUN",
+      app.ctx.location.hash);
+  const c2 = cenario({semPasta:true});
+  c2.app.ctx.location.hash = "#itens?status=3+-+Blocking&alteradas=1";
+  c2.app.Filtros.restaurar();
+  igual("restaura do hash", [c2.app.S.rotaInicial, c2.app.S.filtros.status, c2.app.S.filtros.alteradas],
+        ["itens", ["3 - Blocking"], true]);
+  const c3 = cenario({semPasta:true});
+  c3.app.ctx.localStorage.setItem("sm.filtros","relatorios?b05=sim");
+  c3.app.Filtros.restaurar();
+  igual("sem hash, restaura do localStorage", [c3.app.S.rotaInicial, c3.app.S.filtros.b05], ["relatorios","sim"]);
+}
+{
+  const c = cenario({semPasta:true});
+  const {app} = c;
+  app.S.filtros = {...app.avaliar("filtrosVazios()"), status:["3 - Blocking"], b05:"sim", comObs:true};
+  const ativos = app.Filtros.ativos();
+  igual("um chip por filtro ligado", ativos.length, 3);
+  igual("chip traz o rótulo legível", ativos[0].rotulo, "3 - Blocking");
+  app.Filtros.remover("status","3 - Blocking");
+  igual("remover tira só aquele valor", app.S.filtros.status, []);
+  app.Filtros.remover("comObs","");
+  chk("remover desliga o marcador", app.S.filtros.comObs===false);
+  igual("e o resto continua de pé", app.S.filtros.b05, "sim");
+}
+{
+  const c = cenario({semPasta:true});
+  const {app} = c;
+  app.S.rota="itens"; app.S.filtros.status=["3 - Blocking"];
+  app.Filtros.salvarVista();                       /* prompt devolve "Teste" */
+  igual("vista salva na config (vai junto com a base)", app.S.db.config.vistas.length, 1);
+  igual("com nome e autor", [app.S.db.config.vistas[0].nome, app.S.db.config.vistas[0].autor], ["Teste","Teste"]);
+  chk("salvar vista marca a base como suja", app.Pend.diario.some(e=>e.o==="vista"));
+  clearTimeout(app.Pend.timerAuto);
+  app.S.filtros = app.avaliar("filtrosVazios()"); app.S.rota="dashboard";
+  app.Filtros.aplicarVista(app.S.db.config.vistas[0].id);
+  igual("aplicar a vista devolve filtro e rota", [app.S.rota, app.S.filtros.status], ["itens",["3 - Blocking"]]);
+  app.ctx.confirm = ()=>true;
+  app.Filtros.removerVista(app.S.db.config.vistas[0].id);
+  igual("remover a vista", app.S.db.config.vistas.length, 0);
+  clearTimeout(app.Pend.timerAuto);
+}
+
+/* ================= 7. o que mudou desde a ultima visita ================= */
+secao("7. NOVIDADES DESDE A ÚLTIMA VISITA");
+{
+  const c = cenario({semPasta:true});
+  igual("sem marca anterior, nada a anunciar", c.app.Visita.calcular(), null);
+  c.app.ctx.localStorage.setItem("sm.visto", JSON.stringify({revisao:5, em:"2026-01-10T00:00:00.000Z"}));
+  const n = c.app.Visita.calcular();
+  igual("conta os eventos consolidados depois da marca", n.eventos, 2);   /* h2 e h3 */
+  igual("nomeia as outras pessoas, não a própria", n.autores, ["Ana","Bia"]);
+  igual("aponta a data do evento mais antigo", n.dataDe, "2026-01-15");
+  c.app.S.db.observacoes.push({id:"o1", item:"A-001", texto:"nota", criadoEm:"2026-02-01T10:00:00.000Z", autor:"Ana"});
+  igual("observações também contam", c.app.Visita.calcular().obs, 1);
+  c.app.Visita.marcar();
+  igual("depois de marcar, não há novidade", c.app.Visita.calcular(), null);
+}
+{
+  const c = cenario({semPasta:true});
+  c.app.ctx.localStorage.setItem("sm.autor","Ana");
+  c.app.ctx.localStorage.setItem("sm.visto", JSON.stringify({revisao:5, em:"2026-01-10T00:00:00.000Z"}));
+  igual("o que eu mesmo fiz não vira novidade minha", c.app.Visita.calcular().autores, ["Bia"]);
+}
+
+/* =================== 8. descartar uma pendencia so ===================== */
+secao("8. DESCARTE DE UMA PENDÊNCIA");
+{
+  const c = cenario({semPasta:true});
+  const {app} = c;
+  const it = app.S.db.itens.find(i=>i.item==="A-001");
+  const antes = {ult:it.ultimaAlteracaoStatus, atu:it.atualizadoEm, aging:app.R.diasSemAtualizacao(it)};
+  c.editar("A-001","status","5 - Waiting Proof");
+  c.editar("A-003","generalObs","nota que fica");
+  app.ctx.confirm = ()=>false;
+  chk("com a confirmação negada, nada acontece", app.Pend.descartarUma(app.S.db.pendentes[0])===false);
+  igual("as duas pendências continuam", app.S.db.pendentes.length, 2);
+  app.ctx.confirm = ()=>true;
+  chk("descarta a pendência escolhida", app.Pend.descartarUma(app.S.db.pendentes.find(p=>p.campo==="status"))===true);
+  igual("a outra pendência fica de pé", app.S.db.pendentes.length, 1);
+  igual("e é a do outro item", app.S.db.pendentes[0].item, "A-003");
+  igual("o item volta ao status original", it.status, "3 - Blocking");
+  igual("com ultimaAlteracaoStatus de antes", it.ultimaAlteracaoStatus, antes.ult);
+  igual("e atualizadoEm de antes", it.atualizadoEm, antes.atu);
+  igual("aging idêntico", app.R.diasSemAtualizacao(it), antes.aging);
+  chk("nenhum evento de histórico criado", app.S.db.historico.length===3);
+  igual("fica no log de descartes", app.S.db.logDescartes.length, 1);
+  chk("sai do diário (não é mais trabalho nosso)",
+      !app.Pend.diario.some(e=>e.item==="A-001" && e.campo==="status"));
+  chk("o diário mantém o que continua pendente",
+      app.Pend.diario.some(e=>e.item==="A-003"));
+  clearTimeout(app.Pend.timerAuto);
+}
+
 console.log(falhas.length ? `\n${falhas.length} FALHA(S):\n  `+falhas.join("\n  ") : "\nTudo certo.");
 process.exit(falhas.length ? 1 : 0);

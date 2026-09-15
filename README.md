@@ -31,6 +31,12 @@ Também funciona **sem internet**: baixe `docs/index.html` e abra por duplo cliq
 | **Conflitos** | Fila de decisão das divergências entre os dois Excel — nada foi sobrescrito |
 | **Configurações** | Parâmetros, status ativos, backup/restauração, integridade, log técnico |
 
+Os filtros são o endereço da tela: aparecem como pílulas com **✕** ao lado da busca, sobrevivem
+ao F5, viajam no fim da URL (dá para mandar o link de "estes 12 itens" para outra pessoa) e podem
+virar **vistas salvas** com nome — que ficam no `database.json` e valem para todo mundo. Na
+abertura, uma faixa no Dashboard resume **o que mudou desde a sua última visita**, com atalho para
+o histórico do período.
+
 ## Como as alterações são salvas
 
 ```
@@ -39,7 +45,9 @@ edição → autosave (3 s) → alteração pendente → 10 min sem novo toque �
 
 O autosave protege o trabalho **sem** poluir o histórico. Dentro da janela, `A → B → C` vira um
 único evento `A → C`, e `A → B → A` não gera evento nenhum. O botão **Salvar alterações agora**
-consolida na hora. O tempo é configurável.
+consolida na hora. O tempo é configurável. O crachá **"N pendentes"** abre a lista, e cada linha
+pode ser descartada sozinha — descartar devolve o item ao estado anterior por inteiro, inclusive
+o aging e a data de atualização.
 
 ## Duas ou mais pessoas ao mesmo tempo
 
@@ -78,8 +86,9 @@ como constava no Arquivo 1. Como o painel filtra por J08, ele sai da conta. Deci
 Rode você mesmo: `python3 migracao/validar.py caminho/para/database.json`
 
 O comportamento simultâneo tem suíte própria: `SM_DATABASE=... python3 testes/sincronizacao.py`
-(31 verificações). O motor de gravação, o descarte de pendentes e o histórico têm testes de
-unidade que rodam sem navegador e sem base real: `node testes/unidade.mjs` (91 verificações).
+(31 verificações). O motor de gravação, o descarte de pendentes, o histórico e os filtros têm
+testes de unidade que rodam sem navegador e sem base real: `node testes/unidade.mjs`
+(134 verificações).
 
 ## Estrutura
 

@@ -6,11 +6,13 @@ comportamento em Chromium real, via Playwright.
 ## Unidade (Node, sem navegador e sem base real)
 
 ```bash
-node testes/unidade.mjs        # 91 verificações: persistência (arquivo inexistente,
+node testes/unidade.mjs        # 134 verificações: persistência (arquivo inexistente,
                                # conflito de revisão, JSON corrompido, permissão negada,
                                # falha em createWritable/write/close), fila de gravação,
-                               # edição durante a escrita, descarte de pendentes e
-                               # metadados derivados, cache do histórico, aberto/fechado
+                               # edição durante a escrita, descarte de pendentes (tudo e
+                               # uma só) e metadados derivados, cache do histórico,
+                               # aberto/fechado, filtros na URL/localStorage, vistas
+                               # salvas e "o que mudou desde a última visita"
 ```
 
 Não precisa instalar nada e não usa dado nenhum do projeto: `testes/app_em_node.mjs`

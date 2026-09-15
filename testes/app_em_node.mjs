@@ -42,9 +42,11 @@ function criarContexto(){
   };
   const ctx = {
     console, setTimeout, clearTimeout, setInterval, clearInterval, queueMicrotask,
-    structuredClone, TextEncoder, TextDecoder, URL, Blob, performance, Intl,
+    structuredClone, TextEncoder, TextDecoder, URL, URLSearchParams, Blob, performance, Intl,
     document:doc, navigator:{userAgent:"node", language:"pt-BR", clipboard:{writeText:async()=>{}}},
-    location:{href:"file:///index.html", reload(){}},
+    location:{href:"file:///index.html", hash:"", reload(){}},
+    history:{ replaceState(_a,_b,url){ ctx.location.hash = String(url||"").replace(/^[^#]*/,""); },
+              pushState(){}, back(){}, forward(){} },
     localStorage:{ getItem:k=>armazem.has(k)?armazem.get(k):null, setItem:(k,v)=>armazem.set(k,String(v)),
                    removeItem:k=>armazem.delete(k), clear:()=>armazem.clear() },
     /* IndexedDB sempre indisponivel: o app ja trata isso (IDB.get/set devolvem null),
@@ -72,7 +74,7 @@ export function carregarApp({autor="Teste", confirmar=()=>true}={}){
   blocos.forEach((codigo,i)=>vm.runInContext(codigo, ctx, {filename:`docs/index.html <script ${i+1}>`}));
   /* os modulos sao declarados com const, que no escopo lexico global de um script
      classico nao vira propriedade de globalThis: buscamos as referencias aqui. */
-  const nomes = ["IDB","Store","Usuario","S","R","Pend","Sync","M","G","Render","UI","Export","hoje","agora","T"];
+  const nomes = ["IDB","Store","Usuario","S","R","Pend","Sync","M","G","Render","UI","Export","hoje","agora","T","Filtros","FiltroURL","Visita","ROTAS"];
   const app = vm.runInContext(`({${nomes.join(",")}})`, ctx);
   app.ctx = ctx;
   app.avaliar = codigo => vm.runInContext(codigo, ctx);
