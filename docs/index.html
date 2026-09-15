@@ -207,11 +207,6 @@ body.arrastando .colh{cursor:copy}
 
 /* ---------- diversos ---------- */
 .flow{display:grid;gap:8px;grid-template-columns:repeat(auto-fit,minmax(min(135px,100%),1fr))}
-.fbox{border:2px solid var(--line);border-left-width:6px;border-radius:6px;padding:8px 10px;background:var(--panel-2)}
-.fbox .fn{font:650 21px/1.1 var(--sans)}
-.fbox .fl{font-size:10.5px;color:var(--fg-2);margin-top:3px;line-height:1.35}
-.fbox .fp{font:500 11px/1 var(--mono);color:var(--fg-3);margin-top:4px}
-.bar{height:9px;border-radius:5px;background:var(--line-2);overflow:hidden;display:flex;border:1px solid var(--line)}
 .empty{text-align:center;padding:56px 20px;color:var(--fg-3)}
 .empty h3{font-size:15px;color:var(--fg-2);margin-bottom:6px}
 .toast{position:fixed;bottom:16px;right:16px;z-index:200;display:flex;flex-direction:column;gap:7px;align-items:flex-end}
@@ -381,7 +376,6 @@ const IDB = (()=>{
   return {
     get:k=>tx("readonly",s=>s.get(k)).catch(()=>null),
     set:(k,v)=>tx("readwrite",s=>s.put(v,k)).catch(()=>null),
-    del:k=>tx("readwrite",s=>s.delete(k)).catch(()=>null),
   };
 })();
 
@@ -580,7 +574,7 @@ const Usuario = {
 /* ============================== estado ================================= */
 const S = {
   db:null, rota:"dashboard", filtros:filtrosVazios(), ordenacao:{campo:"item",dir:1},
-  selecionado:null, salvando:false, sujo:false, sujoEstrutural:false,
+  selecionado:null, salvando:false, sujo:false,
   novidades:null, rotaInicial:null,
   selecao:new Set(), cursor:null,          /* edicao em lote e cursor do teclado */
   colunas: JSON.parse(localStorage.getItem("sm.colunas")||"null"),
@@ -1276,9 +1270,6 @@ const M = {
     });
     return {linhas, total:linhas.reduce((s,x)=>s+x.total,0), aberto:linhas.reduce((s,x)=>s+x.atual,0)};
   },
-  porCampo(itens,campo){ const m=new Map();
-    for(const i of itens){ const v=i[campo]||"—"; m.set(v,(m.get(v)||0)+1); }
-    return [...m].sort((a,b)=>b[1]-a[1]); },
   abertoPorCampo(itens,campo){ const m=new Map();
     for(const i of itens){ if(!R.aberto(i.status)) continue;
       const v=i[campo]||"—"; const o=m.get(v)||{}; o[i.status]=(o[i.status]||0)+1; m.set(v,o); }
