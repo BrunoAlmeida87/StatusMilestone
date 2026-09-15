@@ -23,7 +23,7 @@ Também funciona **sem internet**: baixe `docs/index.html` e abra por duplo cliq
 
 | Tela | Conteúdo |
 |---|---|
-| **Dashboard** | KPIs, Evidence Flow (B05 / exceto B05), Shipyard Prerequisites, Functional Insp. Type, evolução, aging, pendências por tipo e por função vital |
+| **Dashboard** | KPIs, Shipyard Prerequisites, B05 Status, Functional Insp. Type, evolução, aging, pendências por tipo e por função vital, e os dois Evidence Flow (B05 / exceto B05) no fim. Todo painel recolhe ao clicar no cabeçalho |
 | **Itens** | Tabela ordenável com busca, filtros combináveis e edição pelo detalhe. Célula cortada mostra o conteúdo inteiro ao passar o mouse; o botão **Texto completo** desliga o corte |
 | **Kanban** | 6 colunas por família de status, **horizontal ou vertical**, arrastar e soltar, colunas recolhíveis |
 | **Histórico** | Compara **quaisquer duas datas** e reconstrói o estado em cada uma |

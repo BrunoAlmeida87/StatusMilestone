@@ -113,7 +113,8 @@ with sync_playwright() as pw:
       b05[2].status='X - Status desconhecido muito comprido';
       S.db=d; normalizar(S.db); irPara('dashboard');}""",DB)
     pg.wait_for_timeout(900)
-    g=pg.evaluate("""(()=>{const sv=document.querySelector('#view svg');
+    # o diagrama nao e mais o primeiro svg da pagina: pega o do painel B05
+    g=pg.evaluate("""(()=>{const sv=document.querySelector('#view .panel[data-dobra=b05] svg');
       const vb=sv.getAttribute('viewBox').split(' ').map(Number); const bb=sv.getBBox();
       return {alt:vb[3], fim:Math.round(bb.y+bb.height), outros:sv.textContent.includes('OUTROS')};})()""")
     chk("status fora do fluxo ganham o quadro 'outros'", g["outros"])
@@ -141,6 +142,61 @@ with sync_playwright() as pw:
     chk("mostra mais funcoes vitais", fv and fv["n"]>=12, str(fv and fv["n"]))
     chk("nenhum nome cortado com reticencias", fv and not fv["cortado"])
     chk("os nomes quebram em mais de uma linha", fv and fv["multilinha"])
+
+    print("=== H4) paineis recolhiveis e ordem da pagina ===")
+    pg.evaluate("(db)=>{localStorage.removeItem('sm.dobradas');S.dobradas=new Set();"
+                "S.db=structuredClone(db);normalizar(S.db);irPara('dashboard');}",DB)
+    pg.wait_for_timeout(900)
+    ordem=pg.evaluate("[...document.querySelectorAll('#view .panel')].map(p=>p.dataset.dobra)")
+    chk("todo painel do dashboard pode ser recolhido", all(ordem), str(ordem))
+    chk("os diagramas de evidencia ficam no fim da pagina", ordem[-2:]==["b05","exceto"], str(ordem[-2:]))
+    alt0=pg.evaluate("document.querySelector('#view').scrollHeight")
+    pg.locator(".panel[data-dobra=b05] h3").click(); pg.wait_for_timeout(300)
+    chk("clicar no cabecalho recolhe", pg.locator(".panel[data-dobra=b05].recolhido").count()==1)
+    chk("a pagina encolhe junto", pg.evaluate("document.querySelector('#view').scrollHeight")<alt0)
+    chk("a seta muda de lado",
+        pg.inner_text(".panel[data-dobra=b05] h3 .caret").strip()=="\u25b8",
+        repr(pg.inner_text(".panel[data-dobra=b05] h3 .caret")))
+    chk("a escolha fica guardada", "b05" in (pg.evaluate("localStorage.getItem('sm.dobradas')") or ""))
+    pg.evaluate("irPara('itens');irPara('dashboard')"); pg.wait_for_timeout(800)
+    chk("continua recolhido depois de sair e voltar",
+        pg.locator(".panel[data-dobra=b05].recolhido").count()==1)
+    pg.locator(".panel[data-dobra=b05] h3").click(); pg.wait_for_timeout(300)
+    chk("clicar de novo reabre", pg.locator(".panel[data-dobra=b05].recolhido").count()==0)
+
+    print("=== H5) cores dos status e valores nas faixas ===")
+    cor=lambda st: pg.evaluate(f"R.corDe({st!r})")
+    chk("o laranja que se confundia com o vermelho foi trocado",
+        cor("7 - Missing Vacuum Test or Sign")!="#eb6834", cor("7 - Missing Vacuum Test or Sign"))
+    chk("o rosa que se confundia com o vermelho foi trocado",
+        cor("5 - Waiting Proof")!="#e87ba4", cor("5 - Waiting Proof"))
+    chk("Missing Vacuum e Blocking deixaram de ser da mesma familia de cor",
+        cor("7 - Missing Vacuum Test or Sign")!=cor("3 - Blocking"))
+    # base antiga (com a cor velha gravada) tem de ser corrigida ao carregar
+    pg.evaluate("""(db)=>{const d=structuredClone(db);
+      d.config.status.find(x=>x.codigo==='7 - Missing Vacuum Test or Sign').cor='#eb6834';
+      d.config.status.find(x=>x.codigo==='5 - Waiting Proof').cor='#e87ba4';
+      S.db=d; normalizar(S.db); irPara('dashboard');}""",DB)
+    pg.wait_for_timeout(700)
+    chk("base gravada com as cores antigas e corrigida ao carregar",
+        cor("7 - Missing Vacuum Test or Sign")!="#eb6834" and cor("5 - Waiting Proof")!="#e87ba4",
+        cor("7 - Missing Vacuum Test or Sign")+" / "+cor("5 - Waiting Proof"))
+    # uma cor ajustada a mao nao pode ser sobrescrita
+    pg.evaluate("""(db)=>{const d=structuredClone(db);
+      d.config.status.find(x=>x.codigo==='7 - Missing Vacuum Test or Sign').cor='#123456';
+      S.db=d; normalizar(S.db);}""",DB)
+    chk("cor escolhida a mao e preservada", cor("7 - Missing Vacuum Test or Sign")=="#123456")
+    pg.evaluate("(db)=>{S.db=structuredClone(db);normalizar(S.db);irPara('dashboard');}",DB)
+    pg.wait_for_timeout(900)
+    vals=pg.evaluate("""(()=>{const p=[...document.querySelectorAll('#view .panel')]
+        .find(p=>/FUN\u00c7\u00c3O VITAL/i.test(p.innerText));
+      const t=[...p.querySelectorAll('svg text')].filter(t=>t.getAttribute('paint-order')==='stroke');
+      return {n:t.length, corpo:t[0]&&+t[0].getAttribute('font-size'),
+              topo:[...p.querySelectorAll('svg text')].filter(t=>!t.getAttribute('paint-order'))
+                    .map(t=>+t.getAttribute('font-size'))[0]};})()""")
+    chk("cada faixa da barra mostra o seu valor", vals["n"]>=8, str(vals["n"]))
+    chk("em corpo menor que o total da coluna", vals["corpo"] < vals["topo"],
+        f"faixa {vals['corpo']}px, total {vals['topo']}px")
 
     print("=== I) tabela: conteudo cortado acessivel ===")
     pg.evaluate("localStorage.setItem('sm.textoCompleto','0');S.textoCompleto=false;irPara('itens')")

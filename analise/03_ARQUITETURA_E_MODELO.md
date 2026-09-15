@@ -189,6 +189,35 @@ Limite conhecido: alterações estruturais (configuração, resolução de confl
 restauração de backup) não são reaplicáveis automaticamente. Nesse caso o sistema pede decisão em
 vez de escolher sozinho.
 
+## Etapa 7c — A paleta de status é verificada, não escolhida a olho
+
+As cores de status passam pelo validador de paleta (ΔE em OKLab): faixa de
+luminosidade, piso de croma, separação para daltonismo (ΔE ≥ 8) e piso de visão
+normal (ΔE ≥ 15), contra a superfície clara e a escura.
+
+Duas cores da primeira versão reprovavam, e as duas vizinhas do vermelho:
+
+| Status | Antes | Depois | ΔE vs `3 - Blocking` (normal) |
+|---|---|---|---|
+| 7 - Missing Vacuum | laranja `#eb6834` | ciano `#0891b2` | 7,1 → passa |
+| 5 - Waiting Proof | rosa `#e87ba4` | magenta `#b83280` | 13,2 → 13,9 (claro) · 7,8 → 12,5 (escuro) |
+
+As três aparecem na mesma barra empilhada de "função vital", que foi onde o
+problema apareceu. Não existe laranja ou marrom que passe: a faixa entre o
+vermelho e o amarelo do `2 - Not Blocking` já está ocupada.
+
+**O que continua reprovando, e por quê.** No tema escuro, `1 - Validated`
+(verde) × `2 - Not Blocking` (âmbar) dá ΔE 3,0 para protanopia, e os dois verdes
+(`1 - Validated` × `6 - Waiting B05`) dão 10,1. São consequência da convenção de
+severidade que o usuário pediu para manter (verde = validado, vermelho =
+bloqueio, âmbar = ressalva) — para quem tem protanopia, verde e âmbar convergem,
+e isso é física, não escolha. Varri alternativas e nenhuma passa sem quebrar a
+convenção ou criar uma colisão nova.
+
+O que torna isso aceitável é que **cor nunca é o único código**: todo status
+aparece sempre com o nome escrito ao lado (legenda, pílula, título da caixa no
+diagrama) e cada faixa da barra empilhada leva o seu número dentro.
+
 ## Etapa 8 — Organização visual
 
 Menu final: **Dashboard · Itens · Kanban · Histórico · Relatórios · Conflitos · Configurações**.

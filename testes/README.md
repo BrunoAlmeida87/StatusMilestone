@@ -9,10 +9,11 @@ pip install playwright
 python3 testes/comportamento.py        # 65 verificações: carga, edição, pendentes,
                                        # consolidação, agrupamento, descarte, histórico,
                                        # filtros, exportação, temas, responsivo
-python3 testes/kanban_e_graficos.py    # 37: arraste real, seletor de status no card,
+python3 testes/kanban_e_graficos.py    # 55: arraste real, seletor de status no card,
                                        # ordenação alfanumérica, diagramas de fluxo (base sem
                                        # config.fluxo, quadro "outros status" dentro da moldura),
-                                       # balão de texto completo, gráfico de função vital
+                                       # balão de texto completo, gráfico de função vital,
+                                       # painéis recolhíveis, ordem da página, paleta de status
 python3 testes/conflitos.py            # 10: tela de conflitos, lote, regra de coerência
 python3 testes/sincronizacao.py        # 31: duas pessoas na mesma base — junção automática,
                                        # decisão campo a campo, gravação concorrente, presença

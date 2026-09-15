@@ -90,12 +90,21 @@ MODE_NORM = {
 # Semântica preservada: verde = validado, vermelho = bloqueio.
 CORES_STATUS = {
     "8 - Mounting not Completed":             ("#2a78d6", "#3987e5"),  # azul
-    "5 - Waiting Proof":                      ("#e87ba4", "#d55181"),  # magenta
+    # Tambem estava perto demais do vermelho do "3 - Blocking" (DeltaE 13,2 claro
+    # e 7,8 escuro). Puxado para magenta: 13,9 e 12,5. Nao da para chegar aos 15
+    # sem sair da convencao -- por isso toda faixa tambem leva o seu numero.
+    "5 - Waiting Proof":                      ("#b83280", "#b8518a"),  # magenta
     "4 - Under Analysis":                     ("#4a3aa7", "#9085e9"),  # violeta
     "4 - Under Analysis to Not Blocking":     ("#6b5cc4", "#a79ef0"),
     "4 - Under Analysis To Downgraded":       ("#6b5cc4", "#a79ef0"),
     "4 - Under Analysis To Not Available Jx": ("#6b5cc4", "#a79ef0"),
-    "7 - Missing Vacuum Test or Sign":        ("#eb6834", "#d95926"),  # laranja
+    # Era laranja (#eb6834). Contra o vermelho do "3 - Blocking", que fica na
+    # faixa seguinte da mesma barra empilhada, o validador dava DeltaE 7,1 em
+    # visao normal -- abaixo do piso 15, indistinguivel mesmo sem daltonismo.
+    # Nao existe laranja/marrom que passe: a faixa entre o vermelho e o amarelo
+    # do "2 - Not Blocking" ja esta ocupada. Ciano resolve e nao disputa com
+    # nenhuma cor da convencao de severidade.
+    "7 - Missing Vacuum Test or Sign":        ("#0891b2", "#1d94ad"),  # ciano
     "6 - Waiting B05":                        ("#1baf7a", "#199e70"),  # aqua
     "1 - Validated by ICN":                   ("#008300", "#00a300"),  # verde
     "3 - Blocking":                           ("#e34948", "#e66767"),  # vermelho
