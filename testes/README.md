@@ -6,13 +6,16 @@ comportamento em Chromium real, via Playwright.
 ## Unidade (Node, sem navegador e sem base real)
 
 ```bash
-node testes/unidade.mjs        # 134 verificações: persistência (arquivo inexistente,
+node testes/unidade.mjs        # 218 verificações: persistência (arquivo inexistente,
                                # conflito de revisão, JSON corrompido, permissão negada,
                                # falha em createWritable/write/close), fila de gravação,
                                # edição durante a escrita, descarte de pendentes (tudo e
                                # uma só) e metadados derivados, cache do histórico,
-                               # aberto/fechado, filtros na URL/localStorage, vistas
-                               # salvas e "o que mudou desde a última visita"
+                               # filtros na URL/localStorage, vistas salvas, "o que mudou
+                               # desde a última visita", validação estrutural da base,
+                               # regra aberto/fechado vinda da config, arquivamento de
+                               # histórico, colunas escolhidas, edição em lote, teclado,
+                               # presença por item e a tela de Evidence Flow
 ```
 
 Não precisa instalar nada e não usa dado nenhum do projeto: `testes/app_em_node.mjs`
@@ -21,6 +24,11 @@ DOM mínimo, troca a pasta do usuário por uma pasta de mentira (que sabe falhar
 propósito, em cada ponto da File System Access API) e traz uma base sintética de
 quatro itens. É o arquivo publicado que é testado, não uma cópia. Sai com código
 diferente de zero quando alguma verificação falha.
+
+O DOM de mentira imita o que importa: atribuir `innerHTML` passa a "criar" os
+elementos com `id` que estão no texto, e `#ov` só existe enquanto há um modal
+aberto. É isso que permite testar a ligação dos botões de uma tela recém-desenhada
+(a barra de lote, por exemplo) sem abrir navegador.
 
 ## Comportamento (Chromium real, via Playwright)
 

@@ -394,5 +394,260 @@ secao("8. DESCARTE DE UMA PENDÊNCIA");
   clearTimeout(app.Pend.timerAuto);
 }
 
+
+/* =================== 9. validacao estrutural da base =================== */
+secao("9. VALIDAÇÃO DA BASE");
+{
+  const c = cenario({semPasta:true});
+  const val = c.app.avaliar("validarBase");
+  chk("base sintética é válida", val(baseDeTeste()).valido);
+  const semAviso = val(baseDeTeste());
+  igual("e sem avisos", semAviso.avisos, []);
+
+  const casos = [
+    ["raiz não é objeto", "texto solto"],
+    ["raiz é lista", [1,2,3]],
+    ["itens como objeto em vez de lista", {...baseDeTeste(), itens:{a:1}}],
+    ["histórico como objeto", {...baseDeTeste(), historico:{}}],
+    ["config como lista", {...baseDeTeste(), config:[]}],
+  ];
+  for(const [nome, db] of casos) chk(nome+" é recusada", val(db).valido===false);
+
+  const semId = baseDeTeste(); semId.itens[1] = {...semId.itens[1], item:""};
+  chk("item sem identificador é recusado", val(semId).valido===false, val(semId).erros[0]);
+  const dupl = baseDeTeste(); dupl.itens[2] = {...dupl.itens[2], item:"A-001"};
+  chk("identificador duplicado é recusado", val(dupl).valido===false, val(dupl).erros[0]);
+  const rev = baseDeTeste(); rev.meta.revisao = "7";
+  chk("meta.revisao não inteira é recusada", val(rev).valido===false);
+
+  const orfao = baseDeTeste(); orfao.historico.push({...orfao.historico[0], id:"hx", item:"NAO-EXISTE"});
+  const r1 = val(orfao);
+  chk("evento órfão não bloqueia", r1.valido===true);
+  chk("mas aparece como aviso", r1.avisos.some(a=>/não existem|do not exist/.test(a)), r1.avisos[0]);
+  const idDup = baseDeTeste(); idDup.historico.push({...idDup.historico[0]});
+  chk("id de evento repetido vira aviso", val(idDup).avisos.some(a=>/id\(s\)|event id/.test(a)));
+  const dataRuim = baseDeTeste(); dataRuim.historico[0].dataEfetiva = "15/01/2026";
+  chk("data fora do padrão vira aviso", val(dataRuim).avisos.some(a=>/AAAA-MM-DD|YYYY-MM-DD/.test(a)));
+  const stRuim = baseDeTeste(); stRuim.itens[0].status = "9 - Inventado";
+  chk("status fora do domínio vira aviso", val(stRuim).avisos.some(a=>/domínio|domain/.test(a)));
+  const pRuim = baseDeTeste();
+  pRuim.pendentes.push({id:"p1", item:"NAO-EXISTE", campo:"inspType", valorOriginal:"", valorAtual:"x"});
+  const r2 = val(pRuim);
+  chk("pendência órfã vira aviso", r2.avisos.some(a=>/pendência|pending/.test(a)));
+  chk("pendência em campo não editável vira aviso", r2.avisos.some(a=>/editável|non-editable/.test(a)));
+  chk("base com avisos continua utilizável", r2.valido===true);
+
+  const intacta = baseDeTeste(), copia = JSON.parse(JSON.stringify(intacta));
+  val(intacta);
+  igual("validar não mexe no objeto recebido", intacta, copia);
+}
+{
+  /* a base inválida não pode substituir a que está aberta */
+  const c = cenario({semPasta:true});
+  const antes = c.app.S.db;
+  c.app.UI.baseRecusada = ()=>{};                 /* sem modal no teste */
+  const val = c.app.avaliar("validarBase");
+  const ruim = {...baseDeTeste(), itens:{}};
+  if(val(ruim).valido) chk("deveria ser inválida", false);
+  chk("a base aberta continua sendo a mesma", c.app.S.db===antes);
+}
+
+/* ============ 10. aberto/fechado com uma fonte de verdade ============== */
+secao("10. ABERTO/FECHADO PELA CONFIG");
+{
+  const c = cenario({semPasta:true});
+  const {app} = c;
+  igual("KPIs de partida", app.M.kpis(app.S.db.itens).aberto, 2);
+  igual("a regra vem da config", app.R.abertoExcecoes(), app.S.db.config.statusAbertoExcecoes);
+  chk("prefixo cobre o status derivado", app.R.aberto("2 - Not Blocking - Downgraded")===false);
+  app.S.db.config.statusAbertoExcecoes = ["1 - Validated by ICN"];
+  igual("mudar a config muda todos os indicadores", app.M.kpis(app.S.db.itens).aberto, 3);
+  chk("e 'Not Blocking' passa a contar como aberto", app.R.aberto("2 - Not Blocking")===true);
+  app.S.db.config.statusAbertoExcecoes = [];
+  igual("lista vazia cai no padrão (não zera os painéis)", app.R.abertoExcecoes(), app.R.ABERTO_PADRAO);
+  igual("com o padrão, os números voltam", app.M.kpis(app.S.db.itens).aberto, 2);
+  delete app.S.db.config.statusAbertoExcecoes;
+  igual("base antiga sem a chave também usa o padrão", app.M.kpis(app.S.db.itens).aberto, 2);
+}
+
+/* =================== 11. arquivamento de historico ===================== */
+secao("11. ARQUIVAMENTO DE HISTÓRICO");
+{
+  const c = cenario();
+  const {app} = c;
+  const antesDatas = ["2026-01-08","2026-01-10","2026-01-16","2026-02-01"];
+  const antes = antesDatas.map(d=>app.R.statusEm("A-001",d));
+  const pv = app.Arquivamento.previa("2026-01-10");
+  igual("prévia conta o que sairia", [pv.eventos, pv.itens, pv.restam], [1,1,2]);
+  const r = await app.Arquivamento.executar("2026-01-10");
+  clearTimeout(app.Pend.timerAuto);
+  igual("arquivou o evento antigo", r.arquivados, 1);
+  igual("e deixou um evento-marco no lugar", r.marcos, 1);
+  igual("o histórico continua com 3 eventos", app.S.db.historico.length, 3);
+  chk("o evento antigo saiu", !app.S.db.historico.some(h=>h.id==="h1"));
+  chk("o marco tem origem 'arquivamento'", app.S.db.historico.some(h=>h.origem==="arquivamento"));
+  const arq = c.pasta.arquivados();
+  igual("gravou um arquivo em historico/", arq.length, 1);
+  igual("com o evento inteiro dentro", JSON.parse(arq[0][1]).eventos.length, 1);
+  igual("a reconstrução continua idêntica", antesDatas.map(d=>app.R.statusEm("A-001",d)), antes);
+  igual("ficou registrado no log", app.S.db.logArquivamentos.length, 1);
+  chk("e a base foi gravada", c.disco().historico.length===3);
+}
+{
+  const c = cenario({falhas:{close:1}});           /* falha ao fechar o arquivo */
+  const {app} = c;
+  const e = await erroDe(()=>app.Arquivamento.executar("2026-01-10"));
+  igual("falha ao gravar o arquivo é explícita", e?.message, "ARQUIVO_NAO_CONFIRMADO");
+  igual("e o histórico continua inteiro na base", app.S.db.historico.length, 3);
+  chk("nenhum evento foi perdido", app.S.db.historico.some(h=>h.id==="h1"));
+  chk("nada foi registrado no log", !app.S.db.logArquivamentos);
+}
+
+
+/* ================= 12. colunas escolhidas por quem usa ================= */
+secao("12. COLUNAS DA TABELA");
+{
+  const c = cenario({semPasta:true});
+  const {app} = c, doc = app.ctx.document;
+  igual("começa no conjunto padrão", app.Colunas.escolhidas(), app.COLUNAS_PADRAO);
+  app.Colunas.guardar(["item","status","bigram"]);
+  igual("guardar troca as colunas", app.Colunas.defs().map(x=>x.id), ["item","status","bigram"]);
+  igual("e persiste no navegador", JSON.parse(app.ctx.localStorage.getItem("sm.colunas")),
+        ["item","status","bigram"]);
+  app.Render.itens();
+  const html = doc.querySelector("#view").innerHTML;
+  chk("a tabela desenha as colunas escolhidas", html.includes("Bigram"));
+  chk("e deixa de fora as que saíram", !html.includes("Obs. do status"));
+  app.Colunas.guardar(["nao-existe"]);
+  igual("id inválido cai no padrão", app.Colunas.escolhidas(), app.COLUNAS_PADRAO);
+  app.Colunas.guardar([]);
+  igual("lista vazia também", app.Colunas.escolhidas(), app.COLUNAS_PADRAO);
+}
+
+/* ===================== 13. edicao em lote de itens ===================== */
+secao("13. EDIÇÃO EM LOTE");
+{
+  const c = cenario({semPasta:true});
+  const {app} = c, doc = app.ctx.document;
+  app.S.selecao.add("A-001"); app.S.selecao.add("A-002");
+  app.Render.itens();
+  chk("a barra de lote aparece com a seleção",
+      doc.querySelector("#view").innerHTML.includes("2 ") && !!doc.querySelector("#loteAplicar"));
+  doc.querySelector("#loteStatus").value = "5 - Waiting Proof";
+  doc.querySelector("#loteData").value  = "2026-03-01";
+  doc.querySelector("#loteMotivo").value = "reunião de status";
+  doc.querySelector("#loteAplicar").onclick();
+  clearTimeout(app.Pend.timerAuto);
+  igual("uma pendência por item selecionado", app.S.db.pendentes.length, 2);
+  igual("com a data efetiva escolhida", app.S.db.pendentes[0].dataEfetiva, "2026-03-01");
+  igual("e o motivo, que vai para o histórico", app.S.db.pendentes[0].motivo, "reunião de status");
+  igual("os itens já mostram o status novo",
+        app.S.db.itens.filter(i=>i.status==="5 - Waiting Proof").map(i=>i.item), ["A-001","A-002"]);
+  igual("a seleção é limpa depois de aplicar", app.S.selecao.size, 0);
+}
+{
+  const c = cenario({semPasta:true});
+  const {app} = c, doc = app.ctx.document;
+  app.S.selecao.add("A-003");                       /* já está em 4 - Under Analysis */
+  app.Render.itens();
+  doc.querySelector("#loteStatus").value = "4 - Under Analysis";
+  doc.querySelector("#loteAplicar").onclick();
+  clearTimeout(app.Pend.timerAuto);
+  igual("quem já está no status não vira pendência", app.S.db.pendentes.length, 0);
+}
+{
+  const c = cenario({semPasta:true});
+  const {app} = c;
+  app.S.selecao.add("A-001"); app.S.selecao.add("A-002");
+  app.S.filtros.status = ["1 - Validated by ICN"];  /* deixa só A-002 visível */
+  app.Render.itens();
+  igual("seleção fora do filtro é descartada", [...app.S.selecao], ["A-002"]);
+}
+
+/* ================== 14. teclado na tabela de itens ===================== */
+secao("14. TECLADO");
+{
+  const c = cenario({semPasta:true});
+  const {app} = c;
+  app.S.rota = "itens";
+  app.TecladoItens.mover(1);
+  igual("primeira seta põe o cursor no primeiro item", app.S.cursor, "A-001");
+  app.TecladoItens.mover(1);
+  igual("e desce um a um", app.S.cursor, "A-002");
+  app.TecladoItens.mover(-5);
+  igual("não passa do começo", app.S.cursor, "A-001");
+  app.TecladoItens.mover(99);
+  igual("nem do fim", app.S.cursor, "A-004");
+  app.TecladoItens.marcar();
+  igual("espaço marca para o lote", [...app.S.selecao], ["A-004"]);
+  app.TecladoItens.marcar();
+  igual("e desmarca", app.S.selecao.size, 0);
+  chk("seta funciona na tela de itens",
+      app.TecladoItens.tecla({key:"ArrowDown", target:{tagName:"BODY"}, preventDefault(){}})===true);
+  chk("mas não rouba o teclado de quem está digitando",
+      app.TecladoItens.tecla({key:"ArrowDown", target:{tagName:"INPUT"}})===false);
+  app.S.rota = "dashboard";
+  chk("nem age fora da tela de itens",
+      app.TecladoItens.tecla({key:"ArrowDown", target:{tagName:"BODY"}})===false);
+  app.S.rota = "itens";
+  app.UI.modal("teste","corpo");
+  chk("nem com uma janela aberta",
+      app.TecladoItens.tecla({key:"ArrowDown", target:{tagName:"BODY"}})===false);
+  app.UI.fechar();
+}
+{
+  const c = cenario({semPasta:true});
+  const {app} = c, doc = app.ctx.document;
+  app.UI.detalhe("A-002");
+  igual("o detalhe sabe onde está na lista", app.S.selecionado, "A-002");
+  app.UI.irrItem(1);
+  igual("'próximo' anda sem fechar o detalhe", app.S.selecionado, "A-003");
+  app.UI.irrItem(-1);
+  igual("e volta", app.S.selecionado, "A-002");
+  doc.querySelector("#dStatus").value = "5 - Waiting Proof";
+  doc.querySelector("#dData").value = "2026-03-02";
+  app.UI.salvarDetalhe("A-002");
+  clearTimeout(app.Pend.timerAuto);
+  igual("salvar o detalhe grava pelo mesmo motor de pendentes", app.S.db.pendentes.length, 1);
+  igual("respeitando a data efetiva informada", app.S.db.pendentes[0].dataEfetiva, "2026-03-02");
+}
+
+/* ============ 15. presenca diz tambem o que cada um edita ============== */
+secao("15. PRESENÇA POR ITEM");
+{
+  const c = cenario();
+  const {app} = c;
+  c.editar("A-001","generalObs","mexendo aqui");
+  igual("anuncio o item que estou editando", app.Sync.meusItens(), ["A-001"]);
+  const pres = await c.pasta.getDirectoryHandle("presenca",{create:true});
+  const fh = await pres.getFileHandle("maria.json",{create:true});
+  const w = await fh.createWritable();
+  await w.write(JSON.stringify({nome:"Maria", em:new Date().toISOString(), itens:["A-002","A-003"]}));
+  await w.close();
+  await app.Sync.presenca();
+  igual("vejo quem mais está na base", app.Sync.presentes.sort(), ["Maria","Teste"]);
+  igual("e em qual item cada um está", app.Sync.quemEdita("A-002"), ["Maria"]);
+  igual("item sem ninguém não marca nada", app.Sync.quemEdita("A-004"), []);
+  const meu = JSON.parse(pres.arquivos.get("teste.json"));
+  igual("o meu arquivo de presença leva os meus itens", meu.itens, ["A-001"]);
+  chk("e o meu nome", meu.nome==="Teste");
+}
+
+/* ================== 16. Evidence Flow em tela propria ================== */
+secao("16. TELA DE EVIDENCE FLOW");
+{
+  const c = cenario({semPasta:true});
+  const {app} = c, doc = app.ctx.document;
+  chk("a rota existe no menu", app.ROTAS.some(r=>r.id==="fluxo"));
+  igual("e é um endereço válido", app.FiltroURL.doTexto("fluxo?b05=sim").rota, "fluxo");
+  app.Render.fluxo();
+  const f = doc.querySelector("#view").innerHTML;
+  chk("a tela desenha os dois blocos", f.includes("B05") && f.includes("exceto"));
+  app.Render.dashboard();
+  const d = doc.querySelector("#view").innerHTML;
+  chk("e o dashboard não os repete mais", !d.includes('"exceto" B05'));
+  chk("mas continua com os KPIs", d.includes("KPI")||d.includes("kpis"));
+}
+
 console.log(falhas.length ? `\n${falhas.length} FALHA(S):\n  `+falhas.join("\n  ") : "\nTudo certo.");
 process.exit(falhas.length ? 1 : 0);

@@ -73,22 +73,23 @@ with sync_playwright() as pw:
     pg.locator("thead th[data-s='inspType']").click(); pg.wait_for_timeout(400)
     chk("coluna ativa destacada",
         "accent" in (pg.evaluate("document.querySelector(\"thead th[data-s='inspType']\").getAttribute('style')") or ""))
-    v=pg.evaluate("[...document.querySelectorAll('tbody tr td:nth-child(3)')].slice(0,8).map(e=>e.textContent.trim())")
+    # a 1a celula agora e a caixinha de selecao do lote, entao os indices andam um
+    v=pg.evaluate("[...document.querySelectorAll('tbody tr td:nth-child(4)')].slice(0,8).map(e=>e.textContent.trim())")
     chk("ordem alfabetica", v==sorted(v,key=str.lower), str(v[:5]))
     pg.locator("thead th[data-s='item']").click(); pg.wait_for_timeout(400)
-    n=pg.evaluate("[...document.querySelectorAll('tbody tr td:first-child b')].slice(0,8).map(e=>+e.textContent)")
+    n=pg.evaluate("[...document.querySelectorAll('tbody tr td:nth-child(2) b')].slice(0,8).map(e=>+e.textContent)")
     chk("Item natural (9 antes de 10)", n==sorted(n), str(n[:6]))
 
     print("=== F) telas e temas ===")
-    for r in ["dashboard","kanban","historico","relatorios","conflitos","config"]:
+    for r in ["dashboard","itens","kanban","fluxo","historico","relatorios","conflitos","config"]:
         pg.evaluate(f"irPara('{r}')"); pg.wait_for_timeout(260)
-    pg.evaluate("irPara('dashboard')"); pg.wait_for_timeout(800)
+    pg.evaluate("irPara('fluxo')"); pg.wait_for_timeout(800)
     chk("2 diagramas de fluxo", pg.locator("#view svg marker").count()==2)
     caixas=pg.evaluate("[...document.querySelectorAll('#view svg rect.fxcaixa')].length")
     chk("caixas de status desenhadas nos dois diagramas", caixas==12, str(caixas))
     pg.screenshot(path="/tmp/f_dash.png")
     pg.evaluate("irPara('kanban')"); pg.wait_for_timeout(700); pg.screenshot(path="/tmp/f_kanban.png")
-    pg.evaluate("localStorage.setItem('sm.tema','dark');aplicarTema();irPara('dashboard')"); pg.wait_for_timeout(800)
+    pg.evaluate("localStorage.setItem('sm.tema','dark');aplicarTema();irPara('fluxo')"); pg.wait_for_timeout(800)
     pg.screenshot(path="/tmp/f_dark.png")
     pg.set_viewport_size({"width":420,"height":900}); pg.wait_for_timeout(400)
     chk("sem rolagem horizontal em 420px",
@@ -98,7 +99,7 @@ with sync_playwright() as pw:
     pg.set_viewport_size({"width":1600,"height":1000})
     pg.evaluate("""(db)=>{localStorage.setItem('sm.tema','light');
       const d=structuredClone(db); delete d.config.fluxo;      // base gerada antes do diagrama
-      S.db=d; normalizar(S.db); aplicarTema(); irPara('dashboard');}""",DB)
+      S.db=d; normalizar(S.db); aplicarTema(); irPara('fluxo');}""",DB)
     pg.wait_for_timeout(900)
     chk("o padrao embutido repoe o desenho", pg.evaluate("!!S.db.config.fluxo.b05.principal"))
     chk("os 2 diagramas continuam aparecendo", pg.locator("#view svg marker").count()==2)
@@ -121,7 +122,7 @@ with sync_playwright() as pw:
       const b05=d.itens.filter(i=>i.isB05);
       b05[0].status='0 - Cancelado'; b05[1].status='9 - Em espera externa';
       b05[2].status='X - Status desconhecido muito comprido';
-      S.db=d; normalizar(S.db); irPara('dashboard');}""",DB)
+      S.db=d; normalizar(S.db); irPara('fluxo');}""",DB)
     pg.wait_for_timeout(900)
     # o diagrama nao e mais o primeiro svg da pagina: pega o do painel B05
     g=pg.evaluate("""(()=>{const sv=document.querySelector('#view .panel[data-dobra=b05] svg');
@@ -134,7 +135,7 @@ with sync_playwright() as pw:
       const d=new Set([...lay.principal,...lay.grupoA,...lay.grupoB,...lay.grupoC,lay.desvio,lay.bloqueio].filter(Boolean));
       return l.every(i=>d.has(i.status));})()""")
     chk("nenhum item some da conta", somam)
-    pg.evaluate("(db)=>{S.db=structuredClone(db); normalizar(S.db); irPara('dashboard');}",DB)
+    pg.evaluate("(db)=>{S.db=structuredClone(db); normalizar(S.db); irPara('fluxo');}",DB)
     pg.wait_for_timeout(700)
 
     print("=== H3) funcao vital: largura cheia e rotulos inteiros ===")
@@ -159,7 +160,11 @@ with sync_playwright() as pw:
     pg.wait_for_timeout(900)
     ordem=pg.evaluate("[...document.querySelectorAll('#view .panel')].map(p=>p.dataset.dobra)")
     chk("todo painel do dashboard pode ser recolhido", all(ordem), str(ordem))
-    chk("os diagramas de evidencia ficam no fim da pagina", ordem[-2:]==["b05","exceto"], str(ordem[-2:]))
+    chk("os diagramas de evidencia sairam do dashboard",
+        "b05" not in ordem and "exceto" not in ordem, str(ordem))
+    pg.evaluate("irPara('fluxo')"); pg.wait_for_timeout(700)
+    ordemF=pg.evaluate("[...document.querySelectorAll('#view .panel')].map(p=>p.dataset.dobra)")
+    chk("e ganharam tela propria", ordemF==["b05","exceto"], str(ordemF))
     alt0=pg.evaluate("document.querySelector('#view').scrollHeight")
     pg.locator(".panel[data-dobra=b05] h3").click(); pg.wait_for_timeout(300)
     chk("clicar no cabecalho recolhe", pg.locator(".panel[data-dobra=b05].recolhido").count()==1)
@@ -168,7 +173,7 @@ with sync_playwright() as pw:
         pg.inner_text(".panel[data-dobra=b05] h3 .caret").strip()=="\u25b8",
         repr(pg.inner_text(".panel[data-dobra=b05] h3 .caret")))
     chk("a escolha fica guardada", "b05" in (pg.evaluate("localStorage.getItem('sm.dobradas')") or ""))
-    pg.evaluate("irPara('itens');irPara('dashboard')"); pg.wait_for_timeout(800)
+    pg.evaluate("irPara('itens');irPara('fluxo')"); pg.wait_for_timeout(800)
     chk("continua recolhido depois de sair e voltar",
         pg.locator(".panel[data-dobra=b05].recolhido").count()==1)
     pg.locator(".panel[data-dobra=b05] h3").click(); pg.wait_for_timeout(300)
@@ -186,7 +191,7 @@ with sync_playwright() as pw:
     pg.evaluate("""(db)=>{const d=structuredClone(db);
       d.config.status.find(x=>x.codigo==='7 - Missing Vacuum Test or Sign').cor='#eb6834';
       d.config.status.find(x=>x.codigo==='5 - Waiting Proof').cor='#e87ba4';
-      S.db=d; normalizar(S.db); irPara('dashboard');}""",DB)
+      S.db=d; normalizar(S.db); irPara('fluxo');}""",DB)
     pg.wait_for_timeout(700)
     chk("base gravada com as cores antigas e corrigida ao carregar",
         cor("7 - Missing Vacuum Test or Sign")!="#eb6834" and cor("5 - Waiting Proof")!="#e87ba4",
@@ -226,7 +231,7 @@ with sync_playwright() as pw:
     pg.locator("#btnTxt").click(); pg.wait_for_timeout(400)
 
     print("=== J) linhas e cores mais fortes ===")
-    pg.evaluate("irPara('dashboard')"); pg.wait_for_timeout(700)
+    pg.evaluate("irPara('fluxo')"); pg.wait_for_timeout(700)
     bw=pg.evaluate("getComputedStyle(document.querySelector('.panel')).borderTopWidth")
     chk("borda do painel reforcada", float(bw.replace("px",""))>=1.5, bw)
     cores=pg.evaluate("""[...document.querySelectorAll('#view svg rect.fxcaixa')]

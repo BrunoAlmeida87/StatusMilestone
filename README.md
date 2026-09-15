@@ -24,12 +24,13 @@ Também funciona **sem internet**: baixe `docs/index.html` e abra por duplo cliq
 | Tela | Conteúdo |
 |---|---|
 | **Dashboard** | KPIs, Shipyard Prerequisites, B05 Status, Functional Insp. Type, evolução, aging, pendências por tipo e por função vital, e os dois Evidence Flow (B05 / exceto B05) no fim. Todo painel recolhe ao clicar no cabeçalho |
-| **Itens** | Tabela ordenável com busca, filtros combináveis e edição pelo detalhe. Célula cortada mostra o conteúdo inteiro ao passar o mouse; o botão **Texto completo** desliga o corte |
+| **Itens** | Tabela ordenável com busca, filtros combináveis e edição pelo detalhe. **Colunas à escolha de cada um**, **seleção múltipla para aplicar o mesmo status em lote** e navegação por teclado (↑↓ anda, Enter abre, espaço marca). Célula cortada mostra o conteúdo inteiro ao passar o mouse; o botão **Texto completo** desliga o corte. No celular a tabela vira uma pilha de cartões |
 | **Kanban** | 6 colunas por família de status, **horizontal ou vertical**, arrastar e soltar, colunas recolhíveis |
+| **Evidence Flow** | Os dois diagramas de fluxo (B05 / exceto B05), em tela própria |
 | **Histórico** | Compara **quaisquer duas datas** e reconstrói o estado em cada uma |
 | **Relatórios** | 12 relatórios prontos, exportação em CSV / Excel / JSON / PDF |
 | **Conflitos** | Fila de decisão das divergências entre os dois Excel — nada foi sobrescrito |
-| **Configurações** | Parâmetros, status ativos, backup/restauração, integridade, log técnico |
+| **Configurações** | Parâmetros, status ativos, **regra de "em aberto"**, backup/restauração, **tamanho da base e arquivamento de histórico**, integridade, log técnico |
 
 Os filtros são o endereço da tela: aparecem como pílulas com **✕** ao lado da busca, sobrevivem
 ao F5, viajam no fim da URL (dá para mandar o link de "estes 12 itens" para outra pessoa) e podem
@@ -49,6 +50,9 @@ consolida na hora. O tempo é configurável. O crachá **"N pendentes"** abre a 
 pode ser descartada sozinha — descartar devolve o item ao estado anterior por inteiro, inclusive
 o aging e a data de atualização.
 
+No detalhe de um item, **‹ ›** (ou `Alt`+setas) pula para o item anterior/seguinte da lista filtrada
+sem fechar a janela, e `Ctrl+Enter` salva e avança — revisar 71 itens vira um fluxo contínuo.
+
 ## Duas ou mais pessoas ao mesmo tempo
 
 A base continua sendo **um único `database.json`** na pasta compartilhada. Cada sessão confere a
@@ -64,7 +68,17 @@ e **reaplica por cima o que ainda não tinha sido gravado aqui**.
 
 O valor descartado numa decisão vira o "anterior" do evento de histórico, então a troca fica
 rastreável. O crachá no topo (**"N na base"**) mostra quantas pessoas estão com a base aberta —
-cada uma escreve o próprio arquivo em `presenca/`, sem disputa de escrita.
+cada uma escreve o próprio arquivo em `presenca/`, sem disputa de escrita. Cada arquivo também diz
+**em quais itens a pessoa está mexendo**, e a tabela marca esses itens com **✎**: a colisão aparece
+antes de acontecer, em vez de só ser resolvida depois.
+
+## Quando a base crescer
+
+Configurações mostra o tamanho do `database.json` e avisa acima de 8 MB (configurável). O
+**arquivamento** move os eventos anteriores a uma data para a subpasta `historico/` — nada é
+apagado — e deixa na base um evento-marco por item com o último status antes do corte, de modo que
+a reconstrução **a partir do corte** continua exata. Datas anteriores passam a viver só no arquivo
+gerado.
 
 ## Validação
 
@@ -86,9 +100,9 @@ como constava no Arquivo 1. Como o painel filtra por J08, ele sai da conta. Deci
 Rode você mesmo: `python3 migracao/validar.py caminho/para/database.json`
 
 O comportamento simultâneo tem suíte própria: `SM_DATABASE=... python3 testes/sincronizacao.py`
-(31 verificações). O motor de gravação, o descarte de pendentes, o histórico e os filtros têm
-testes de unidade que rodam sem navegador e sem base real: `node testes/unidade.mjs`
-(134 verificações).
+(31 verificações). O motor de gravação, a validação da base, o descarte de pendentes, o histórico,
+o arquivamento, os filtros, as colunas, o lote e o teclado têm testes de unidade que rodam sem
+navegador e sem base real: `node testes/unidade.mjs` (218 verificações).
 
 ## Estrutura
 

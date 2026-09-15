@@ -11,35 +11,73 @@ const RAIZ = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 export const APP = path.join(RAIZ, "docs", "index.html");
 
 /* --------------------------- DOM de mentira ---------------------------- */
-function elemento(){
+function elemento(doc){
   const el = {
-    nodeType:1, tagName:"DIV", id:"", className:"", innerHTML:"", outerHTML:"", textContent:"",
+    nodeType:1, tagName:"DIV", id:"", className:"", outerHTML:"", textContent:"",
     value:"", checked:false, href:"", download:"", type:"", accept:"", files:[],
     style:new Proxy({},{get:(o,k)=>o[k]??"", set:(o,k,v)=>(o[k]=v,true)}),
     dataset:{}, children:[], parentElement:null, parentNode:null, offsetWidth:800, offsetHeight:600,
     scrollTop:0, scrollLeft:0, clientWidth:800, clientHeight:600,
     classList:{add(){},remove(){},toggle(){},contains(){return false}},
-    append(){}, appendChild(x){return x}, prepend(){}, remove(){}, removeChild(x){return x},
+    append(x){ if(x?.id && doc) doc.porId.set(x.id, x); }, appendChild(x){ el.append(x); return x; },
+    prepend(x){ el.append(x); },
+    remove(){ if(!doc) return; if(el.id) doc.porId.delete(el.id);
+              for(const id of (el.__ids||[])) doc.porId.delete(id); },
+    removeChild(x){ return x; },
     insertAdjacentHTML(){}, setAttribute(){}, removeAttribute(){}, getAttribute(){return null},
     hasAttribute(){return false}, addEventListener(){}, removeEventListener(){}, dispatchEvent(){return true},
-    querySelector(){return elemento()}, querySelectorAll(){return []}, closest(){return null},
+    querySelector(){return elemento(doc)}, querySelectorAll(){return []}, closest(){return null},
     getBoundingClientRect(){return {x:0,y:0,top:0,left:0,right:0,bottom:0,width:0,height:0}},
-    focus(){}, blur(){}, click(){}, scrollIntoView(){}, getContext(){return null}, cloneNode(){return elemento()},
+    focus(){}, blur(){}, click(){}, scrollIntoView(){}, getContext(){return null}, cloneNode(){return elemento(doc)},
   };
+  /* innerHTML como no navegador: atribuir cria os elementos com id que estao
+     no texto (e apaga os da atribuicao anterior). E o que permite testar a
+     ligacao dos botoes de uma tela recem-desenhada. */
+  let html = "";
+  el.__ids = [];
+  Object.defineProperty(el, "innerHTML", {
+    get:()=>html,
+    set(v){
+      html = String(v ?? "");
+      if(doc){
+        for(const id of el.__ids) doc.porId.delete(id);
+        el.__ids = [...html.matchAll(/id="([\w-]+)"/g)].map(m=>m[1]);
+        for(const id of el.__ids){ const e=elemento(doc); e.id=id; doc.porId.set(id,e); }
+      }
+    },
+  });
   /* qualquer propriedade nao prevista vira leitura vazia em vez de estourar */
   return new Proxy(el,{ get:(o,k)=> k in o ? o[k] : undefined, set:(o,k,v)=>(o[k]=v,true) });
 }
 
+/* Ids que existem no HTML estatico da pagina - esses sempre respondem. Os
+   demais (#ov, #loteAplicar, ...) so existem depois que alguem os cria, como
+   no navegador: e assim que da para testar "o modal esta aberto?" e ligar os
+   botoes de uma tela recem-desenhada. */
+const ID_ESTATICOS = new Set(["app","brandsub","btnLang","btnSaveNow","btnTheme","headerExtra","main",
+  "nav","pageTitle","pendBadge","presenca","saveState","side","tip","toast","view","whoami"]);
+
 function criarContexto(){
   const armazem = new Map();
-  const doc = {
-    documentElement:elemento(), body:elemento(), head:elemento(), title:"",
-    createElement:()=>elemento(), createElementNS:()=>elemento(), createTextNode:()=>elemento(),
-    createDocumentFragment:()=>elemento(),
-    querySelector:()=>elemento(), querySelectorAll:()=>[], getElementById:()=>elemento(),
+  const doc = { porId:new Map(), title:"" };
+  Object.assign(doc, {
+    documentElement:elemento(doc), body:elemento(doc), head:elemento(doc),
+    createElement:()=>elemento(doc), createElementNS:()=>elemento(doc), createTextNode:()=>elemento(doc),
+    createDocumentFragment:()=>elemento(doc),
+    /* registra um elemento de mentira para um id que a tela acabou de desenhar */
+    simular(...ids){ for(const id of ids){ const e=elemento(doc); e.id=id; doc.porId.set(id,e); } return doc; },
+    querySelector(sel){
+      const m=/^#([\w-]+)$/.exec(String(sel||""));
+      if(!m) return elemento(doc);
+      const id=m[1];
+      if(doc.porId.has(id)) return doc.porId.get(id);
+      if(ID_ESTATICOS.has(id)){ const e=elemento(doc); e.id=id; doc.porId.set(id,e); return e; }
+      return null;
+    },
+    querySelectorAll:()=>[], getElementById:id=>doc.querySelector("#"+id),
     getElementsByClassName:()=>[], addEventListener(){}, removeEventListener(){},
     execCommand(){return true}, hasFocus(){return true},
-  };
+  });
   const ctx = {
     console, setTimeout, clearTimeout, setInterval, clearInterval, queueMicrotask,
     structuredClone, TextEncoder, TextDecoder, URL, URLSearchParams, Blob, performance, Intl,
@@ -74,7 +112,7 @@ export function carregarApp({autor="Teste", confirmar=()=>true}={}){
   blocos.forEach((codigo,i)=>vm.runInContext(codigo, ctx, {filename:`docs/index.html <script ${i+1}>`}));
   /* os modulos sao declarados com const, que no escopo lexico global de um script
      classico nao vira propriedade de globalThis: buscamos as referencias aqui. */
-  const nomes = ["IDB","Store","Usuario","S","R","Pend","Sync","M","G","Render","UI","Export","hoje","agora","T","Filtros","FiltroURL","Visita","ROTAS"];
+  const nomes = ["IDB","Store","Usuario","S","R","Pend","Sync","M","G","Render","UI","Export","hoje","agora","T","Filtros","FiltroURL","Visita","ROTAS","Arquivamento","Colunas","Lote","TecladoItens","COLUNAS_PADRAO"];
   const app = vm.runInContext(`({${nomes.join(",")}})`, ctx);
   app.ctx = ctx;
   app.avaliar = codigo => vm.runInContext(codigo, ctx);
@@ -144,8 +182,12 @@ export function pastaFalsa({database=null, falhas={}}={}){
           },
         };
       },
-      async *entries(){ for(const [n] of arquivos) yield [n, {kind:"file",
-        async getFile(){ return {size:arquivos.get(n).length, lastModified:mtimes.get(n)??0}; }}]; },
+      /* entries() devolve o mesmo handle do getFileHandle - com getFile().text(),
+         que e o que a presenca e a listagem de backups leem. */
+      async *entries(){
+        for(const n of [...arquivos.keys()]) yield [n, await dir.getFileHandle(n)];
+        for(const n of [...subs.keys()])     yield [n, subs.get(n)];
+      },
       async removeEntry(n){ arquivos.delete(n); },
       async queryPermission(){ return "granted"; },
       async requestPermission(){ return "granted"; },
@@ -157,6 +199,7 @@ export function pastaFalsa({database=null, falhas={}}={}){
   dir.estado = raiz;
   dir.conteudo = ()=>dir.arquivos.get("database.json");
   dir.backups  = ()=>[...(dir.subs.get("backups")?.arquivos.keys() ?? [])];
+  dir.arquivados = ()=>[...(dir.subs.get("historico")?.arquivos.entries() ?? [])];
   return dir;
 }
 
