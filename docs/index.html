@@ -1024,7 +1024,7 @@ const G = {
       ${dados.map(d=>`<div style="font-size:10.5px;color:var(--fg-2);font-weight:600;text-align:center;overflow:hidden;
         text-overflow:ellipsis;white-space:nowrap" title="${esc(d.l)}">${esc(d.l)}</div>`).join("")}</div>`;
   },
-  barrasEmpilhadas(linhas,chaves,cores,{h=220}={}){
+  barrasEmpilhadas(linhas,chaves,cores,{h=220,quebra=false}={}){
     if(!linhas.length) return `<div class="empty">&mdash;</div>`;
     const W=600, mx=Math.max(1,...linhas.map(l=>chaves.reduce((s,k)=>s+(l.v[k]||0),0))), bw=W/linhas.length;
     return `<svg viewBox="0 0 ${W} ${h}" style="width:100%;height:auto;display:block">
@@ -1039,8 +1039,11 @@ const G = {
           font-size="12" font-weight="700" fill="var(--fg-2)" font-family="var(--mono)">${tot}</text>`:"");}).join("")}
       </svg>
       <div style="display:grid;grid-template-columns:repeat(${linhas.length},1fr);margin-top:3px">
-      ${linhas.map(l=>`<div style="font-size:10.5px;color:var(--fg-2);font-weight:600;text-align:center;overflow:hidden;
-        text-overflow:ellipsis;white-space:nowrap" title="${esc(l.l)}">${esc(l.l)}</div>`).join("")}</div>`;
+      ${linhas.map(l=>`<div style="font-size:${quebra?10:10.5}px;color:var(--fg-2);font-weight:600;text-align:center;
+        padding:0 3px;${quebra
+          ? "white-space:normal;line-height:1.3;word-break:break-word;hyphens:auto"
+          : "overflow:hidden;text-overflow:ellipsis;white-space:nowrap"}"
+        title="${esc(l.l)}">${esc(l.l)}</div>`).join("")}</div>`;
   },
   linhas(serie,series,{h=200}={}){
     if(serie.length<2) return `<div class="empty">&mdash;</div>`;
@@ -1072,10 +1075,13 @@ const G = {
   fluxo(conta, total, layout){
     if(!layout || !Array.isArray(layout.principal) || !layout.principal.length)
       return `<div class="empty">&mdash;</div>`;
-    const W=1256, BW=196, BH=98, GAP=54, YT=26, M=14;
+    const W=1256, BW=180, BH=82, GAP=46, YT=20, M=14;
     const temDesvio=!!layout.desvio;
     const temOutros=!!(layout.grupoC && layout.grupoC.length);
-    const YP=temDesvio?172:34, YB=YP+152, ALT=YB+Math.max(132, temOutros?30+layout.grupoC.length*30+22:0);
+    const YP=temDesvio? YT+BH+54 : 28, YB=YP+BH+50;
+    /* A altura sai do que foi desenhado, e nao de uma conta a parte: era assim
+       que o quadro "outros status" acabava cortado pela borda do viewBox. */
+    let maxY=0; const reg=y=>{ if(y>maxY) maxY=y; };
     const prin=layout.principal||[];
     /* Cadeia alinhada a esquerda e o "Validated" ancorado na borda direita,
        como na planilha: a seta longa ate ele mostra o caminho de conclusao.
@@ -1089,43 +1095,43 @@ const G = {
        fixo de caracteres, para o texto nunca encostar no numero. */
     const curto=(st,w=228)=>{
       const t=st.replace(/^\d+ - /,"").replace(/^Under Analysis [Tt]o /,"→ ");
-      const cabe=Math.max(8, Math.floor((w-34-60)/7.0));
+      const cabe=Math.max(8, Math.floor((w-34-58)/6.7));
       return t.length>cabe ? t.slice(0,cabe-1)+"…" : t;  /* o nome inteiro fica no tooltip */
     };
 
     /* Caixa com faixa cheia no topo, fundo no tom do status e contorno grosso:
        a cor identifica o passo mesmo de longe, como na planilha. */
     const caixa=(st,x,y,w=BW,h=BH,forte=false)=>{
-      const c=R.corDe(st), v=n(st);
-      return `<g><rect x="${x}" y="${y}" width="${w}" height="${h}" rx="11" fill="${c}"
-          fill-opacity="${v?0.17:0.06}" stroke="${c}" stroke-width="${forte?4:2.8}"/>
-        <rect x="${x+4}" y="${y+2.5}" width="${w-8}" height="8" rx="4" fill="${c}"/>
-        <text x="${x+w/2}" y="${y+31}" text-anchor="middle" font-weight="700"
-          font-size="${st.length>28?10.5:st.length>23?11.5:12.5}"
+      const c=R.corDe(st), v=n(st); reg(y+h);
+      return `<g><rect class="fxcaixa" x="${x}" y="${y}" width="${w}" height="${h}" rx="10" fill="${c}"
+          fill-opacity="${v?0.17:0.06}" stroke="${c}" stroke-width="${forte?3.5:2.5}"/>
+        <rect x="${x+4}" y="${y+2.5}" width="${w-8}" height="7" rx="3.5" fill="${c}"/>
+        <text x="${x+w/2}" y="${y+26}" text-anchor="middle" font-weight="700"
+          font-size="${st.length>28?9.8:st.length>23?10.8:11.8}"
           fill="${c}">${esc(st)}</text>
-        <text x="${x+w/2}" y="${y+h*0.70}" text-anchor="middle" font-size="30" font-weight="800"
+        <text x="${x+w/2}" y="${y+h*0.71}" text-anchor="middle" font-size="25" font-weight="800"
           fill="${v?c:"var(--fg-3)"}" font-family="var(--mono)">${v}</text>
-        <text x="${x+w/2}" y="${y+h-10}" text-anchor="middle" font-size="12.5" font-weight="600"
+        <text x="${x+w/2}" y="${y+h-9}" text-anchor="middle" font-size="11.5" font-weight="600"
           fill="var(--fg-2)" font-family="var(--mono)">${pc(v).toFixed(v?2:0)}%</text>
         <title>${esc(st)}: ${v} de ${total} (${pc(v).toFixed(2)}%)</title></g>`;
     };
     let nG=0;
     const grupo=(lista,x,y,w,titulo)=>{
-      const h=24+lista.length*30+(titulo?20:0);
-      const cid=`gcl${nG++}`;
+      const h=22+lista.length*27+(titulo?18:0);
+      const cid=`gcl${nG++}`; reg(y+h);
       return `<g><clipPath id="${cid}"><rect x="${x+26}" y="${y}" width="${w-84}" height="${h}"/></clipPath>
         <rect x="${x}" y="${y}" width="${w}" height="${h}" rx="10" fill="var(--panel-2)"
           stroke="var(--line)" stroke-width="2.5"/>
         ${titulo?`<text x="${x+14}" y="${y+18}" font-size="10.5" font-weight="700" fill="var(--fg-3)"
           letter-spacing="0.6">${esc(titulo)}</text>`:""}
-        ${lista.map((st,k)=>{const c=R.corDe(st), v=n(st), cy=y+30+(titulo?20:0)+k*30;
+        ${lista.map((st,k)=>{const c=R.corDe(st), v=n(st), cy=y+27+(titulo?18:0)+k*27;
           return `<g><title>${esc(st)}: ${v} (${pc(v).toFixed(2)}%)</title>
-            <rect x="${x+11}" y="${cy-12}" width="11" height="11" rx="3" fill="${c}"/>
-            <text x="${x+30}" y="${cy}" font-size="11.5" font-weight="600" clip-path="url(#${cid})"
+            <rect x="${x+11}" y="${cy-11}" width="10" height="10" rx="3" fill="${c}"/>
+            <text x="${x+30}" y="${cy}" font-size="11" font-weight="600" clip-path="url(#${cid})"
               fill="${v?c:"var(--fg-2)"}">${esc(curto(st,w))}</text>
-            <text x="${x+w-44}" y="${cy}" text-anchor="end" font-size="15.5" font-weight="800"
+            <text x="${x+w-42}" y="${cy}" text-anchor="end" font-size="14" font-weight="800"
               font-family="var(--mono)" fill="${v?c:"var(--fg-3)"}">${v}</text>
-            <text x="${x+w-10}" y="${cy}" text-anchor="end" font-size="11.5" font-weight="600"
+            <text x="${x+w-10}" y="${cy}" text-anchor="end" font-size="11" font-weight="600"
               font-family="var(--mono)" fill="var(--fg-2)">${pc(v).toFixed(0)}%</text></g>`;}).join("")}
         </g>`;
     };
@@ -1161,14 +1167,15 @@ const G = {
       svg+=seta(gx+gw+5,YB+BH/2,hx-9,YB+BH/2);
       /* Nenhum item pode ficar fora da conta: status sem lugar no desenho
          aparecem num quadro proprio, a esquerda. */
-      if(temOutros) svg+=grupo(layout.grupoC, M, YB+BH+18, Math.max(300,bx-M-24),
+      if(temOutros) svg+=grupo(layout.grupoC, M, YB+BH+16, Math.max(300,bx-M-24),
         LANG==="pt"?"OUTROS STATUS":"OTHER STATUSES");
     }else if(temOutros){
-      svg+=grupo(layout.grupoC, M, YP+BH+30, Math.max(300,W/2),
+      svg+=grupo(layout.grupoC, M, YP+BH+26, Math.max(300,W/2),
         LANG==="pt"?"OUTROS STATUS":"OTHER STATUSES");
     }
     const mk="pf"+Math.random().toString(36).slice(2,7);
-    return `<svg viewBox="0 0 ${W} ${ALT}" style="width:100%;height:auto;display:block;min-width:860px">
+    const ALT=Math.round(maxY+16);
+    return `<svg viewBox="0 0 ${W} ${ALT}" style="width:100%;height:auto;display:block;min-width:840px">
       <defs><marker id="${mk}" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="5" markerHeight="5"
         orient="auto-start-reverse"><path d="M0 0.5 L9.5 5 L0 9.5 z" fill="context-stroke"/></marker></defs>
       ${svg.replace(/url\(#pf\)/g,"url(#"+mk+")")
@@ -1328,8 +1335,9 @@ const Render = {
           cor:a.faixa==="90+"?"var(--bad)":a.faixa==="61-90"?"var(--orange)":"var(--accent)"})),{h:160})}</div></div>
       <div class="panel"><h3>${T("tipoInsp")} <span class="sub">${LANG==="pt"?"pendências por status":"open by status"}</span></h3>
         <div class="pad">${pilhaPor(itens,"inspType")}</div></div>
-      <div class="panel"><h3>${T("funcaoVital")} <span class="sub">${LANG==="pt"?"pendências por status":"open by status"}</span></h3>
-        <div class="pad">${pilhaPor(itens,"numAndDescription",12)}</div></div>
+      <div class="panel" style="grid-column:1/-1"><h3>${T("funcaoVital")}
+        <span class="sub">${LANG==="pt"?"pendências por status":"open by status"}</span></h3>
+        <div class="pad">${pilhaPor(itens,"numAndDescription",14,{largo:true})}</div></div>
     </div>`;
     Filtros.ligar();
   },
@@ -1358,12 +1366,14 @@ function linhaStatus(st,n,tot,ant){
     ${ant===undefined?"":`<span style="min-width:46px;text-align:right">${G.seta(n-ant,{menorMelhor:R.aberto(st)})}</span>`}
   </span></div>`;
 }
-function pilhaPor(itens,campo,maxLinhas=10){
+function pilhaPor(itens,campo,maxLinhas=10,{largo=false}={}){
   const dados=M.abertoPorCampo(itens,campo).slice(0,maxLinhas);
   if(!dados.length) return `<div class="empty">—</div>`;
   const chaves=[...new Set(dados.flatMap(d=>Object.keys(d[1])))].sort((a,b)=>R.ordemDe(a)-R.ordemDe(b));
-  return G.barrasEmpilhadas(dados.map(([l,v])=>({l:l.length>16?l.slice(0,15)+"…":l, v})),
-    chaves, chaves.map(k=>R.corDe(k)), {h:190})
+  /* No modo largo o nome inteiro aparece, quebrando em linhas; no estreito
+     continua cortado, porque nao caberia de jeito nenhum. */
+  return G.barrasEmpilhadas(dados.map(([l,v])=>({l: largo? l : (l.length>16?l.slice(0,15)+"…":l), v})),
+    chaves, chaves.map(k=>R.corDe(k)), {h:largo?210:190, quebra:largo})
     + `<div class="rowflex" style="gap:10px;margin-top:8px;font-size:10.5px">${chaves.map(k=>
       `<span class="rowflex" style="gap:4px"><i class="dot" style="background:${R.corDe(k)}"></i>${esc(k)}</span>`).join("")}</div>`;
 }

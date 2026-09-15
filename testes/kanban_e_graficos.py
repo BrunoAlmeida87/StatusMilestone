@@ -74,7 +74,7 @@ with sync_playwright() as pw:
         pg.evaluate(f"irPara('{r}')"); pg.wait_for_timeout(260)
     pg.evaluate("irPara('dashboard')"); pg.wait_for_timeout(800)
     chk("2 diagramas de fluxo", pg.locator("#view svg marker").count()==2)
-    caixas=pg.evaluate("[...document.querySelectorAll('#view svg rect[rx=\"11\"]')].length")
+    caixas=pg.evaluate("[...document.querySelectorAll('#view svg rect.fxcaixa')].length")
     chk("caixas de status desenhadas nos dois diagramas", caixas==12, str(caixas))
     pg.screenshot(path="/tmp/f_dash.png")
     pg.evaluate("irPara('kanban')"); pg.wait_for_timeout(700); pg.screenshot(path="/tmp/f_kanban.png")
@@ -92,7 +92,7 @@ with sync_playwright() as pw:
     pg.wait_for_timeout(900)
     chk("o padrao embutido repoe o desenho", pg.evaluate("!!S.db.config.fluxo.b05.principal"))
     chk("os 2 diagramas continuam aparecendo", pg.locator("#view svg marker").count()==2)
-    cx=pg.evaluate("[...document.querySelectorAll('#view svg rect[rx=\"11\"]')].length")
+    cx=pg.evaluate("[...document.querySelectorAll('#view svg rect.fxcaixa')].length")
     chk("12 caixas desenhadas, nao um painel em branco", cx==12, str(cx))
     painel=pg.evaluate("""[...document.querySelectorAll('#view .panel')]
         .find(p=>p.textContent.includes('somente'))?.querySelector('.pad')?.textContent.trim()""")
@@ -105,6 +105,42 @@ with sync_playwright() as pw:
                                 lay.desvio,lay.bloqueio].filter(Boolean));
       return l.filter(i=>desenhados.has(i.status)).length===l.length;})()""")
     chk("todo status B05 tem lugar no desenho", soma)
+
+    print('=== H2) o quadro \"outros status\" cabe dentro do desenho ===')
+    pg.evaluate("""(db)=>{const d=structuredClone(db);
+      const b05=d.itens.filter(i=>i.isB05);
+      b05[0].status='0 - Cancelado'; b05[1].status='9 - Em espera externa';
+      b05[2].status='X - Status desconhecido muito comprido';
+      S.db=d; normalizar(S.db); irPara('dashboard');}""",DB)
+    pg.wait_for_timeout(900)
+    g=pg.evaluate("""(()=>{const sv=document.querySelector('#view svg');
+      const vb=sv.getAttribute('viewBox').split(' ').map(Number); const bb=sv.getBBox();
+      return {alt:vb[3], fim:Math.round(bb.y+bb.height), outros:sv.textContent.includes('OUTROS')};})()""")
+    chk("status fora do fluxo ganham o quadro 'outros'", g["outros"])
+    chk("nada e cortado pela borda do desenho", g["fim"] <= g["alt"], f"conteudo ate {g['fim']}, viewBox {g['alt']}")
+    somam=pg.evaluate("""(()=>{const l=S.db.itens.filter(i=>i.isB05);
+      const lay=R.fluxoLayout('b05',l);
+      const d=new Set([...lay.principal,...lay.grupoA,...lay.grupoB,...lay.grupoC,lay.desvio,lay.bloqueio].filter(Boolean));
+      return l.every(i=>d.has(i.status));})()""")
+    chk("nenhum item some da conta", somam)
+    pg.evaluate("(db)=>{S.db=structuredClone(db); normalizar(S.db); irPara('dashboard');}",DB)
+    pg.wait_for_timeout(700)
+
+    print("=== H3) funcao vital: largura cheia e rotulos inteiros ===")
+    fv=pg.evaluate("""(()=>{const p=[...document.querySelectorAll('#view .panel')]
+        .find(p=>/FUN\u00c7\u00c3O VITAL/i.test(p.innerText));
+      if(!p) return null;
+      const divs=[...p.querySelectorAll('.pad > div')];   // [0]=rotulos do eixo x, [1]=legenda
+      const rot=divs[0]? [...divs[0].children] : [];
+      return {larg:Math.round(p.getBoundingClientRect().width),
+              irmao:Math.round(p.parentElement.getBoundingClientRect().width),
+              n:rot.length, cortado:rot.some(d=>d.textContent.includes('\u2026')),
+              multilinha:rot.some(d=>d.getBoundingClientRect().height>20)};})()""")
+    chk("o painel existe", bool(fv), str(fv))
+    chk("ocupa a linha inteira", fv and abs(fv["larg"]-fv["irmao"])<=4, f"{fv and fv['larg']} de {fv and fv['irmao']}")
+    chk("mostra mais funcoes vitais", fv and fv["n"]>=12, str(fv and fv["n"]))
+    chk("nenhum nome cortado com reticencias", fv and not fv["cortado"])
+    chk("os nomes quebram em mais de uma linha", fv and fv["multilinha"])
 
     print("=== I) tabela: conteudo cortado acessivel ===")
     pg.evaluate("localStorage.setItem('sm.textoCompleto','0');S.textoCompleto=false;irPara('itens')")
@@ -127,7 +163,7 @@ with sync_playwright() as pw:
     pg.evaluate("irPara('dashboard')"); pg.wait_for_timeout(700)
     bw=pg.evaluate("getComputedStyle(document.querySelector('.panel')).borderTopWidth")
     chk("borda do painel reforcada", float(bw.replace("px",""))>=1.5, bw)
-    cores=pg.evaluate("""[...document.querySelectorAll('#view svg rect[rx="11"]')]
+    cores=pg.evaluate("""[...document.querySelectorAll('#view svg rect.fxcaixa')]
         .map(r=>r.getAttribute('stroke'))""")
     chk("cada caixa usa a cor do seu status", len(set(cores))>=5, str(len(set(cores))))
     linhas=pg.evaluate("""[...document.querySelectorAll('#view svg path[marker-end]')]
