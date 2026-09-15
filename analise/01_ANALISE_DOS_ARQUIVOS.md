@@ -707,7 +707,18 @@ Aguardo suas respostas, **principalmente às 7 perguntas críticas (C1–C7)**.
 Com elas em mãos, entrego as Etapas 6, 7 e 8 (arquitetura comparada, modelo de dados detalhado e
 proposta visual). **Só começo a programar depois da sua aprovação explícita da arquitetura.**
 
-### Anexos gerados
-- `analise/dados_extraidos/file1_SafetyMilestoneJ08_Report_Crossing_FV.csv` — 428 itens × 24 colunas
-- `analise/dados_extraidos/file2_ResumoFluxoEvidencia_Report_Crossing_FV.csv` — 428 itens × 21 colunas
-- `analise/dados_extraidos/*.py` — scripts de extração, comparação, reconciliação e qualidade (reproduzíveis)
+### Como reproduzir esta análise
+
+Os CSVs e os scripts avulsos usados aqui **não estão versionados**: contêm dados do projeto
+e foram substituídos por um pipeline único e documentado.
+
+```bash
+python3 migracao/extrair.py --xlsx SafetyMilestoneJ08.xlsx \
+                            --xlsb Resumo_Fluxo_Evidencia.xlsb --out-dir .
+python3 migracao/migrar.py  --file1 file1_SafetyMilestoneJ08.csv \
+                            --file2 file2_ResumoFluxoEvidencia.csv --out database.json
+python3 migracao/validar.py database.json
+```
+
+O último comando confere os 30 indicadores contra os números das duas planilhas, incluindo a
+reconstrução do estado em 29/07, 09/09 e 10/09.

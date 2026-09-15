@@ -63,22 +63,37 @@ Rode você mesmo: `python3 migracao/validar.py caminho/para/database.json`
 ## Estrutura
 
 ```
-docs/index.html                  o sistema inteiro (publicado no GitHub Pages)
-migracao/migrar.py               converte os dois Excel na base única
-migracao/validar.py              reconciliação contra os números do Excel
-analise/01_ANALISE_DOS_ARQUIVOS.md    engenharia reversa e qualidade dos dados
-analise/02_DECISOES.md                decisões de negócio tomadas
-analise/03_ARQUITETURA_E_MODELO.md    arquitetura, modelo de dados e telas
+docs/index.html                    o sistema inteiro (publicado no GitHub Pages)
+docs/.nojekyll                     impede o Jekyll de processar a pasta
+
+migracao/extrair.py                Excel -> CSV
+migracao/migrar.py                 CSV -> database.json
+migracao/validar.py                reconciliacao contra os numeros das planilhas
+
+testes/                            testes de comportamento em Chromium real
+analise/01_ANALISE_DOS_ARQUIVOS.md engenharia reversa e qualidade dos dados
+analise/02_DECISOES.md             decisoes de negocio tomadas
+analise/03_ARQUITETURA_E_MODELO.md arquitetura, modelo de dados e telas
 ```
 
-## Migrar novamente
+Nenhum dado do projeto é versionado. O `.gitignore` bloqueia csv, xlsx, xlsb e
+qualquer `database*.json`, e o workflow do Pages falha o deploy se algum deles
+aparecer em `docs/`.
+
+## Refazer a base do zero
 
 ```bash
-python3 migracao/migrar.py --file1 arquivo1.csv --file2 arquivo2.csv --out database.json
+pip install openpyxl pyxlsb
+
+python3 migracao/extrair.py --xlsx SafetyMilestoneJ08.xlsx \
+                            --xlsb Resumo_Fluxo_Evidencia.xlsb --out-dir .
+python3 migracao/migrar.py  --file1 file1_SafetyMilestoneJ08.csv \
+                            --file2 file2_ResumoFluxoEvidencia.csv --out database.json
 python3 migracao/validar.py database.json
 ```
 
-Os CSVs saem das abas `Report_Crossing_FV` dos dois arquivos originais (cabeçalho na linha 2).
+As decisões de conflito ficam em `DECISOES_CONFLITO`, dentro de `migracao/migrar.py`:
+o pipeline é determinístico e reproduz a mesma base a cada execução.
 
 ## Requisitos
 

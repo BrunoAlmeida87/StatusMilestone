@@ -8,3 +8,8 @@ database*.json
 /dados/
 /database/
 /backups/
+
+# artefatos de build
+__pycache__/
+*.py[cod]
+.DS_Store
