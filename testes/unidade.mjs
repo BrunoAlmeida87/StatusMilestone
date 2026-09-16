@@ -931,5 +931,188 @@ secao("17d. AUDITORIA — ARQUIVAMENTO SOB CONCORRÊNCIA");
   chk("e o polling volta ligado depois", app.Sync.ligado===true);
 }
 
+/* ============ 18. corrida na gravacao: meta.revisao nao e atomico ========= */
+secao("18. CORRIDA NA GRAVACAO");
+
+const travaDe = (autor, segundosAtras=0) => JSON.stringify(
+  {dono:"outra-sessao", autor, em:new Date(Date.now()-segundosAtras*1000).toISOString()});
+
+{
+  /* A18. Com a trava de outra sessao viva, gravar por cima e exatamente o que
+     nao pode acontecer: a conferencia por revisao e um check-then-use e, entre
+     reler o arquivo e fechar o writer, cabe a gravacao inteira da outra pessoa.
+     O que se perdia ali nao ficava em lugar nenhum - nem no disco, nem em
+     backups/ - e nem o polling via, porque a revisao terminava igual a nossa. */
+  const c = cenario();
+  const {app, pasta, estado} = c;
+  pasta.arquivos.set("database.lock.json", travaDe("Bia"));
+  pasta.mtimes.set("database.lock.json", 1);
+  const antes = pasta.conteudo();
+
+  c.editar("A-001","ncr","NCR-NOSSA");
+  const erro = await erroDe(()=>app.Store.gravar(app.S.db));
+  chk("a sessão recua diante da trava de outra pessoa",
+      erro !== null && /GRAVACAO_OCUPADA/.test(String(erro.message)),
+      erro ? String(erro.message) : "gravou por cima");
+  chk("e não encosta no database.json", pasta.conteudo() === antes);
+  chk("a mensagem diz que nada se perdeu",
+      /nada se perdeu|nothing was lost/.test(app.avaliar("mensagemArmazenamento")(erro)));
+
+  await app.Pend.autosave();
+  clearTimeout(app.Pend.timerAuto);
+  chk("o autosave espera a vez em vez de dar erro na cara do usuário",
+      estado.some(t=>/esperando a vez|waiting for the folder/.test(t)), estado.join(" | "));
+  chk("e o diário continua de pé para a próxima tentativa",
+      app.Pend.diario.length === 1 && app.S.sujo === true,
+      `${app.Pend.diario.length} sujo=${app.S.sujo}`);
+}
+{
+  /* A18a2. Contencao normal e passageira: a outra sessao solta a trava assim que
+     fecha o arquivo. Desistir na primeira tentativa transformaria isso num aviso
+     a cada 3 segundos - o Store tem de insistir sozinho antes de reclamar. */
+  const c = cenario();
+  const {app, pasta} = c;
+  pasta.arquivos.set("database.lock.json", travaDe("Bia"));
+  pasta.mtimes.set("database.lock.json", 1);
+  let tentativas = 0;
+  const lerTrava = app.Store.lerTrava.bind(app.Store);
+  app.Store.lerTrava = async () => {
+    /* a Bia solta a trava antes da terceira tentativa */
+    if(++tentativas === 3) pasta.arquivos.set("database.lock.json", "{}");
+    return lerTrava();
+  };
+  c.editar("A-001","ncr","NCR-NOSSA");
+  await app.Pend.autosave();
+  clearTimeout(app.Pend.timerAuto);
+  igual("a trava liberada no meio das tentativas deixa a gravação passar",
+        c.disco().meta.revisao, 8);
+  igual("e o diário é limpo", app.Pend.diario.length, 0);
+}
+{
+  /* A18b. Uma aba fechada no meio da gravacao deixa a trava para tras. Se ela
+     valesse para sempre, a pasta ficaria inutilizavel: o prazo e o que impede. */
+  const c = cenario();
+  const {app, pasta} = c;
+  pasta.arquivos.set("database.lock.json", travaDe("Bia", app.Store.SEGUNDOS_TRAVA + 5));
+  pasta.mtimes.set("database.lock.json", 1);
+  c.editar("A-001","ncr","NCR-NOSSA");
+  await app.Pend.autosave();
+  clearTimeout(app.Pend.timerAuto);
+  igual("trava vencida não bloqueia ninguém", c.disco().meta.revisao, 8);
+  igual("e a trava fica livre no fim",
+        JSON.parse(pasta.arquivos.get("database.lock.json")).dono ?? null, null);
+}
+{
+  /* A18c. O resto da corrida, que trava nenhuma fecha: o close da outra pessoa
+     cai entre o nosso close e a nossa releitura. Cada gravacao leva um carimbo
+     unico justamente para isso - reler e nao achar o nosso carimbo e a prova de
+     que o arquivo nao e o que gravamos. */
+  const c = cenario();
+  const {app, pasta} = c;
+  const outro = JSON.parse(pasta.conteudo());
+  outro.meta.revisao = 9; outro.meta.ultimoAutor = "Bia"; outro.meta.carimbo = "da-bia";
+  outro.itens.find(i=>i.item==="A-002").ncr = "NCR-DA-BIA";
+
+  const conferir = app.Store.conferirGravacao.bind(app.Store);
+  app.Store.conferirGravacao = async carimbo => {
+    pasta.arquivos.set("database.json", JSON.stringify(outro,null,1));
+    return conferir(carimbo);
+  };
+  app.S.db.itens.find(i=>i.item==="A-001").ncr = "NCR-NOSSA";
+
+  const erro = await erroDe(()=>app.Store.gravar(app.S.db));
+  chk("gravação que não se confirma não é dada como salva",
+      erro !== null && /GRAVACAO_PERDIDA/.test(String(erro.message)),
+      erro ? String(erro.message) : "devolveu sucesso");
+  chk("a revisão carregada não avança sobre o que não se confirmou",
+      app.Store.revisaoCarregada === 7, String(app.Store.revisaoCarregada));
+  chk("o erro traz a versão do disco, para dar para juntar", !!erro?.disco);
+  chk("a mensagem fala em gravação simultânea",
+      /ao mesmo tempo|at the same time/.test(app.avaliar("mensagemArmazenamento")(erro)));
+}
+{
+  /* A18d. Ponta a ponta: para quem esta usando, isso tem de virar fusao, nao
+     falha. As duas alteracoes - a da outra pessoa e a nossa - no disco. */
+  const c = cenario();
+  const {app, pasta} = c;
+  const outro = JSON.parse(pasta.conteudo());
+  outro.meta.revisao = 9; outro.meta.ultimoAutor = "Bia"; outro.meta.carimbo = "da-bia";
+  outro.itens.find(i=>i.item==="A-002").ncr = "NCR-DA-BIA";
+  const conferir = app.Store.conferirGravacao.bind(app.Store);
+  let umaVez = false;
+  app.Store.conferirGravacao = async carimbo => {
+    if(!umaVez){ umaVez = true; pasta.arquivos.set("database.json", JSON.stringify(outro,null,1)); }
+    return conferir(carimbo);
+  };
+
+  c.editar("A-001","ncr","NCR-NOSSA");
+  await app.Pend.autosave();
+  clearTimeout(app.Pend.timerAuto);
+
+  const disco = c.disco();
+  chk("a alteração da outra pessoa sobrevive ao nosso autosave",
+      disco.itens.find(i=>i.item==="A-002").ncr === "NCR-DA-BIA", String(disco.itens.find(i=>i.item==="A-002").ncr));
+  chk("e a nossa também chega ao disco",
+      disco.itens.find(i=>i.item==="A-001").ncr === "NCR-NOSSA", String(disco.itens.find(i=>i.item==="A-001").ncr));
+  chk("a revisão anda para a frente das duas", (disco.meta.revisao ?? 0) >= 10, String(disco.meta.revisao));
+  igual("e o diário fica limpo no fim", app.Pend.diario.length, 0);
+}
+{
+  /* A18e. Gravou e nao deu para reler: tambem nao da para dizer "salvo". */
+  const c = cenario();
+  const {app} = c;
+  c.editar("A-001","ncr","NCR-NOSSA");
+  const pendentes = app.Pend.diario.length;
+  const lerOriginal = app.Store.lerTexto.bind(app.Store);
+  app.Store.lerTexto = async (nome="database.json") => {
+    if(nome === "database.json" && lerOriginal.jaLeu) throw Object.assign(new Error("sumiu"),{name:"NotReadableError"});
+    if(nome === "database.json") lerOriginal.jaLeu = true;
+    return lerOriginal(nome);
+  };
+  await app.Pend.autosave();
+  clearTimeout(app.Pend.timerAuto);
+  chk("há o que preservar no diário", pendentes === 1, String(pendentes));
+  chk("gravação não confirmada não limpa o diário",
+      app.Pend.diario.length === pendentes && app.S.sujo === true,
+      `${app.Pend.diario.length}/${pendentes} sujo=${app.S.sujo}`);
+}
+{
+  /* A18f. A trava e protecao a mais, nunca motivo para recusar uma gravacao:
+     se a pasta nao deixa grava-la, segue sem ela - com a conferencia de revisao
+     antes e a de carimbo depois, que e mais do que existia. */
+  const c = cenario();
+  const {app} = c;
+  app.Store.escreverTrava = async ()=>{ throw Object.assign(new Error("sem permissão"),{name:"NotAllowedError"}); };
+  c.editar("A-001","ncr","NCR-NOSSA");
+  await app.Pend.autosave();
+  clearTimeout(app.Pend.timerAuto);
+  igual("trava quebrada não impede de salvar", c.disco().meta.revisao, 8);
+  igual("e o diário é limpo normalmente", app.Pend.diario.length, 0);
+}
+{
+  /* Caminho normal: carimbo no arquivo, trava devolvida, diario limpo. */
+  const c = cenario();
+  const {app, pasta} = c;
+  c.editar("A-001","ncr","NCR-NOSSA");
+  await app.Pend.autosave();
+  clearTimeout(app.Pend.timerAuto);
+  const disco = c.disco();
+  igual("sem corrida, a gravação continua normal", disco.meta.revisao, 8);
+  chk("com o carimbo da gravação no arquivo",
+      typeof disco.meta.carimbo === "string" && disco.meta.carimbo.length > 0,
+      JSON.stringify(disco.meta.carimbo));
+  chk("a base em memória carrega o mesmo carimbo do disco",
+      app.S.db.meta.carimbo === disco.meta.carimbo);
+  igual("a trava é devolvida no fim",
+        JSON.parse(pasta.arquivos.get("database.lock.json")).dono ?? null, null);
+  igual("e o diário foi limpo", app.Pend.diario.length, 0);
+
+  const carimboAntes = disco.meta.carimbo;
+  c.editar("A-001","ncr","NCR-OUTRA");
+  await app.Pend.autosave();
+  clearTimeout(app.Pend.timerAuto);
+  chk("cada gravação leva um carimbo novo", c.disco().meta.carimbo !== carimboAntes);
+}
+
 console.log(falhas.length ? `\n${falhas.length} FALHA(S):\n  `+falhas.join("\n  ") : "\nTudo certo.");
 process.exit(falhas.length ? 1 : 0);

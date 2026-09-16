@@ -59,6 +59,12 @@ A base continua sendo **um único `database.json`** na pasta compartilhada. Cada
 data do arquivo a cada poucos segundos (configurável) e, quando alguém grava, traz a versão nova
 e **reaplica por cima o que ainda não tinha sido gravado aqui**.
 
+Para gravar, a sessão pega uma trava na pasta (um `database.lock.json` com dono e prazo de 20 s),
+confere a revisão do arquivo e, depois de fechá-lo, relê para confirmar que o que ficou lá é o
+que ela gravou. Se outra pessoa gravou no mesmo instante, a gravação **não** é dada como salva:
+as duas versões são juntadas e gravadas de novo. Nada disso torna a escrita atômica — a pasta
+compartilhada não permite — mas nenhuma gravação some em silêncio.
+
 | Situação | O que acontece |
 |---|---|
 | Ninguém tocou no mesmo dado | Junta sozinho, sem interromper ninguém |
@@ -102,7 +108,7 @@ Rode você mesmo: `python3 migracao/validar.py caminho/para/database.json`
 O comportamento simultâneo tem suíte própria: `SM_DATABASE=... python3 testes/sincronizacao.py`
 (31 verificações). O motor de gravação, a validação da base, o descarte de pendentes, o histórico,
 o arquivamento, os filtros, as colunas, o lote e o teclado têm testes de unidade que rodam sem
-navegador e sem base real: `node testes/unidade.mjs` (266 verificações, das quais 48 são as
+navegador e sem base real: `node testes/unidade.mjs` (293 verificações, das quais 75 são as
 regressões da auditoria em [`analise/04_AUDITORIA.md`](analise/04_AUDITORIA.md)).
 
 ## Estrutura

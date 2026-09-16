@@ -130,7 +130,13 @@ export function carregarApp({autor="Teste", confirmar=()=>true}={}){
 export function pastaFalsa({database=null, falhas={}}={}){
   const raiz = {writersAbertos:0, maxWriters:0, escritas:[], falhas:{...falhas}, seq:0};
   const erro = (nome,msg)=>{ const e=new Error(msg); e.name=nome; return e; };
-  const consumir = chave=>{
+  /* A trava de gravacao (database.lock.json) fica fora da injecao de falhas: ela
+     e melhor-esforco por definicao - o Store engole os erros dela de proposito -
+     entao falhar ali nao testaria nada e roubaria o orcamento de falhas da
+     gravacao que o teste quer ver falhar. O comportamento da trava quebrada tem
+     testes proprios, na secao 18. */
+  const consumir = (chave, arquivo)=>{
+    if(arquivo === "database.lock.json") return false;
     const v = raiz.falhas[chave];
     if(!v) return false;
     if(typeof v==="number"){ raiz.falhas[chave] = v-1; return v>0; }
@@ -158,23 +164,23 @@ export function pastaFalsa({database=null, falhas={}}={}){
         return {
           kind:"file", name:n,
           async getFile(){
-            if(consumir("permissaoLeitura")) throw erro("NotAllowedError","sem permissão de leitura");
-            if(consumir("falhaLeitura"))     throw erro("NotReadableError","falha de leitura");
+            if(consumir("permissaoLeitura", n)) throw erro("NotAllowedError","sem permissão de leitura");
+            if(consumir("falhaLeitura", n))     throw erro("NotReadableError","falha de leitura");
             const texto = arquivos.get(n);
             return { lastModified: mtimes.get(n) ?? 0, size: texto.length, text: async()=>texto };
           },
           async createWritable(){
-            if(consumir("createWritable")) throw erro("NotAllowedError","não foi possível abrir para escrita");
+            if(consumir("createWritable", n)) throw erro("NotAllowedError","não foi possível abrir para escrita");
             raiz.writersAbertos++;
             raiz.maxWriters = Math.max(raiz.maxWriters, raiz.writersAbertos);
             let buffer = "", aberto = true;
             const soltar = ()=>{ if(aberto){ aberto=false; raiz.writersAbertos--; } };
             return {
               async write(t){ await respirar();
-                if(consumir("write")){ soltar(); throw erro("NotAllowedError","falha ao escrever"); }
+                if(consumir("write", n)){ soltar(); throw erro("NotAllowedError","falha ao escrever"); }
                 buffer = t; },
               async close(){ await respirar();
-                if(consumir("close")){ soltar(); throw erro("AbortError","falha ao fechar"); }
+                if(consumir("close", n)){ soltar(); throw erro("AbortError","falha ao fechar"); }
                 arquivos.set(n, buffer); mtimes.set(n, ++raiz.seq);
                 raiz.escritas.push({pasta:nome, arquivo:n}); soltar(); },
               async abort(){ soltar(); },

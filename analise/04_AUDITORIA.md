@@ -17,7 +17,7 @@ sobre o mesmo arquivo); medição de tempo com `console.time` equivalente.
 | Suíte | Resultado |
 |---|---|
 | `node testes/unidade.mjs` (antes) | 218/218 ✅ |
-| `node testes/unidade.mjs` (depois das correções) | **266/266** ✅ (48 verificações novas) |
+| `node testes/unidade.mjs` (depois das correções) | **293/293** ✅ (75 verificações novas) |
 | `testes/comportamento.py`, `kanban_e_graficos.py`, `conflitos.py`, `sincronizacao.py` | **não executadas** — exigem `playwright` (ausente) e `SM_DATABASE` (a base real não vive no repositório, por decisão) |
 | `migracao/validar.py` | **não executada** — exige um `database.json` real |
 
@@ -183,6 +183,42 @@ Todos reproduzidos por teste antes da correção e cobertos por regressão em
   mensagem diz isso.
 - **Regressão:** §17d, oito verificações — as duas defesas em separado, mais o caminho normal.
 
+### E14 · `meta.revisao` não é atômico: duas sessões gravam e uma some — **CRÍTICO (perda de dados)**
+- **Arquivo/linhas:** `docs/index.html` — `Store._gravar`.
+- **Cenário:** A e B carregam a revisão 7. Ambas conferem o disco e passam. B fecha o arquivo;
+  A fecha logo depois. Reproduzido plantando a gravação de B entre a conferência de A e o
+  `close()` de A.
+- **Impacto:** a versão de B desaparece **por completo**: não está no disco, não passou por
+  `backups/` (nenhum backup é feito no caminho normal) e o polling nunca a recupera — como
+  A gravou a revisão 8 e B também, `tick()` vê `8 <= revisaoCarregada` e conclui “é o nosso
+  próprio save voltando”. A perda é silenciosa e definitiva; A ainda recebe “salvo”.
+- **Evidência:** `gravar()` devolveu `8` sem erro, `disco.meta.ultimoAutor === "Teste"`,
+  a alteração de B ausente, `Store.revisaoCarregada === 8`, e depois do `Sync.tick()` a
+  alteração de B continuava ausente da memória e do disco.
+- **Correção:** três camadas, porque o File System Access não tem escrita atômica, `rename`
+  nem lock — **não dá para tornar isto atômico de verdade**:
+  1. **Trava com dono e prazo** (`database.lock.json`, 20 s): quem vai gravar lê a trava,
+     desiste se ela está viva e é de outra pessoa, escreve a sua e **relê** para ver se ficou
+     sendo a dela. Duas sessões que escrevem quase juntas leem depois das duas escritas, e no
+     máximo uma se vê como dona. O prazo evita que uma aba fechada no meio trave a pasta.
+  2. **Carimbo por gravação** (`meta.carimbo`): depois do `close()` o arquivo é relido; se o
+     carimbo que ficou não é o nosso, a gravação **não** é dada como salva. Troca perda
+     silenciosa por conflito detectado, com o trabalho inteiro ainda em memória e no diário.
+  3. **Texto serializado antes da conferência**, não depois: serializar uma base grande
+     levava dezenas de ms, e todo esse tempo era janela de corrida.
+  `GRAVACAO_PERDIDA` com a versão do disco entra no mesmo caminho de fusão do
+  `CONFLITO_REVISAO`; `GRAVACAO_OCUPADA` reagenda o autosave em vez de gritar com quem está
+  usando. Falha na própria trava **nunca** recusa uma gravação: sem ela, sobra a conferência
+  de revisão antes e a de carimbo depois, que já é mais do que existia.
+- **Resíduo assumido:** a janela não fecha, encolhe. Sobra o caso em que as duas sessões leem
+  a trava antes de qualquer uma escrever a sua **e** a segunda escreve depois da releitura da
+  primeira — ordenação de duas operações de arquivo em sub-milissegundos, com a conferência de
+  revisão e a de carimbo ainda por cima.
+- **Regressão:** §18 inteira (27 verificações): trava viva, retentativa quando a trava é
+  liberada no meio, trava vencida, corrida depois do `close`, fusão ponta a ponta, releitura
+  impossível, trava quebrada e caminho normal. A retentativa entrou na lista porque a primeira
+  versão desta correção saía do laço na primeira recusa — o teste pega isso.
+
 ### E12 · Logs técnicos nunca podados (diverge da decisão A3) — **BAIXO/MÉDIO**
 - **Arquivo/linhas:** `docs/index.html` — `Pend.descartarUma`, `Pend.descartarTudo`,
   `UI.conflitoGravacao`.
@@ -201,7 +237,7 @@ Todos reproduzidos por teste antes da correção e cobertos por regressão em
 
 | # | Risco | Onde | Por que não foi mexido |
 |---|---|---|---|
-| R1 | **`meta.revisao` não é atômico.** Entre reler o arquivo e `close()` há uma janela real de TOCTOU: duas sessões podem passar na conferência e a segunda apaga a primeira. | `Store._gravar` | É a limitação assumida em `03_ARQUITETURA` (§“sem trava de arquivo na rede”). Fechar de verdade exige lock file com `create:false` + retentativa, ou sair do JSON único. A janela é de milissegundos e o backup por abertura mitiga. |
+| ~~R1~~ | **Promovido a erro comprovado (E14)** nesta rodada: o caso foi construído e reproduziu perda de dados silenciosa. Corrigido. | `Store._gravar` | Ver E14, inclusive o resíduo que permanece. |
 | R2 | `Sync.tick` grava `ultimoMtime` **antes** de ler o conteúdo; uma falha de leitura transitória descarta a notificação para sempre. | `Sync.tick` | A gravação seguinte ainda bate no controle de revisão, então não vira perda — só atraso. |
 | R3 | `Store.mtime` em pasta de rede costuma ter granularidade de 1–2 s: duas gravações no mesmo segundo podem não acordar o polling. | `Store.mtime` | Mesma mitigação de R2. |
 | R4 | `statusEm` compara texto: um `dataEfetiva` em ISO completo (`2026-03-01T08:00Z`) devolve o estado do **dia anterior**, e `validarBase` aceita sem aviso (a regex só exige o prefixo `AAAA-MM-DD`). | `R.statusEm`, `validarBase` | O app só grava data pura; só atinge base editada à mão. Corrigir bem exige normalizar na entrada **e** decidir o que fazer com bases antigas. |
@@ -214,7 +250,10 @@ Todos reproduzidos por teste antes da correção e cobertos por regressão em
 
 ## 3. Limitações arquiteturais (por desenho, documentadas)
 
-1. **Sem trava de arquivo.** Concorrência otimista por revisão + junção campo a campo.
+1. **Sem escrita atômica.** O File System Access não tem `rename`, `create:false` nem lock:
+   a exclusão mútua entre sessões é a trava por convenção de E14 (arquivo com dono e prazo,
+   escrita e releitura), reforçada por conferência de revisão antes e de carimbo depois.
+   Continua sendo concorrência otimista com junção campo a campo — não serialização real.
 2. **Reconstrução anterior ao corte de arquivamento não existe dentro do app** — as datas
    passam a viver só em `historico/*.json`. Consequência colateral: depois de arquivar,
    `M.comparar` numa data anterior ao corte classifica os itens como **“novos”**, porque
@@ -291,22 +330,27 @@ problemas comprovados que podem causar perda de dados”. Ficam listados como me
 | “`config.statusAbertoExcecoes` é a **única** fonte de ‘em aberto’” | Verdadeiro no app. **Falso em `migracao/validar.py`**, que reimplementa a regra (H3). |
 | “Uma base recusada **nunca** substitui a que está aberta” | Verdadeiro — `validarBase` roda antes em todos os caminhos (pasta, arquivo manual, espelho, backup, versão de outra pessoa). |
 | “a reconstrução **a partir do corte** continua exata” | Verdadeiro (coberto pela §11 da suíte). Datas anteriores viram “novos” em `M.comparar` — ver limitação 2. |
-| “218 verificações” | Agora **258**. README atualizado. |
+| “218 verificações” | Agora **293**. README atualizado. |
 | Números do Excel (166/12, 262/59, 240/38, 71, 74/80) | **Não reconferidos** — exigem a base real (H1). |
 
 ---
 
 ## 8. Correções aplicadas nesta rodada
 
-E1 → E13, todas com teste de regressão escrito **antes** da correção e suíte completa
-executada depois: **266/266**.
+E1 → E14, todas com teste de regressão escrito **antes** da correção e suíte completa
+executada depois: **293/293**.
 
-**Nota de método.** E13 estava classificado como risco provável (R6) na primeira rodada e só
-virou erro comprovado quando o caso foi construído. A lição vale para o resto desta lista: a
-fronteira entre “erro comprovado” e “risco provável” aqui é, em boa parte, **a fronteira do
-que o arreio em Node alcança** — e não a da gravidade real. R1 (atomicidade de `meta.revisao`)
-é o candidato mais óbvio a mudar de lado se alguém construir o caso.
+Quatro das catorze são perda de dados, e são as quatro que vieram primeiro: E1 (modo sem
+pasta), E2 (restaurar backup), E13 (arquivar durante gravação alheia) e E14 (duas sessões
+gravando ao mesmo tempo).
 
-Não corrigidos de propósito: R1–R9 (riscos), as limitações da §3 e toda a §5 (WCAG) — são
-mudanças de arquitetura ou de interface, maiores que o escopo “corrigir os problemas
-comprovados, começando pelos que podem causar perda de dados”.
+**Nota de método.** E13 e E14 estavam classificados como risco provável (R6 e R1) e só viraram
+erro comprovado quando o caso foi construído. É a mesma lição duas vezes: a fronteira entre
+“erro comprovado” e “risco provável” aqui foi, em boa parte, **a fronteira do que o arreio em
+Node alcança** — e não a da gravidade real. Onde esta auditoria previu que R1 “é o candidato
+mais óbvio a mudar de lado se alguém construir o caso”, o caso foi construído e reproduziu
+na primeira tentativa. Os riscos que sobram (R2–R9) merecem a mesma desconfiança.
+
+Não corrigidos: R2–R9, as limitações da §3 e toda a §5 (WCAG). O ponto cego continua o mesmo:
+as quatro suítes em Chromium (`testes/*.py`) não rodam neste ambiente — sem `playwright` e sem
+`SM_DATABASE` —, então arraste, foco, temas e renderização seguem sub-auditados.

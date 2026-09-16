@@ -416,9 +416,12 @@ const Store = {
     try{ const fh=await this.dirHandle.getFileHandle(nome); return (await fh.getFile()).lastModified; }
     catch{ return 0; }
   },
-  async lerArquivo(nome="database.json"){
+  async lerTexto(nome="database.json"){
     const fh = await this.dirHandle.getFileHandle(nome);
-    return JSON.parse(await (await fh.getFile()).text());
+    return (await fh.getFile()).text();
+  },
+  async lerArquivo(nome="database.json"){
+    return JSON.parse(await this.lerTexto(nome));
   },
   /* Classificacao do erro de leitura. So "arquivo inexistente" pode ser tratado
      como pasta vazia: permissao negada, JSON invalido ou falha de I/O sao coisas
@@ -453,12 +456,92 @@ const Store = {
     this._fila = atual.catch(()=>{});
     return atual;
   },
-  /* Controle de concorrencia: rele o arquivo e compara a revisao antes de gravar. */
+  /* ----------------------------- a trava ---------------------------------
+     A fila do Store serializa as gravacoes DESTA sessao; entre sessoes nao havia
+     nada. Conferir meta.revisao antes de gravar e um check-then-use: entre reler
+     o arquivo e fechar o writer cabe a gravacao inteira de outra pessoa, e o que
+     se perdia ali nao ficava em lugar nenhum - nem no disco, nem em backups/ - e
+     nem o polling via, porque a revisao no disco terminava igual a nossa.
+
+     O File System Access nao tem escrita atomica, rename nem lock, entao nao da
+     para tornar isto atomico de verdade. O que da e uma trava por arquivo, com
+     dono e prazo: quem quer gravar le a trava, desiste se ela esta viva e e de
+     outra pessoa, escreve a sua e RELE para ver se ficou sendo a dela. Duas
+     sessoes que escrevem quase juntas leem depois das duas escritas, e no maximo
+     uma se ve como dona. O prazo evita que uma aba fechada no meio deixe todo
+     mundo travado para sempre. */
+  TRAVA:"database.lock.json", SEGUNDOS_TRAVA:20,
+
+  /* {lida:false} separa "nao existe trava" de "nao deu para ler a trava": a
+     primeira libera, a segunda nao autoriza concluir nada sobre o vizinho. */
+  async lerTrava(){
+    try{ return {lida:true, t:JSON.parse(await this.lerTexto(this.TRAVA))}; }
+    catch(e){ return e?.name==="NotFoundError" ? {lida:true, t:null} : {lida:false, t:null}; }
+  },
+  async escreverTrava(conteudo){
+    const fh = await this.dirHandle.getFileHandle(this.TRAVA,{create:true});
+    const w = await fh.createWritable();
+    await w.write(JSON.stringify(conteudo)); await w.close();
+  },
+  viva(t){
+    if(!t?.dono) return false;
+    const idade = Date.now() - new Date(t.em||0).getTime();
+    return idade >= 0 && idade < this.SEGUNDOS_TRAVA*1000;
+  },
+  /* Devolve o dono da trava, ou null quando a trava em si nao funcionou. A trava
+     e uma protecao a mais, nunca um motivo para recusar uma gravacao: se a pasta
+     nao deixa le-la ou grava-la, segue sem ela - o que sobra (conferencia de
+     revisao antes e de carimbo depois) ainda e mais do que havia antes. */
+  async travar(){
+    const dono = uid();
+    const antes = await this.lerTrava();
+    if(antes.lida && this.viva(antes.t)){
+      const err = new Error("GRAVACAO_OCUPADA"); err.autorTrava = antes.t.autor; throw err;
+    }
+    try{ await this.escreverTrava({dono, autor:Usuario.nome(), em:agora()}); }
+    catch{ return null; }
+    /* rele: se outra sessao escreveu a dela quase junto, as duas leem depois das
+       duas escritas e no maximo uma se ve como dona. */
+    const depois = await this.lerTrava();
+    if(!depois.lida) return null;
+    if(depois.t?.dono !== dono){
+      const err = new Error("GRAVACAO_OCUPADA"); err.autorTrava = depois.t?.autor; throw err;
+    }
+    return dono;
+  },
+  async destravar(dono){
+    if(!dono) return;
+    const {lida, t} = await this.lerTrava();
+    if(lida && t?.dono && t.dono !== dono) return;   /* ja e de outra pessoa: nao mexe */
+    try{ await this.escreverTrava({}); }catch{}
+  },
+
+  /* Controle de concorrencia: trava a pasta, rele o arquivo e compara a revisao. */
   gravar(db,{forcar=false}={}){
     if(!this.dirHandle) return Promise.reject(new Error("sem pasta"));
     return this.enfileirar(()=>this._gravar(db,{forcar}));
   },
   async _gravar(db,{forcar=false}={}){
+    /* Contencao entre sessoes e passageira (a outra solta assim que fecha o
+       arquivo): tenta de novo algumas vezes antes de incomodar quem esta aqui. */
+    let dono = null, ocupada = null;
+    for(let t=0; t<3; t++){
+      if(t) await new Promise(r=>setTimeout(r, 250));
+      try{ dono = await this.travar(); ocupada = null; break; }
+      catch(e){ if(e.message!=="GRAVACAO_OCUPADA") throw e; ocupada = e; }
+    }
+    if(ocupada) throw ocupada;
+    try{ return await this._gravarTravado(db,{forcar}); }
+    finally{ await this.destravar(dono); }
+  },
+  async _gravarTravado(db,{forcar=false}={}){
+    /* Os metadados novos ficam num snapshot ate o close() terminar. Se a escrita
+       falhar, a revisao em memoria continua igual a ultima efetivamente gravada.
+       O texto e montado ANTES da conferencia de proposito: serializar uma base
+       grande leva tempo, e todo esse tempo era janela de corrida. */
+    const meta = {...(db.meta||{}), revisao:(db.meta?.revisao||0)+1, carimbo:uid(),
+                  atualizadoEm:agora(), ultimoAutor:Usuario.nome()};
+    const texto = JSON.stringify({...db, meta}, null, 1);
     if(!forcar){
       let disco = null;
       try{ disco = await this.lerArquivo(); }
@@ -480,11 +563,6 @@ const Store = {
         }
       }
     }
-    /* Os metadados novos ficam num snapshot ate o close() terminar. Se a escrita
-       falhar, a revisao em memoria continua igual a ultima efetivamente gravada. */
-    const meta = {...(db.meta||{}), revisao:(db.meta?.revisao||0)+1,
-                  atualizadoEm:agora(), ultimoAutor:Usuario.nome()};
-    const texto = JSON.stringify({...db, meta}, null, 1);
     let w = null;
     try{
       const fh = await this.dirHandle.getFileHandle("database.json",{create:true});
@@ -496,10 +574,37 @@ const Store = {
       const err = new Error("FALHA_ESCRITA"); err.causa=e; err.detalhe=e?.message||String(e);
       throw err;
     }
+    await this.conferirGravacao(meta.carimbo);
     db.meta = meta;                       /* so agora a base ativa avanca de revisao */
     this.revisaoCarregada = meta.revisao;
     await IDB.set("espelho", db);
     return meta.revisao;
+  },
+  /* A conferencia por revisao e um check-then-use: entre reler o arquivo e fechar
+     o writer cabe a gravacao inteira de outra pessoa - a fila do Store serializa
+     as gravacoes DESTA sessao, nao as das outras. Quem perdia essa corrida sumia
+     sem deixar rastro: nao ficava no disco, nao ia para backups/, e nem o polling
+     via, porque a revisao no disco terminava igual a nossa. O File System Access
+     nao tem escrita atomica nem lock, entao a saida e conferir depois: cada
+     gravacao leva um carimbo unico e o arquivo e relido para ver se o carimbo que
+     ficou e o nosso. Nao evita a corrida - troca a perda silenciosa por um
+     conflito detectado, com o trabalho ainda inteiro em memoria e no diario. */
+  async conferirGravacao(carimbo){
+    let texto;
+    try{ texto = await this.lerTexto(); }
+    catch(e){
+      /* gravou e nao deu para reler: tambem nao da para dizer "salvo" */
+      const err = new Error("GRAVACAO_PERDIDA"); err.causa=e; err.detalhe=e?.message||String(e);
+      throw err;
+    }
+    if(texto.includes('"'+carimbo+'"')) return true;
+    const err = new Error("GRAVACAO_PERDIDA");
+    try{
+      err.disco = JSON.parse(texto);
+      err.autorDisco  = err.disco?.meta?.ultimoAutor;
+      err.revisaoDisco = err.disco?.meta?.revisao ?? 0;
+    }catch{}
+    throw err;
   },
   /* O backup so e dado como feito depois de reler e conferir o arquivo gravado:
      quem depende dele (sobrescrita forcada, restauracao) precisa dessa certeza. */
@@ -835,9 +940,21 @@ const Pend = {
           if(S.sujo) this.agendarAutosave();
           return;
         }catch(e){
-          if(e.message!=="CONFLITO_REVISAO"){
+          /* GRAVACAO_PERDIDA com a versao do disco na mao e o mesmo caso do
+             CONFLITO_REVISAO, so que descoberto depois do close: junta e grava
+             de novo em vez de dar por salvo o que foi por cima de alguem. */
+          const conflito = e.message==="CONFLITO_REVISAO"
+                        || (e.message==="GRAVACAO_PERDIDA" && e.disco);
+          if(!conflito){
             /* S.sujo continua como estava: o que esta em memoria nao chegou ao disco. */
             marcarEstado(LANG==="pt"?"falha ao salvar":"save failed", "falha");
+            /* Trava de outra sessao e espera, nao falha: nada foi gravado e a
+               vez chega. Insistir sozinho vale mais que um aviso a cada 3s. */
+            if(e.message==="GRAVACAO_OCUPADA"){
+              marcarEstado(LANG==="pt"?"esperando a vez...":"waiting for the folder...", "salvando");
+              this.agendarAutosave();
+              return;
+            }
             toast(mensagemArmazenamento(e),"bad");
             return;
           }
@@ -1258,6 +1375,12 @@ function mensagemArmazenamento(e){
     case "FALHA_ESCRITA": return pt
       ? "Falha ao gravar o database.json. Suas alterações continuam aqui e na cópia local; tente de novo quando a pasta estiver acessível."
       : "Failed to write database.json. Your changes are still here and in the local copy; try again when the folder is reachable.";
+    case "GRAVACAO_OCUPADA": return pt
+      ? "Outra pessoa está gravando o database.json neste momento. Nada foi gravado e nada se perdeu — suas alterações continuam aqui. Tente de novo em instantes."
+      : "Someone else is writing database.json right now. Nothing was written and nothing was lost — your changes are still here. Try again in a moment.";
+    case "GRAVACAO_PERDIDA": return pt
+      ? "Outra pessoa gravou o database.json ao mesmo tempo e a sua gravação não pôde ser confirmada. Nada se perdeu aqui: suas alterações continuam nesta sessão e na cópia local. Junte as versões e grave de novo."
+      : "Someone else wrote database.json at the same time and your write could not be confirmed. Nothing was lost here: your changes are still in this session and in the local copy. Merge the versions and save again.";
     case "BASE_MUDOU": return pt
       ? "A base foi atualizada por outra pessoa durante o arquivamento. Nada foi tirado da base — o arquivo gerado em historico/ pode ser descartado. Tente arquivar de novo."
       : "The database was updated by someone else during archiving. Nothing was removed — the file generated in historico/ can be discarded. Try archiving again.";
