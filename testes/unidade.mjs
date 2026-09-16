@@ -628,7 +628,7 @@ secao("15. PRESENÇA POR ITEM");
   igual("vejo quem mais está na base", app.Sync.presentes.sort(), ["Maria","Teste"]);
   igual("e em qual item cada um está", app.Sync.quemEdita("A-002"), ["Maria"]);
   igual("item sem ninguém não marca nada", app.Sync.quemEdita("A-004"), []);
-  const meu = JSON.parse(pres.arquivos.get("teste.json"));
+  const meu = JSON.parse(pres.arquivos.get(app.Sync.slug("Teste")+".json"));
   igual("o meu arquivo de presença leva os meus itens", meu.itens, ["A-001"]);
   chk("e o meu nome", meu.nome==="Teste");
 }
@@ -647,6 +647,209 @@ secao("16. TELA DE EVIDENCE FLOW");
   const d = doc.querySelector("#view").innerHTML;
   chk("e o dashboard não os repete mais", !d.includes('"exceto" B05'));
   chk("mas continua com os KPIs", d.includes("KPI")||d.includes("kpis"));
+}
+
+/* =================== 17. achados da auditoria ==========================
+   Cada bloco reproduz um defeito comprovado na auditoria antes da correcao.  */
+secao("17. AUDITORIA — PERDA DE DADOS E ROBUSTEZ");
+{
+  /* A1. Sem pasta escolhida (modo manual / copia local recuperada) a edicao
+     continua possivel, mas o autosave saia antes ate do espelho: fechar o
+     navegador perdia tudo, sem aviso nenhum. */
+  const c = cenario({semPasta:true});
+  const {app} = c;
+  const espelhos = [];
+  app.IDB.set = async (k,v)=>{ if(k==="espelho") espelhos.push(v); return null; };
+  c.editar("A-001","status","5 - Waiting Proof");
+  await app.Pend.autosave();
+  chk("sem pasta, a alteração ainda vai para a cópia local", espelhos.length===1);
+  chk("e o estado diz que não foi gravada na pasta",
+      c.estado.some(t=>/cópia local|local copy/i.test(t)), JSON.stringify(c.estado));
+  chk("a base continua marcada como suja", app.S.sujo===true);
+}
+{
+  /* A2. normalizar() percorria config.status antes de garantir que ela existe:
+     uma base estruturalmente valida sem esse campo estourava na abertura. */
+  const app = carregarApp();
+  const db = baseDeTeste(); delete db.config.status;
+  chk("base sem config.status passa na validação", app.avaliar("validarBase")(db).valido);
+  let erro=null; try{ app.normalizar(db); }catch(e){ erro=e; }
+  chk("e normalizar não estoura", erro===null, erro?String(erro.message):"");
+  chk("config.status vira lista vazia preenchida pelos dados", Array.isArray(db.config.status));
+  const minima = {meta:{revisao:1}, itens:[{item:"X", status:"3 - Blocking"}]};
+  let erro2=null; try{ app.normalizar(minima); }catch(e){ erro2=e; }
+  chk("base mínima (só meta e itens) também abre", erro2===null, erro2?String(erro2.message):"");
+  igual("e o status usado entra no domínio",
+        (minima.config.status||[]).map(s=>s.codigo), ["3 - Blocking"]);
+}
+{
+  /* A3. Restaurar backup gravava com {forcar:true} sem reler o disco: o
+     trabalho que outra pessoa tinha gravado no meio sumia, e o backup
+     "pre-restauracao" era da NOSSA memoria, nao do que ia ser apagado. */
+  const c = cenario();
+  const {app, pasta} = c;
+  const nome = await app.Store.backup(app.S.db, "teste");
+  const outro = JSON.parse(pasta.conteudo());
+  outro.meta.revisao = 99; outro.meta.ultimoAutor = "Maria";
+  outro.itens[2].status = "1 - Validated by ICN";
+  outro.historico.push({id:"hX", item:"A-003", campo:"status", valorAnterior:"4 - Under Analysis",
+    valorNovo:"1 - Validated by ICN", dataEfetiva:"2026-02-01", consolidadoEm:"2026-02-01T10:00:00Z",
+    primeiraAlteracaoEm:"2026-02-01T10:00:00Z", autor:"Maria", origem:"manual", tipo:"status", observacao:""});
+  pasta.arquivos.set("database.json", JSON.stringify(outro,null,1));
+  await app.UI.restaurar(nome);
+  const bdir = pasta.subs.get("backups");
+  const guardados = [...bdir.arquivos.values()].map(t=>JSON.parse(t));
+  chk("restaurar guarda a versão do DISCO antes de apagá-la",
+      guardados.some(b=>(b.historico||[]).some(h=>h.id==="hX")));
+  chk("a revisão gravada não regride", (JSON.parse(pasta.conteudo()).meta.revisao ?? 0) > 99);
+}
+{
+  /* A4. Conflito nao-rebasavel durante o autosave abria a tela do Sync (que
+     poe ligado=false) e logo em cima a de gravacao, que nao tem como devolver
+     o ligado: o polling morria calado pelo resto da sessao. */
+  const c = cenario();
+  const {app, pasta} = c;
+  const outro = JSON.parse(pasta.conteudo());
+  outro.meta.revisao = 42; outro.meta.ultimoAutor = "Maria";
+  pasta.arquivos.set("database.json", JSON.stringify(outro,null,1));
+  app.S.db.config.minutosConsolidacao = 5;
+  app.Pend.registrar({t:"outro", o:"config"});
+  await app.Pend.autosave();
+  const ov = app.ctx.document.querySelector("#ov");
+  chk("o conflito abre uma tela de decisão", !!ov);
+  chk("e é a do Sync, que junta campo a campo — não a de gravação por cima dela",
+      /mudou enquanto|changed while/.test(ov?.innerHTML||""));
+  app.UI.fechar();
+  chk("fechar a tela devolve o polling", app.Sync.ligado===true);
+  /* Enquanto a alteração local não-rebasável não for decidida, o sistema tem de
+     continuar perguntando em vez de adotar o disco por conta própria. */
+  pasta.arquivos.set("database.json", JSON.stringify({...outro, meta:{...outro.meta, revisao:43}},null,1));
+  pasta.mtimes.set("database.json", 5000);
+  await app.Sync.tick();
+  igual("com a decisão pendente, a base local é preservada", app.Store.revisaoCarregada, 7);
+  chk("e a pergunta volta em vez de sumir", !!app.ctx.document.querySelector("#ov"));
+  /* Decidida (aqui: abrindo mão da alteração local), o polling volta a fluir. */
+  app.UI.fechar(); app.Pend.diario = [];
+  pasta.mtimes.set("database.json", 5001);
+  await app.Sync.tick();
+  igual("depois de decidido, a sessão volta a enxergar o disco", app.Store.revisaoCarregada, 43);
+}
+secao("17b. AUDITORIA — INJEÇÃO E SANEAMENTO");
+{
+  /* A5. A aba "Dados" do detalhe imprimia o valor CRU sempre que ele contivesse
+     a sequencia "<span" - qualquer campo descritivo virava HTML executavel. */
+  const c = cenario({semPasta:true});
+  const {app} = c;
+  app.S.db.itens[0].description = '<span></span><img src=x onerror=alert(1)>';
+  app.UI.detalhe("A-001");
+  const html = app.ctx.document.querySelector("#ov").innerHTML;
+  chk("a aba Dados não devolve HTML cru", !html.includes("<img src=x onerror=alert(1)>"));
+  chk("mas mostra o texto ao usuário", html.includes("&lt;img src=x onerror=alert(1)&gt;"));
+}
+{
+  /* A6. A cor de config.status ia crua para dentro de atributos style/fill em
+     todo painel que pinta status: bastava adulterar o database.json. */
+  const c = cenario({semPasta:true});
+  const {app} = c;
+  app.S.db.config.status[3].cor = '#fff"><img src=x onerror=alert(1)><i style="';
+  app.S.db.config.familias[0].cor = '#fff"><img src=x onerror=alert(2)><i style="';
+  app.Render.itens();
+  const itens = app.ctx.document.querySelector("#view").innerHTML;
+  chk("a tabela de itens não aceita cor injetada", !itens.includes("<img src=x onerror=alert(1)>"));
+  app.Render.kanban();
+  const kb = app.ctx.document.querySelector("#view").innerHTML;
+  chk("o kanban também não", !kb.includes("onerror=alert(1)") && !kb.includes("onerror=alert(2)"));
+  app.Render.dashboard();
+  const dash = app.ctx.document.querySelector("#view").innerHTML;
+  chk("nem os gráficos do dashboard", !dash.includes("onerror=alert(1)"));
+  chk("cor legítima continua passando", app.R.corDe("1 - Validated by ICN").startsWith("#")
+      || app.R.corDe("1 - Validated by ICN").startsWith("var("));
+}
+{
+  /* A7. CSV: Excel e Calc executam a celula que comeca por = + - @, mesmo
+     entre aspas. O valor tem de sair desarmado e ainda legivel. */
+  const c = cenario({semPasta:true});
+  const {app} = c;
+  app.S.db.itens[0].description = '=HYPERLINK("http://mau","clique")';
+  let capturado = null;
+  app.ctx.URL = {createObjectURL:()=>"blob:x", revokeObjectURL(){}};
+  app.ctx.Blob = class { constructor(p){ capturado = p.join(""); } };
+  app.Export.csv(app.S.db.itens);
+  chk("CSV desarma fórmula no campo do item", capturado.includes(`"'=HYPERLINK`));
+  app.Export.historico([{item:"A-001", campo:"status", valorAnterior:"", valorNovo:"@SUM(1+1)",
+    dataEfetiva:"2026-01-01", consolidadoEm:"", autor:"", origem:"", observacao:""}]);
+  chk("e também no CSV do histórico", capturado.includes(`"'@SUM(1+1)"`));
+}
+secao("17c. AUDITORIA — BASES DEFEITUOSAS E ESCALA");
+{
+  /* A8. Item sem status e apenas um AVISO da validacao - a base abre. As telas
+     precisam aguentar, e o relatorio "Bloqueantes" estourava. */
+  const c = cenario({semPasta:true});
+  const {app} = c;
+  delete app.S.db.itens[2].status;
+  chk("item sem status é aviso, não impedimento", app.avaliar("validarBase")(app.S.db).valido);
+  app.S.relSel = "bloq";
+  let e1=null; try{ app.Render.relatorios(); }catch(e){ e1=e; }
+  chk("o relatório Bloqueantes não estoura", e1===null, e1?String(e1.message):"");
+  let e2=null; try{ app.R.statusAtivos(); }catch(e){ e2=e; }
+  chk("nem a lista de status ativos", e2===null, e2?String(e2.message):"");
+  let e3=null; try{ app.Render.itens(); app.Render.kanban(); app.Render.dashboard(); }catch(e){ e3=e; }
+  chk("nem as telas principais", e3===null, e3?String(e3.message):"");
+}
+{
+  /* A9. validarBase varria ids repetidos com indexOf dentro de filter (O(n2)).
+     Ela roda a cada carga E a cada vez que outra pessoa grava. */
+  const app = carregarApp();
+  const db = baseDeTeste();
+  for(let k=0;k<20000;k++) db.historico.push({id:"g"+k, item:"A-001", campo:"status",
+    valorAnterior:"3 - Blocking", valorNovo:"3 - Blocking", dataEfetiva:"2026-02-01",
+    consolidadoEm:"2026-02-01T00:00:00Z", primeiraAlteracaoEm:"2026-02-01T00:00:00Z",
+    autor:"X", origem:"manual", tipo:"status", observacao:""});
+  const t0 = Date.now(); const v = app.avaliar("validarBase")(db); const ms = Date.now()-t0;
+  chk("20.000 eventos validam em menos de 120 ms", ms < 120, ms+" ms");
+  chk("e o resultado continua correto", v.valido && v.avisos.length===0);
+  db.historico.push({...db.historico[10]});
+  chk("id repetido continua sendo detectado",
+      app.avaliar("validarBase")(db).avisos.some(a=>/repetid|duplicate/i.test(a)));
+}
+{
+  /* A10. Relógios diferentes entre maquinas na pasta de rede produzem
+     ultimaAlteracaoStatus no futuro; o item sumia do gráfico de aging. */
+  const c = cenario({semPasta:true});
+  const {app} = c;
+  app.S.db.itens[0].ultimaAlteracaoStatus = "2099-01-01";
+  const abertos = app.S.db.itens.filter(i=>app.R.aberto(i.status)).length;
+  const soma = app.M.aging(app.S.db.itens).reduce((s,f)=>s+f.n,0);
+  igual("nenhum item em aberto some das faixas de aging", soma, abertos);
+}
+{
+  /* A11. presenca/<slug>.json: dois nomes diferentes davam o mesmo arquivo, e
+     nomes sem letras latinas viravam todos "anonimo" - um sobrescrevia o outro. */
+  const c = cenario({semPasta:true});
+  const {app} = c;
+  chk("acentuação não colide com o nome sem acento",
+      app.Sync.slug("José Silva") !== app.Sync.slug("Jose Silva"));
+  chk("nem pontuação diferente", app.Sync.slug("Ana-B") !== app.Sync.slug("Ana B"));
+  chk("nomes fora do alfabeto latino não colapsam num só",
+      app.Sync.slug("李雷") !== app.Sync.slug("张伟"));
+  chk("o mesmo nome dá sempre o mesmo arquivo",
+      app.Sync.slug("José Silva") === app.Sync.slug("José Silva"));
+  chk("e continua um nome de arquivo seguro", /^[a-z0-9-]+$/.test(app.Sync.slug("José Silva")));
+}
+{
+  /* A12. Decisao A3: o descarte fica no log "por alguns dias", nao para sempre.
+     Sem poda o log so engorda o database.json. */
+  const c = cenario({semPasta:true});
+  const {app} = c;
+  const velho = new Date(Date.now()-400*864e5).toISOString();
+  app.S.db.logDescartes = [{em:velho, autor:"Ana", itens:[]},
+                           {em:new Date().toISOString(), autor:"Ana", itens:[]}];
+  app.S.db.logSobrescritas = [{em:velho, autor:"Ana", resultado:"sobrescrito"}];
+  app.S.db.logArquivamentos = [{em:velho, autor:"Ana", corte:"2026-01-01", arquivo:"h.json"}];
+  app.normalizar(app.S.db);
+  igual("descarte antigo sai do log", app.S.db.logDescartes.length, 1);
+  igual("sobrescrita antiga também", app.S.db.logSobrescritas.length, 0);
+  igual("mas o índice dos arquivamentos nunca é podado", app.S.db.logArquivamentos.length, 1);
 }
 
 console.log(falhas.length ? `\n${falhas.length} FALHA(S):\n  `+falhas.join("\n  ") : "\nTudo certo.");

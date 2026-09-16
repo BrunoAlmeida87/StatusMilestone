@@ -80,7 +80,7 @@ Página aberta por duplo clique (`file://`):
 | **A1-ter** | Local da base | **Rede compartilhada — todos na mesma base** | É a Single Source of Truth real. **Exige controle de versão obrigatório:** antes de gravar, confere se alguém alterou; se sim, mostra conflito em vez de sobrescrever |
 | **A1-quater** | Navegador | **Chrome** | API completa disponível. O sistema avisa na tela se for aberto em navegador sem suporte |
 | **A2** | Consolidação | **10 min, configurável** | Autosave imediato → pending change → 10 min sem novo toque → histórico. Agrupa A→B→C em uma linha; descarta ida-e-volta (A→B→A não gera histórico) |
-| **A3** | Descartar pendentes | **Sim, com confirmação e recuperável** | Mostra o que será desfeito, exige confirmação, e o descarte fica no log técnico por alguns dias para recuperação |
+| **A3** | Descartar pendentes | **Sim, com confirmação e recuperável** | Mostra o que será desfeito, exige confirmação, e o descarte fica no log técnico por alguns dias para recuperação — janela em `config.diasLogTecnico`, padrão 30 dias |
 
 ---
 

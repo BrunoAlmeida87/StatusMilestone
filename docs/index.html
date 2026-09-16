@@ -349,6 +349,17 @@ const diasEntre = (a,b)=>Math.round((new Date(b)-new Date(a))/864e5);
 const colAlfa = new Intl.Collator(undefined,{numeric:true,sensitivity:"base"});
 const cmpAlfa = (a,b)=>colAlfa.compare(String(a??""),String(b??""));
 const uid = ()=>Math.random().toString(36).slice(2,10)+Date.now().toString(36).slice(-4);
+/* As cores de status e de familia vem do database.json e sao interpoladas
+   dentro de atributos (style, fill). Cru, um valor como
+   `#fff"><img src=x onerror=...>` fecha o atributo e injeta HTML em todo painel
+   que pinta status - e o arquivo fica numa pasta de rede compartilhada. So
+   passa o que e reconhecivel como cor; o resto vira o cinza neutro. */
+const COR_NEUTRA = "#8b93a3";
+const corSegura = v => {
+  const c = String(v ?? "").trim();
+  return /^(#[0-9a-fA-F]{3,8}|[a-zA-Z]{3,20}|var\(--[a-zA-Z0-9_-]{1,40}\)|(?:rgb|rgba|hsl|hsla)\([0-9.,%\s/]{1,60}\))$/.test(c)
+    ? c : COR_NEUTRA;
+};
 
 function toast(msg,kind=""){
   const d=document.createElement("div"); d.className=kind; d.textContent=msg;
@@ -598,11 +609,14 @@ const R = {
   nomeFamilia(id){ const f=this.familiaObj(id); return LANG==="pt"?f.pt:f.en; },
   escuro(){ const t=document.documentElement.dataset.theme;
     return t==="dark" || (!t && matchMedia("(prefers-color-scheme: dark)").matches); },
+  /* Unico ponto por onde a cor de um status chega a tela - por isso o
+     saneamento mora aqui e vale para tabela, kanban, pills e graficos. */
   corDe(st){
     const d=this.statusDefs().find(x=>x.codigo===st);
-    if(d?.cor) return this.escuro()? (d.corEscura||d.cor) : d.cor;
-    return this.familiaObj(this.familiaDe(st)).cor;
+    if(d?.cor) return corSegura(this.escuro()? (d.corEscura||d.cor) : d.cor);
+    return this.corFamilia(this.familiaDe(st));
   },
+  corFamilia(id){ return corSegura(this.familiaObj(id).cor); },
   ordemDe(st){ return this.familiaObj(this.familiaDe(st)).ordem; },
 
   /* Desenho do diagrama "Evidence Flow". Fica no config para poder ser ajustado,
@@ -794,8 +808,15 @@ const Pend = {
      ENQUANTO uma escrita corre: o que entrar no diario depois da marca nao pode
      ser dado como salvo, senao a alteracao some do diario sem estar no disco. */
   async autosave(){
-    if(!S.db || !Store.dirHandle) return;
+    if(!S.db) return;
+    /* O espelho vem PRIMEIRO e nao depende da pasta: em modo manual (navegador
+       sem a API, base aberta a mao ou copia local recuperada) era aqui que o
+       trabalho se perdia calado - nada ia para o disco nem para o IndexedDB. */
     await IDB.set("espelho", S.db);              // rede técnica: recuperação após queda
+    if(!Store.dirHandle){
+      marcarEstado(LANG==="pt" ? "sem pasta — só cópia local" : "no folder — local copy only", "falha");
+      return;
+    }
     S.salvando = true;
     marcarEstado(LANG==="pt"?"salvando...":"saving...", "salvando");
     try{
@@ -822,7 +843,13 @@ const Pend = {
           }
           /* Outra pessoa gravou antes. Se as alteracoes nao se cruzam, junta as duas
              versoes e grava de novo; se cruzam, quem decide e o usuario. */
-          if(tentativa<2 && Sync.receber(e.disco,{aoSalvar:true})!=="decidir") continue;
+          if(tentativa<2){
+            /* A tela de decisao do Sync ja cobre este caso e e mais util (junta
+               campo a campo). Abrir a de gravacao por cima dela fechava-a antes
+               de o usuario escolher - e Sync.ligado ficava falso para sempre. */
+            if(Sync.receber(e.disco,{aoSalvar:true})!=="decidir") continue;
+            return;
+          }
           return UI.conflitoGravacao(e);
         }
       }
@@ -1118,7 +1145,9 @@ const Sync = {
         UI.fechar(); this.ligado=true;
         S.db=disco; Store.revisaoCarregada=disco.meta.revisao??0; Pend.diario=[]; R.invalidarHist();
         this.reaplicar([...seguras,...fica]); Render.atual();
-        toast(LANG==="pt"?"Versões conciliadas":"Versions reconciled","ok");}}]);
+        toast(LANG==="pt"?"Versões conciliadas":"Versions reconciled","ok");}}],
+     /* Fechar sem escolher nao pode deixar o polling desligado para sempre. */
+     {aoFechar:()=>{ this.ligado = true; }});
   },
 
   /* O que ESTA pessoa esta mexendo agora: o que ainda nao foi gravado (diario)
@@ -1143,8 +1172,17 @@ const Sync = {
   },
 
   /* ---- presenca: um arquivo por pessoa, sem disputa de escrita ---- */
-  slug(n){ return (String(n).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"")
-            .replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"").slice(0,40)) || "anonimo"; },
+  /* Um arquivo por pessoa exige que nomes diferentes deem nomes de arquivo
+     diferentes. So transliterar nao basta: "José Silva"/"Jose Silva" caiam no
+     mesmo arquivo e qualquer nome fora do alfabeto latino virava "anonimo" -
+     duas pessoas se apagavam uma a outra. O sufixo vem do nome inteiro. */
+  slug(n){
+    const nome = String(n ?? "");
+    const base = nome.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"")
+                  .replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"").slice(0,40) || "pessoa";
+    let h=0; for(let k=0;k<nome.length;k++) h=(Math.imul(h,31)+nome.charCodeAt(k))|0;
+    return base+"-"+(h>>>0).toString(36);
+  },
   async presenca(){
     if(!Store.dirHandle) return;
     const eu = Usuario.nome(); if(!eu) return;
@@ -1310,7 +1348,10 @@ const M = {
     const rot=["0-7","8-30","31-60","61-90","90+"];
     const abertos=itens.filter(i=>R.aberto(i.status));
     return faixas.map(([a,b],k)=>({faixa:rot[k],
-      n:abertos.filter(i=>{const d=R.diasSemAtualizacao(i); return d>=a&&d<=b;}).length}));
+      /* Relogios diferentes entre as maquinas da pasta de rede produzem
+         ultimaAlteracaoStatus no futuro; sem o piso em 0 esse item nao caia em
+         faixa nenhuma e simplesmente sumia do grafico. */
+      n:abertos.filter(i=>{const d=Math.max(0,R.diasSemAtualizacao(i)); return d>=a&&d<=b;}).length}));
   },
 };
 
@@ -2200,14 +2241,14 @@ Render.kanban = function(){
     const itens=ordFam(porFam[f.id]||[]);
     const rec=S.recolhidas.has(f.id);
     const ab=itens.filter(i=>R.aberto(i.status)).length;
-    return `<section class="col ${rec?"collapsed":""}" data-f="${f.id}">
-      <div class="colh" style="border-left-color:${f.cor}">
+    return `<section class="col ${rec?"collapsed":""}" data-f="${esc(f.id)}">
+      <div class="colh" style="border-left-color:${R.corFamilia(f.id)}">
         <span class="caret">${rec?"\u25b8":"\u25be"}</span>
-        <i class="dot" style="background:${f.cor};width:10px;height:10px"></i>
+        <i class="dot" style="background:${R.corFamilia(f.id)};width:10px;height:10px"></i>
         <span class="nm">${esc(R.nomeFamilia(f.id))}</span>
         <span class="n">${itens.length}</span>
         ${ab && ab!==itens.length ?`<span class="tag" title="${ab} ${LANG==="pt"?"em aberto":"open"}"
-          style="color:${f.cor};border-color:${f.cor};flex:none">${
+          style="color:${R.corFamilia(f.id)};border-color:${R.corFamilia(f.id)};flex:none">${
           S.kbLayout==="h"? ab : `${ab} ${LANG==="pt"?"em aberto":"open"}`}</span>`:""}
         <span class="ch"><span class="muted" style="font-size:11px">
           ${S.db.config.status.filter(x=>x.familia===f.id&&itens.some(i=>i.status===x.codigo))
@@ -2361,7 +2402,10 @@ Render.historico = function(){
 const RELATORIOS = [
   {id:"abertos", pt:"Todos em aberto", en:"All open", f:i=>R.aberto(i.status)},
   {id:"b05ab",   pt:"B05 em aberto",   en:"B05 open", f:i=>i.isB05&&R.aberto(i.status)},
-  {id:"bloq",    pt:"Bloqueantes",     en:"Blocking", f:i=>i.status.startsWith("3 -")||i.status.startsWith("7 -")},
+  {id:"bloq",    pt:"Bloqueantes",     en:"Blocking",
+     /* item sem status e AVISO na validacao, nao impedimento: a base abre com
+        ele e o relatorio nao pode estourar por causa disso. */
+     f:i=>{const s=String(i.status??""); return s.startsWith("3 -")||s.startsWith("7 -");}},
   {id:"a7",      pt:"Alterados nos últimos 7 dias",  en:"Changed in last 7 days",  f:i=>diasEntre(i.ultimaAlteracaoStatus,hoje())<=7},
   {id:"a30",     pt:"Alterados nos últimos 30 dias", en:"Changed in last 30 days", f:i=>diasEntre(i.ultimaAlteracaoStatus,hoje())<=30},
   {id:"parado30",pt:"Sem atualização há mais de 30 dias", en:"No update for over 30 days",
@@ -2561,7 +2605,7 @@ Render.config = function(){
     <div class="panel"><h3>${LANG==="pt"?"Colunas do Kanban":"Kanban columns"}</h3><div class="pad">
       ${R.familias().sort((a,b)=>a.ordem-b.ordem).map(f=>`
         <div class="rowflex" style="padding:4px 0;border-bottom:1px solid var(--line-2)">
-          <i class="dot" style="background:${f.cor}"></i><b style="flex:1">${esc(R.nomeFamilia(f.id))}</b>
+          <i class="dot" style="background:${R.corFamilia(f.id)}"></i><b style="flex:1">${esc(R.nomeFamilia(f.id))}</b>
           <span class="muted" style="font-size:11px">${c.status.filter(s=>s.familia===f.id).map(s=>s.codigo.split(" - ")[0]).join(", ")}</span>
           <span class="mono">${S.db.itens.filter(i=>R.familiaDe(i.status)===f.id).length}</span></div>`).join("")}
     </div></div>
@@ -2709,6 +2753,12 @@ function relMigracaoHTML(){
    impede a base de ser usada. Bloqueante e so o que torna a base inutilizavel
    - o resto e aviso, senao um evento orfao tranca a pessoa fora da propria
    base. Funcao pura: nao toca no objeto recebido.                        */
+/* Valores repetidos numa lista, em uma passada. */
+function duplicados(lista){
+  const vistos=new Set(), repetidos=new Set();
+  for(const v of lista){ if(vistos.has(v)) repetidos.add(v); else vistos.add(v); }
+  return repetidos;
+}
 function validarBase(db){
   const pt = LANG==="pt", erros=[], avisos=[];
   const E=(a,b)=>erros.push(pt?a:b), A=(a,b)=>avisos.push(pt?a:b);
@@ -2735,7 +2785,10 @@ function validarBase(db){
   const semId = itens.filter(i=>i && typeof i==="object" && !i.item).length;
   if(semId) E(`${semId} item(ns) sem identificador.`, `${semId} item(s) without an identifier.`);
   const ids = itens.map(i=>i?.item).filter(Boolean);
-  const dup = [...new Set(ids.filter((x,k)=>ids.indexOf(x)!==k))];
+  /* indexOf dentro de filter e O(n^2) - e esta funcao roda na abertura E toda
+     vez que outra pessoa grava (Sync.receber). Com o historico grande isso
+     travava a tela a cada gravacao alheia. */
+  const dup = [...duplicados(ids)];
   if(dup.length) E(`Identificadores repetidos: ${dup.slice(0,10).join(", ")}${dup.length>10?"…":""}.`,
                    `Duplicate identifiers: ${dup.slice(0,10).join(", ")}${dup.length>10?"…":""}.`);
 
@@ -2746,7 +2799,7 @@ function validarBase(db){
   if(orf) A(`${orf} evento(s) de histórico apontam para itens que não existem.`,
             `${orf} history event(s) point to items that do not exist.`);
   const hid = hist.map(h=>h?.id).filter(Boolean);
-  const hdup = [...new Set(hid.filter((x,k)=>hid.indexOf(x)!==k))];
+  const hdup = [...duplicados(hid)];
   if(hdup.length) A(`${hdup.length} id(s) de evento repetidos.`, `${hdup.length} duplicate event id(s).`);
   const ISO = /^\d{4}-\d{2}-\d{2}/;
   const datas = hist.filter(h=>h?.dataEfetiva && !ISO.test(String(h.dataEfetiva))).length;
@@ -2804,9 +2857,10 @@ function verificarIntegridade(){
 "use strict";
 /* ================================ UI =================================== */
 const UI = {
-  modal(titulo, corpo, botoes=[]){
+  modal(titulo, corpo, botoes=[], {aoFechar=null}={}){
     this.fechar();
     const ov=document.createElement("div"); ov.className="ov"; ov.id="ov";
+    ov.__aoFechar = aoFechar;
     ov.innerHTML=`<div class="modal"><header><h2>${esc(titulo)}</h2>
         <button class="btn sm" id="mX">✕</button></header>
       <div class="body">${corpo}</div>
@@ -2817,7 +2871,15 @@ const UI = {
     $$("[data-b]",ov).forEach(b=>b.onclick=()=>botoes[+b.dataset.b].fn());
     return ov;
   },
-  fechar(){ $("#ov")?.remove(); },
+  /* aoFechar corre SEMPRE que a janela sai - pelo X, pelo clique fora ou porque
+     outra janela tomou o lugar dela. E o que garante que uma tela que suspendeu
+     algo (a de decisao do Sync suspende o polling) sempre o devolva. */
+  fechar(){
+    const ov=$("#ov"); if(!ov) return;
+    const fn=ov.__aoFechar; ov.__aoFechar=null;
+    ov.remove();
+    try{ fn?.(); }catch{}
+  },
 
   /* ---- selecionar pasta / carregar base ---- */
   async abrirPasta(){
@@ -3073,17 +3135,22 @@ const UI = {
           <div style="margin-top:5px;white-space:pre-wrap">${esc(o.texto)}</div></div>`).join("")
           ||`<div class="empty">${LANG==="pt"?"Nenhuma observação":"No notes"}</div>`}</div>
       <div id="tp-x" hidden><dl class="kv">
-        ${[["Evidence",i.evidence],["InspType",i.inspType],["Insp",i.insp],["OriginalJx",i.originalJx],
-           ["ActualJx",i.actualJx],["ActualJxDescription",i.actualJxDescription],
-           ["Nº and Description",i.numAndDescription],["Performance",i.performance],
-           ["Mode",i.mode+(i.modeOrigem?` <span class="muted">(${LANG==="pt"?"origem":"source"}: ${esc(i.modeOrigem)})</span>`:"")],
-           ["Description",i.description],["HullPassageParts",i.hullPassageParts],["Position AC",i.positionAC],
+        ${/* Cada valor ja sai escapado daqui. A versao anterior decidia pelo
+             CONTEUDO ("contem <span?"), entao qualquer campo descritivo com
+             essa sequencia era injetado cru no HTML. */
+          [["Evidence",esc(i.evidence)],["InspType",esc(i.inspType)],["Insp",esc(i.insp)],
+           ["OriginalJx",esc(i.originalJx)],["ActualJx",esc(i.actualJx)],
+           ["ActualJxDescription",esc(i.actualJxDescription)],
+           ["Nº and Description",esc(i.numAndDescription)],["Performance",esc(i.performance)],
+           ["Mode",esc(i.mode)+(i.modeOrigem?` <span class="muted">(${LANG==="pt"?"origem":"source"}: ${esc(i.modeOrigem)})</span>`:"")],
+           ["Description",esc(i.description)],["HullPassageParts",esc(i.hullPassageParts)],
+           ["Position AC",esc(i.positionAC)],
            ["Bigram",(i.bigram||[]).map(b=>`<span class="tag">${esc(b)}</span>`).join("")],
-           ["SBR",i.sbr],[LANG==="pt"?"Criado em":"Created",fmtD(i.criadoEm)],
-           [LANG==="pt"?"Última mudança de status":"Last status change",fmtD(i.ultimaAlteracaoStatus)],
-           [LANG==="pt"?"Dias sem atualização":"Days without update",R.diasSemAtualizacao(i)],
-           [LANG==="pt"?"Presente em":"Present in",i.presenteEm],
-        ].map(([k,v])=>`<dt>${esc(k)}</dt><dd>${k==="Bigram"||String(v).includes("<span")?v:esc(v??"")}</dd>`).join("")}
+           ["SBR",esc(i.sbr)],[LANG==="pt"?"Criado em":"Created",esc(fmtD(i.criadoEm))],
+           [LANG==="pt"?"Última mudança de status":"Last status change",esc(fmtD(i.ultimaAlteracaoStatus))],
+           [LANG==="pt"?"Dias sem atualização":"Days without update",esc(R.diasSemAtualizacao(i))],
+           [LANG==="pt"?"Presente em":"Present in",esc(i.presenteEm)],
+        ].map(([k,v])=>`<dt>${esc(k)}</dt><dd>${v}</dd>`).join("")}
       </dl></div>`,
       [...(vizinhos.length>1? [
         {txt:"‹ "+(LANG==="pt"?"Anterior":"Previous"),cls:"btn",fn:()=>this.irrItem(-1)},
@@ -3256,15 +3323,29 @@ const UI = {
       ? `Restaurar o backup ${nome}? A base atual será salva como backup antes.`
       : `Restore backup ${nome}? The current database is backed up first.`)) return;
     try{
-      await Store.backup(S.db,"pre-restauracao");
+      /* O que a restauracao apaga e a versao que esta NO DISCO, que pode ser de
+         outra pessoa - nao a que temos em memoria. E dela que o backup tem de
+         ser feito: gravar {forcar:true} por cima de um trabalho mais novo,
+         guardando so o nosso, apagava o da outra pessoa sem deixar copia. */
+      let disco = null;
+      try{ disco = await Store.lerArquivo(); }
+      catch(e){ if(Store.tipoErroLeitura(e) !== "INEXISTENTE") throw e; }
+      const revDisco = disco?.meta?.revisao ?? 0;
+      if(disco && revDisco !== Store.revisaoCarregada && !confirmar(LANG==="pt"
+        ? `Atenção: ${disco?.meta?.ultimoAutor || "outra pessoa"} gravou a revisão ${revDisco} depois que você carregou esta base (revisão ${Store.revisaoCarregada}).\n\nA restauração substitui esse trabalho também. Uma cópia dele vai para backups/ antes. Continuar?`
+        : `Warning: ${disco?.meta?.ultimoAutor || "someone else"} saved revision ${revDisco} after you loaded this database (revision ${Store.revisaoCarregada}).\n\nRestoring replaces that work too. A copy of it goes to backups/ first. Continue?`)) return;
+      await Store.backup(disco ?? S.db, "pre-restauracao");
       const b=await Store.restaurarBackup(nome);
       const val = validarBase(b);
       if(!val.valido) return this.baseRecusada(nome, val, JSON.stringify(b,null,1));
-      normalizar(b); b.meta.revisao=S.db.meta.revisao;
+      normalizar(b);
+      /* A revisao so anda para a frente: se regredir, as outras sessoes deixam
+         de reconhecer a base restaurada como mais nova que a delas. */
+      b.meta.revisao = Math.max(revDisco, S.db?.meta?.revisao ?? 0);
       S.db=b; await Store.gravar(S.db,{forcar:true});
-      Pend.diario=[]; Sync.ultimoMtime = await Store.mtime(); Sync.iniciar();
+      Pend.diario=[]; S.sujo=false; Sync.ultimoMtime = await Store.mtime(); Sync.iniciar();
       Render.atual(); toast(LANG==="pt"?"Backup restaurado":"Backup restored","ok");
-    }catch(e){ toast(String(e.message),"bad"); }
+    }catch(e){ toast(mensagemArmazenamento(e),"bad"); }
   },
 };
 </script>
@@ -3280,14 +3361,19 @@ const Export = {
         ["updatedStatusObs","Updated Status Obs"],["generalObs","General Obs"],["ncr","NCR's"],
         ["tests","Tests"],["ultimaAlteracaoStatus","Last Status Change"]],
   val(i,k){ const v=i[k]; return Array.isArray(v)? v.join(";") : (v??""); },
+  /* Excel e LibreOffice executam o conteudo de uma celula que comeca por
+     = + - @ (ou tabulacao/retorno de carro) MESMO entre aspas: um texto vindo
+     da planilha de origem viraria formula na maquina de quem abre o CSV.
+     O apostrofo desarma e continua legivel. */
+  seguro(v){ const t=String(v??""); return /^[=+\-@\t\r]/.test(t) ? "'"+t : t; },
   csv(lista){
-    const q=s=>`"${String(s).replace(/"/g,'""')}"`;
+    const q=s=>`"${this.seguro(s).replace(/"/g,'""')}"`;
     const linhas=[this.COLS.map(c=>q(c[1])).join(";")];
     for(const i of lista) linhas.push(this.COLS.map(c=>q(this.val(i,c[0]))).join(";"));
     dl(`itens-${hoje()}.csv`,"﻿"+linhas.join("\r\n"),"text/csv;charset=utf-8");
   },
   historico(evs){
-    const q=s=>`"${String(s??"").replace(/"/g,'""')}"`;
+    const q=s=>`"${Export.seguro(s).replace(/"/g,'""')}"`;
     const h=["Item","Campo","Valor anterior","Novo valor","Data efetiva","Consolidado em","Autor","Origem","Observação"];
     const l=[h.map(q).join(";")];
     for(const e of evs) l.push([e.item,e.campo,e.valorAnterior,e.valorNovo,e.dataEfetiva,
@@ -3353,6 +3439,19 @@ ${aba("Resumo",resumo)}${aba("Itens",dados)}${aba(LANG==="pt"?"Historico":"Histo
 };
 
 /* ============================ normalização ============================ */
+/* Decisao A3: "o descarte fica no log tecnico por alguns dias para recuperacao".
+   Sem poda, logDescartes e logSobrescritas so engordam o database.json - e cada
+   descarte carrega uma copia inteira das pendencias desfeitas. O indice dos
+   arquivamentos NAO e podado: e ele que diz onde cada arquivo de historico foi
+   parar, e isso vale para sempre. */
+function podarLogs(db){
+  const dias = db.config?.diasLogTecnico ?? 30;
+  const corte = new Date(Date.now() - dias*864e5).toISOString();
+  for(const k of ["logDescartes","logSobrescritas"]){
+    if(!Array.isArray(db[k])) continue;
+    db[k] = db[k].filter(l => String(l?.em ?? "") >= corte).slice(-500);
+  }
+}
 function baseVazia(){
   return {schemaVersion:1, meta:{criadoEm:agora(),atualizadoEm:agora(),revisao:0,
       ultimoAutor:"",appVersion:"1.0.0",origem:"base vazia"},
@@ -3373,6 +3472,12 @@ function normalizar(db){
      "Evidências somente/exceto B05" ficava em branco. */
   c.fluxo ??= {};
   for(const k of ["b05","exceto"]) c.fluxo[k] ??= structuredClone(R.FLUXO_PADRAO[k]);
+  /* As listas vem ANTES de qualquer laco sobre elas: uma base estruturalmente
+     valida pode simplesmente nao trazer config.status, e percorrer o que ainda
+     nao existe trancava a pessoa fora da propria base. */
+  c.status ??= []; c.familias ??= []; c.inspTypesFuncionais ??= [];
+  if(!Array.isArray(c.status)) c.status = [];
+  if(!Array.isArray(c.familias)) c.familias = [];
   /* Correcao de cor. Duas cores ficavam perto demais do vermelho de
      "3 - Blocking" em visao normal (piso DeltaE 15): o laranja de
      "7 - Missing Vacuum" (7,1) e o rosa de "5 - Waiting Proof" (7,8 no escuro).
@@ -3384,14 +3489,15 @@ function normalizar(db){
     "5 - Waiting Proof":               ["#e87ba4","#b83280","#d55181","#b8518a"],
   };
   for(const d of c.status){
-    const r = RECOR[d.codigo]; if(!r) continue;
+    const r = RECOR[d?.codigo]; if(!r) continue;
     if(d.cor===r[0]) d.cor=r[1];
     if(d.corEscura===r[2]) d.corEscura=r[3];
   }
-  c.status ??= []; c.familias ??= []; c.inspTypesFuncionais ??= [];
   c.vistas ??= [];                      /* vistas salvas viajam com a base */
   c.mbAvisoTamanho ??= 8;               /* acima disso, a tela avisa (ver Arquivamento) */
   c.statusPosExecucao ??= ["7 - Missing Vacuum Test or Sign"];
+  c.diasLogTecnico ??= 30;              /* decisao A3: o descarte e recuperavel por alguns dias */
+  podarLogs(db);
   if(!c.familias.length) c.familias=[
     {id:"pendente",pt:"Pendente",en:"Pending",cor:"#8a8f98",ordem:1},
     {id:"prova",pt:"Em prova",en:"Waiting Proof",cor:"#b8860b",ordem:2},

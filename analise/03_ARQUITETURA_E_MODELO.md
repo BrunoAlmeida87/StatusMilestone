@@ -86,7 +86,7 @@ CONSOLIDAÇÃO → HISTÓRICO DEFINITIVO
 - O **autosave protege o trabalho** mas **não** cria histórico.
 - Dentro da janela, alterações no mesmo campo são **agrupadas**: `A → B → C` vira um único evento `A → C`.
 - **Ida-e-volta não gera nada**: `A → B → A` é descartado na consolidação.
-- **Rede técnica de recuperação**: os pendentes ficam dentro do próprio `database.json` (já gravado pelo autosave) **e** espelhados em IndexedDB. Fechar o navegador, reiniciar o computador ou perder a rede não perde alteração.
+- **Rede técnica de recuperação**: os pendentes ficam dentro do próprio `database.json` (já gravado pelo autosave) **e** espelhados em IndexedDB. Fechar o navegador, reiniciar o computador ou perder a rede não perde alteração. O espelho é gravado **antes** de qualquer tentativa de escrita na pasta e **não depende dela**: no modo manual (navegador sem a API, base aberta à mão, cópia local recuperada) a alteração continua protegida e o crachá de estado diz que nada foi para a pasta.
 - **Observações são exceção**: gravam na hora e não passam por pendentes — são acréscimos, não substituições, então não há o que agrupar.
 
 ### Backup
@@ -94,7 +94,7 @@ CONSOLIDAÇÃO → HISTÓRICO DEFINITIVO
 - Automático **a cada abertura** da base e **antes de operações de risco** (restauração, gravação forçada).
 - Manual pelo botão, e download avulso.
 - Vão para a subpasta `backups/`, nomeados por data/hora, **retenção das 30 versões mais recentes**.
-- Restauração pela tela de Configurações, sempre com backup do estado atual antes.
+- Restauração pela tela de Configurações. O backup prévio é **da versão que está no disco** — que é a que a restauração apaga, e que pode ser de outra pessoa, não a que está em memória aqui. Se a revisão do disco mudou desde a carga, a tela diz quem gravou e pede uma segunda confirmação; a revisão gravada nunca regride.
 
 ---
 
