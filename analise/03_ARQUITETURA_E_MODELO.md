@@ -45,14 +45,14 @@ Testei em Chromium real, não por suposição:
 | Dados fora do código | ✅ arquivo visível | ✅ | ✅ | ❌ preso ao navegador |
 | Pasta de rede | ✅ | ⚠️ manual | ✅ | ❌ |
 | Backup | ✅ copiar a pasta | ⚠️ | ✅ | ❌ difícil |
-| Concorrência | ⚠️ por versão (implementado) | ❌ | ✅ trava real | ❌ |
+| Concorrência | ⚠️ por versão + trava por convenção (implementado) | ❌ | ✅ trava real | ❌ |
 | Navegadores | Chrome/Edge | todos | todos | todos |
 | Complexidade | **baixa** | mínima | média | baixa |
 
 ### Limites honestos desta escolha
 
 1. **Chrome e Edge apenas.** Firefox/Safari não têm a API. O sistema detecta e avisa, oferecendo o modo manual em vez de falhar em silêncio.
-2. **Sem trava de arquivo na rede.** Resolvido por **controle de revisão**: antes de gravar, o sistema relê o arquivo e compara `meta.revisao` com a que carregou. Se outra pessoa gravou no meio, **nada é escrito** e abre-se a tela de conflito (recarregar / baixar minha versão / forçar com backup prévio).
+2. **Sem escrita atômica na rede.** A API não tem `rename`, `create:false` nem lock, então a exclusão mútua é por convenção: uma **trava com dono e prazo** (`database.lock.json`, 20 s) que é escrita e **relida** antes de gravar, mais o **controle de revisão** (o sistema relê o arquivo e compara `meta.revisao` com a que carregou) e um **carimbo por gravação** conferido depois do `close()`. Se outra pessoa gravou no meio, **nada é dado como salvo** e abre-se a junção campo a campo — ou a tela de conflito (recarregar / baixar minha versão / forçar com backup prévio). Não é serialização real: encolhe a janela e transforma o que sobra dela em conflito detectado, nunca em perda silenciosa.
 3. **JSON tem limite prático.** Hoje: 428 itens + 484 eventos ≈ 1,5 MB, carrega instantaneamente. A projeção está na seção de desempenho abaixo.
 
 ### Por que JSON serve aqui (e quando deixará de servir)
@@ -86,7 +86,7 @@ CONSOLIDAÇÃO → HISTÓRICO DEFINITIVO
 - O **autosave protege o trabalho** mas **não** cria histórico.
 - Dentro da janela, alterações no mesmo campo são **agrupadas**: `A → B → C` vira um único evento `A → C`.
 - **Ida-e-volta não gera nada**: `A → B → A` é descartado na consolidação.
-- **Rede técnica de recuperação**: os pendentes ficam dentro do próprio `database.json` (já gravado pelo autosave) **e** espelhados em IndexedDB. Fechar o navegador, reiniciar o computador ou perder a rede não perde alteração.
+- **Rede técnica de recuperação**: os pendentes ficam dentro do próprio `database.json` (já gravado pelo autosave) **e** espelhados em IndexedDB. Fechar o navegador, reiniciar o computador ou perder a rede não perde alteração. O espelho é gravado **antes** de qualquer tentativa de escrita na pasta e **não depende dela**: no modo manual (navegador sem a API, base aberta à mão, cópia local recuperada) a alteração continua protegida e o crachá de estado diz que nada foi para a pasta.
 - **Observações são exceção**: gravam na hora e não passam por pendentes — são acréscimos, não substituições, então não há o que agrupar.
 
 ### Backup
@@ -94,7 +94,7 @@ CONSOLIDAÇÃO → HISTÓRICO DEFINITIVO
 - Automático **a cada abertura** da base e **antes de operações de risco** (restauração, gravação forçada).
 - Manual pelo botão, e download avulso.
 - Vão para a subpasta `backups/`, nomeados por data/hora, **retenção das 30 versões mais recentes**.
-- Restauração pela tela de Configurações, sempre com backup do estado atual antes.
+- Restauração pela tela de Configurações. O backup prévio é **da versão que está no disco** — que é a que a restauração apaga, e que pode ser de outra pessoa, não a que está em memória aqui. Se a revisão do disco mudou desde a carga, a tela diz quem gravou e pede uma segunda confirmação; a revisão gravada nunca regride.
 
 ---
 
@@ -177,10 +177,19 @@ confirmação antes de operações destrutivas · histórico protegido contra so
 ## Etapa 7b — Trabalho simultâneo
 
 A base é um arquivo só numa pasta compartilhada, então duas sessões podem gravar em cima uma da
-outra. O controle tem três camadas:
+outra. O controle tem cinco camadas:
 
+0. **Trava com dono e prazo.** Antes de gravar, `Store.travar` lê `database.lock.json`: se houver
+   uma trava viva de outra pessoa, desiste e tenta de novo; senão escreve a sua e **relê** para
+   confirmar que ficou sendo a dela. Duas sessões que escrevem quase juntas leem depois das duas
+   escritas, e no máximo uma se vê como dona. O prazo (20 s) evita que uma aba fechada no meio
+   trave a pasta. Falha na trava nunca recusa uma gravação — ela é proteção a mais, não requisito.
 1. **Revisão otimista** (já existia). `Store.gravar` relê o arquivo e compara `meta.revisao` antes
    de escrever. Se mudou, não escreve.
+1b. **Carimbo por gravação.** Comparar revisão antes de escrever é um check-then-use: entre reler
+   e fechar o arquivo cabe a gravação de outra pessoa. Cada gravação leva um `meta.carimbo` único
+   e o arquivo é relido depois do `close()`; se o carimbo que ficou não é o nosso, a gravação não
+   é dada como salva e entra na junção abaixo — com o trabalho inteiro ainda no diário.
 2. **Diário local** (`Pend.diario`). Toda alteração feita aqui e ainda não gravada fica registrada
    como `{item, campo, de, para}` — ou `{t:"obs"}` para observações. É o que permite reaplicar o
    trabalho local sobre a versão de outra pessoa em vez de escolher entre um e outro.

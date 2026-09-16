@@ -30,7 +30,7 @@ Também funciona **sem internet**: baixe `docs/index.html` e abra por duplo cliq
 | **Histórico** | Compara **quaisquer duas datas** e reconstrói o estado em cada uma |
 | **Relatórios** | 12 relatórios prontos, exportação em CSV / Excel / JSON / PDF |
 | **Conflitos** | Fila de decisão das divergências entre os dois Excel — nada foi sobrescrito |
-| **Configurações** | Parâmetros, status ativos, **regra de "em aberto"**, backup/restauração, **tamanho da base e arquivamento de histórico**, integridade, log técnico |
+| **Configurações** | Parâmetros, status ativos, **regra de "em aberto"**, backup/restauração, **tamanho da base e arquivamento de histórico**, integridade, log técnico (descartes e sobrescritas ficam 30 dias, configurável; o índice dos arquivamentos fica para sempre) |
 
 Os filtros são o endereço da tela: aparecem como pílulas com **✕** ao lado da busca, sobrevivem
 ao F5, viajam no fim da URL (dá para mandar o link de "estes 12 itens" para outra pessoa) e podem
@@ -58,6 +58,12 @@ sem fechar a janela, e `Ctrl+Enter` salva e avança — revisar 71 itens vira um
 A base continua sendo **um único `database.json`** na pasta compartilhada. Cada sessão confere a
 data do arquivo a cada poucos segundos (configurável) e, quando alguém grava, traz a versão nova
 e **reaplica por cima o que ainda não tinha sido gravado aqui**.
+
+Para gravar, a sessão pega uma trava na pasta (um `database.lock.json` com dono e prazo de 20 s),
+confere a revisão do arquivo e, depois de fechá-lo, relê para confirmar que o que ficou lá é o
+que ela gravou. Se outra pessoa gravou no mesmo instante, a gravação **não** é dada como salva:
+as duas versões são juntadas e gravadas de novo. Nada disso torna a escrita atômica — a pasta
+compartilhada não permite — mas nenhuma gravação some em silêncio.
 
 | Situação | O que acontece |
 |---|---|
@@ -102,7 +108,8 @@ Rode você mesmo: `python3 migracao/validar.py caminho/para/database.json`
 O comportamento simultâneo tem suíte própria: `SM_DATABASE=... python3 testes/sincronizacao.py`
 (31 verificações). O motor de gravação, a validação da base, o descarte de pendentes, o histórico,
 o arquivamento, os filtros, as colunas, o lote e o teclado têm testes de unidade que rodam sem
-navegador e sem base real: `node testes/unidade.mjs` (218 verificações).
+navegador e sem base real: `node testes/unidade.mjs` (293 verificações, das quais 75 são as
+regressões da auditoria em [`analise/04_AUDITORIA.md`](analise/04_AUDITORIA.md)).
 
 ## Estrutura
 
@@ -119,6 +126,7 @@ testes/*.py                        testes de comportamento em Chromium real
 analise/01_ANALISE_DOS_ARQUIVOS.md engenharia reversa e qualidade dos dados
 analise/02_DECISOES.md             decisoes de negocio tomadas
 analise/03_ARQUITETURA_E_MODELO.md arquitetura, modelo de dados e telas
+analise/04_AUDITORIA.md            auditoria: erros, riscos, limites, WCAG e o que foi corrigido
 ```
 
 Nenhum dado do projeto é versionado. O `.gitignore` bloqueia csv, xlsx, xlsb e
@@ -143,4 +151,6 @@ o pipeline é determinístico e reproduz a mesma base a cada execução.
 ## Requisitos
 
 Chrome ou Edge para gravação automática em pasta. Em outros navegadores o sistema abre em modo
-manual (abrir / baixar a base) e avisa na tela.
+manual (abrir / baixar a base) e avisa na tela — nesse modo o crachá de estado diz **"sem pasta —
+só cópia local"** e cada alteração continua indo para a cópia de socorro no navegador, de onde dá
+para recuperá-la em **Configurações**; o que ele não faz é gravar sozinho na pasta.
