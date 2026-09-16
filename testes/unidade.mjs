@@ -852,5 +852,84 @@ secao("17c. AUDITORIA — BASES DEFEITUOSAS E ESCALA");
   igual("mas o índice dos arquivamentos nunca é podado", app.S.db.logArquivamentos.length, 1);
 }
 
+secao("17d. AUDITORIA — ARQUIVAMENTO SOB CONCORRÊNCIA");
+{
+  /* A13. Arquivar tem um await no meio (gravar o arquivo em historico/). Se o
+     polling trocasse S.db nesse intervalo, os eventos antigos da versao NOVA
+     saiam da base pelo filtro do corte sem nunca terem entrado no arquivo que
+     ja tinha sido gravado - destruidos, nem na base nem em historico/. E o
+     contrario exato da promessa do arquivamento ("nada e apagado"). */
+  const c = cenario();
+  const {app, pasta} = c;
+  const outro = JSON.parse(pasta.conteudo());
+  outro.meta.revisao = 99; outro.meta.ultimoAutor = "Maria";
+  outro.historico.push({id:"hMARIA", item:"A-003", campo:"status",
+    valorAnterior:"5 - Waiting Proof", valorNovo:"4 - Under Analysis",
+    dataEfetiva:"2026-01-09", consolidadoEm:"2026-01-09T10:00:00Z",
+    primeiraAlteracaoEm:"2026-01-09T10:00:00Z", autor:"Maria", origem:"manual",
+    tipo:"status", observacao:""});
+
+  const originalArquivar = app.Store.arquivarHistorico.bind(app.Store);
+  app.Store.arquivarHistorico = async (nome, dados) => {
+    const r = await originalArquivar(nome, dados);
+    pasta.arquivos.set("database.json", JSON.stringify(outro,null,1));
+    pasta.mtimes.set("database.json", 9999);
+    await app.Sync.tick();            /* a base troca debaixo do arquivamento */
+    return r;
+  };
+
+  let erro = null;
+  try{ await app.Arquivamento.executar("2026-01-10"); }catch(e){ erro = e; }
+  clearTimeout(app.Pend.timerAuto);
+
+  const disco = JSON.parse(pasta.conteudo());
+  const naBase = (disco.historico||[]).some(h=>h.id==="hMARIA");
+  const noArquivo = pasta.arquivados().some(([,txt]) =>
+    (JSON.parse(txt).eventos||[]).some(e=>e.id==="hMARIA"));
+  chk("o evento da outra pessoa continua existindo (na base ou no arquivo)",
+      naBase || noArquivo, `base=${naBase} arquivo=${noArquivo}`);
+  chk("a sessão ocupada não deixa o polling trocar a base no meio",
+      erro === null, erro ? String(erro.message) : "");
+}
+{
+  /* A13b. Segunda defesa, para quando a base e trocada por um caminho que nao
+     olha S.salvando (restaurar backup, recuperar copia local): a conferencia
+     por identidade impede que eventos saiam da base sem estarem no arquivo. */
+  const c = cenario();
+  const {app} = c;
+  const intruso = structuredClone(app.S.db);
+  intruso.historico.push({id:"hINTRUSO", item:"A-003", campo:"status",
+    valorAnterior:"5 - Waiting Proof", valorNovo:"4 - Under Analysis",
+    dataEfetiva:"2026-01-09", consolidadoEm:"2026-01-09T10:00:00Z",
+    primeiraAlteracaoEm:"2026-01-09T10:00:00Z", autor:"Maria", origem:"manual",
+    tipo:"status", observacao:""});
+  const originalArquivar = app.Store.arquivarHistorico.bind(app.Store);
+  app.Store.arquivarHistorico = async (nome, dados) => {
+    const r = await originalArquivar(nome, dados);
+    app.S.db = intruso;                 /* outra base entra em cena no meio */
+    return r;
+  };
+  let erro = null;
+  try{ await app.Arquivamento.executar("2026-01-10"); }catch(e){ erro = e; }
+  clearTimeout(app.Pend.timerAuto);
+  chk("a troca de base é recusada em vez de destruir evento",
+      erro !== null && /BASE_MUDOU/.test(String(erro.message)), erro?String(erro.message):"sem erro");
+  chk("e nenhum evento foi tirado da base",
+      app.S.db.historico.some(h=>h.id==="hINTRUSO") && app.S.db.historico.length===4,
+      String(app.S.db.historico.length));
+  chk("a mensagem de erro é acionável, não um stack trace",
+      /arquivar de novo|archiving again/.test(app.avaliar("mensagemArmazenamento")(erro)));
+}
+{
+  /* O caminho normal (ninguem mexeu no meio) tem de continuar funcionando. */
+  const c = cenario();
+  const {app} = c;
+  const r = await app.Arquivamento.executar("2026-01-10");
+  clearTimeout(app.Pend.timerAuto);
+  igual("sem concorrência, o arquivamento segue normal", r.arquivados, 1);
+  igual("com o evento-marco no lugar", r.marcos, 1);
+  chk("e o polling volta ligado depois", app.Sync.ligado===true);
+}
+
 console.log(falhas.length ? `\n${falhas.length} FALHA(S):\n  `+falhas.join("\n  ") : "\nTudo certo.");
 process.exit(falhas.length ? 1 : 0);

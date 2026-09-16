@@ -102,7 +102,7 @@ Rode você mesmo: `python3 migracao/validar.py caminho/para/database.json`
 O comportamento simultâneo tem suíte própria: `SM_DATABASE=... python3 testes/sincronizacao.py`
 (31 verificações). O motor de gravação, a validação da base, o descarte de pendentes, o histórico,
 o arquivamento, os filtros, as colunas, o lote e o teclado têm testes de unidade que rodam sem
-navegador e sem base real: `node testes/unidade.mjs` (258 verificações, das quais 40 são as
+navegador e sem base real: `node testes/unidade.mjs` (266 verificações, das quais 48 são as
 regressões da auditoria em [`analise/04_AUDITORIA.md`](analise/04_AUDITORIA.md)).
 
 ## Estrutura

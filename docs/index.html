@@ -975,19 +975,32 @@ const Arquivamento = {
         observacao:(LANG==="pt"?"Estado consolidado no arquivamento de ":"State consolidated when archiving on ")+corte};
     });
   },
-  /* Grava o arquivo PRIMEIRO e so depois tira os eventos da base. */
+  /* Grava o arquivo PRIMEIRO e so depois tira os eventos da base.
+     Entre as duas coisas ha um await, e ai mora um risco real: se o polling
+     trouxer a versao de outra pessoa nesse intervalo, os eventos antigos DELA
+     - que nao estavam no arquivo recem-gravado - sairiam da base pelo filtro do
+     corte e seriam destruidos, nem na base nem em historico/. Duas defesas:
+     a sessao se declara ocupada (Sync.tick ja respeita isso) e, como garantia,
+     a base e conferida por identidade antes de perder qualquer evento. */
   async executar(corte){
+    const base = S.db;
     const antigos = this.antigos(corte);
     if(!antigos.length) return {arquivados:0};
     const nome = `historico-ate-${corte}-${agora().replace(/[:.]/g,"-").slice(0,19)}.json`;
-    await Store.arquivarHistorico(nome, {corte, criadoEm:agora(), autor:Usuario.garantir(),
-      revisao:S.db.meta?.revisao ?? 0, eventos:antigos});
     const marcos = this.marcos(antigos, corte);
-    S.db.historico = S.db.historico.filter(h=>!(String(h.dataEfetiva||"") < corte)).concat(marcos);
-    (S.db.logArquivamentos ??= []).push({em:agora(), autor:Usuario.garantir(), corte,
-      arquivados:antigos.length, marcos:marcos.length, arquivo:nome});
-    R.invalidarHist();
-    Pend.registrar({t:"outro", o:"arquivamento"});
+    S.salvando = true;
+    try{
+      await Store.arquivarHistorico(nome, {corte, criadoEm:agora(), autor:Usuario.garantir(),
+        revisao:base.meta?.revisao ?? 0, eventos:antigos});
+      /* O arquivo em historico/ ja esta gravado e conferido; ele nunca atrapalha.
+         O que nao pode acontecer e tirar da base eventos que ele nao contem. */
+      if(S.db !== base) throw new Error("BASE_MUDOU");
+      S.db.historico = S.db.historico.filter(h=>!(String(h.dataEfetiva||"") < corte)).concat(marcos);
+      (S.db.logArquivamentos ??= []).push({em:agora(), autor:Usuario.garantir(), corte,
+        arquivados:antigos.length, marcos:marcos.length, arquivo:nome});
+      R.invalidarHist();
+      Pend.registrar({t:"outro", o:"arquivamento"});
+    }finally{ S.salvando = false; }
     await Pend.autosave();
     return {arquivados:antigos.length, marcos:marcos.length, arquivo:nome};
   },
@@ -1245,6 +1258,9 @@ function mensagemArmazenamento(e){
     case "FALHA_ESCRITA": return pt
       ? "Falha ao gravar o database.json. Suas alterações continuam aqui e na cópia local; tente de novo quando a pasta estiver acessível."
       : "Failed to write database.json. Your changes are still here and in the local copy; try again when the folder is reachable.";
+    case "BASE_MUDOU": return pt
+      ? "A base foi atualizada por outra pessoa durante o arquivamento. Nada foi tirado da base — o arquivo gerado em historico/ pode ser descartado. Tente arquivar de novo."
+      : "The database was updated by someone else during archiving. Nothing was removed — the file generated in historico/ can be discarded. Try archiving again.";
     case "ARQUIVO_NAO_CONFIRMADO": return pt
       ? "O arquivo de histórico não pôde ser confirmado na subpasta historico/. Nada foi tirado da base."
       : "The history archive could not be confirmed in the historico/ subfolder. Nothing was removed from the database.";

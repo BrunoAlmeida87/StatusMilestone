@@ -17,7 +17,7 @@ sobre o mesmo arquivo); medição de tempo com `console.time` equivalente.
 | Suíte | Resultado |
 |---|---|
 | `node testes/unidade.mjs` (antes) | 218/218 ✅ |
-| `node testes/unidade.mjs` (depois das correções) | **258/258** ✅ (40 verificações novas) |
+| `node testes/unidade.mjs` (depois das correções) | **266/266** ✅ (48 verificações novas) |
 | `testes/comportamento.py`, `kanban_e_graficos.py`, `conflitos.py`, `sincronizacao.py` | **não executadas** — exigem `playwright` (ausente) e `SM_DATABASE` (a base real não vive no repositório, por decisão) |
 | `migracao/validar.py` | **não executada** — exige um `database.json` real |
 
@@ -161,6 +161,28 @@ Todos reproduzidos por teste antes da correção e cobertos por regressão em
 - **Correção:** sufixo estável derivado do nome inteiro.
 - **Regressão:** §17c, cinco verificações.
 
+### E13 · Arquivar durante a gravação de outra pessoa destrói eventos — **CRÍTICO (perda de dados)**
+
+> Este achado estava classificado como “risco provável R6” na primeira rodada — **classificação
+> errada minha**: eu o descartei por leitura, sem construir o caso. Ao testá-lo, reproduziu.
+
+- **Arquivo/linhas:** `docs/index.html` — `Arquivamento.executar`.
+- **Cenário:** A arquiva eventos anteriores a uma data. Entre gravar o arquivo em `historico/`
+  (um `await`) e tirar os eventos da base, o polling traz a versão de B, que contém um evento
+  **anterior ao corte** que A nunca viu.
+- **Impacto:** `S.db` passa a ser a versão de B, mas o arquivo em `historico/` já foi escrito
+  com os eventos de **A**. O filtro do corte então remove da base de B eventos que **não estão
+  no arquivo**. Ficam destruídos: nem na base, nem em `historico/`. É o oposto exato da
+  promessa do arquivamento (“nada é apagado”).
+- **Evidência:** evento `hMARIA` — `na base: false`, `no arquivo: false`.
+- **Correção:** duas defesas. (1) a sessão se declara ocupada (`S.salvando`) durante a operação,
+  e `Sync.tick` já respeita isso — a corrida deixa de acontecer; (2) como garantia, a base é
+  conferida **por identidade** antes de perder qualquer evento, e a operação é recusada com
+  `BASE_MUDOU` se ela tiver trocado por qualquer outro caminho (restaurar backup, recuperar
+  cópia local). O arquivo já gravado em `historico/` nunca atrapalha — só fica órfão, e a
+  mensagem diz isso.
+- **Regressão:** §17d, oito verificações — as duas defesas em separado, mais o caminho normal.
+
 ### E12 · Logs técnicos nunca podados (diverge da decisão A3) — **BAIXO/MÉDIO**
 - **Arquivo/linhas:** `docs/index.html` — `Pend.descartarUma`, `Pend.descartarTudo`,
   `UI.conflitoGravacao`.
@@ -184,7 +206,6 @@ Todos reproduzidos por teste antes da correção e cobertos por regressão em
 | R3 | `Store.mtime` em pasta de rede costuma ter granularidade de 1–2 s: duas gravações no mesmo segundo podem não acordar o polling. | `Store.mtime` | Mesma mitigação de R2. |
 | R4 | `statusEm` compara texto: um `dataEfetiva` em ISO completo (`2026-03-01T08:00Z`) devolve o estado do **dia anterior**, e `validarBase` aceita sem aviso (a regex só exige o prefixo `AAAA-MM-DD`). | `R.statusEm`, `validarBase` | O app só grava data pura; só atinge base editada à mão. Corrigir bem exige normalizar na entrada **e** decidir o que fazer com bases antigas. |
 | R5 | Consolidação feita em memória é revertida se o disco mudar antes do autosave de 3 s. | `Pend.varrer` × `Sync.adotar` | Auto-recupera: a pendência volta do disco intacta e `varrer` reconsolida. Só desloca `consolidadoEm`. Medido e confirmado benigno. |
-| R6 | `Store.gravar(S.db)` captura a **referência**; se `S.db` for trocado entre o enfileiramento e a execução, grava a versão velha. | `Store.gravar` | Hoje protegido por `S.salvando` em `Sync.tick`, mas não em `Arquivamento.executar`, que aguarda o arquivo antes de mexer na base. |
 | R7 | Retenção de 30 backups pode cobrir **menos de um dia**: há backup a cada abertura, e são 2–4 pessoas. Uma corrupção percebida na manhã seguinte pode não ter backup limpo. | `Store.limparBackupsAntigos` | É política, não defeito. Sugestão: reter por data além de por contagem. |
 | R8 | `tick()` ignora revisão **menor** que a carregada. Depois de uma restauração ou sobrescrita forçada por outra pessoa, esta sessão nunca vê a mudança. | `Sync.tick` | Mitigado pela correção E2 (a revisão deixou de regredir na restauração), mas o ramo continua existindo para sobrescrita forçada. |
 | R9 | `beforeunload` chama `Sync.sair()` assíncrono; o arquivo de presença costuma ficar órfão. | arranque | Mitigado pelo TTL de 90 s. |
@@ -277,8 +298,14 @@ problemas comprovados que podem causar perda de dados”. Ficam listados como me
 
 ## 8. Correções aplicadas nesta rodada
 
-E1 → E12, todas com teste de regressão escrito **antes** da correção e suíte completa
-executada depois: **258/258**.
+E1 → E13, todas com teste de regressão escrito **antes** da correção e suíte completa
+executada depois: **266/266**.
+
+**Nota de método.** E13 estava classificado como risco provável (R6) na primeira rodada e só
+virou erro comprovado quando o caso foi construído. A lição vale para o resto desta lista: a
+fronteira entre “erro comprovado” e “risco provável” aqui é, em boa parte, **a fronteira do
+que o arreio em Node alcança** — e não a da gravidade real. R1 (atomicidade de `meta.revisao`)
+é o candidato mais óbvio a mudar de lado se alguém construir o caso.
 
 Não corrigidos de propósito: R1–R9 (riscos), as limitações da §3 e toda a §5 (WCAG) — são
 mudanças de arquitetura ou de interface, maiores que o escopo “corrigir os problemas
