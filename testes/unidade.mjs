@@ -7,7 +7,7 @@
        python3 -m http.server   # nao e preciso nada disso
        node testes/unidade.mjs  # a partir da raiz do repositorio
 */
-import { carregarApp, pastaFalsa, baseDeTeste } from "./app_em_node.mjs";
+import { carregarApp, pastaFalsa, baseDeTeste, VISUALIZADOR } from "./app_em_node.mjs";
 
 const falhas = [];
 let grupo = "";
@@ -1454,6 +1454,260 @@ secao("18g. AS TELAS CONTINUAM DE PE E OS BOTOES LIGADOS");
   app.NovoItem.painel();
   chk("o formulário de item novo abre", !!app.$("#n-item"));
   app.UI.fechar();
+}
+
+secao("19. RELATORIO EM QUADRO (KANBAN)");
+{
+  const c = cenario({semPasta:true});
+  const {app} = c;
+  const o = {...app.Export.opcoes(), layout:"kanban",
+             cols:["item","status","inspType","description"]};
+  const doc = app.Export.documento(app.S.db.itens, "Quadro", o);
+
+  chk("o despachante entrega o quadro, nao a tabela",
+      doc.includes('class="quadro"') && !doc.includes('<table class="itens"'));
+  chk("e continua sendo um documento completo, com pagina A4",
+      doc.startsWith("<!doctype html") && /@page[^}]*A4/.test(doc));
+  chk("a capa diz que o formato e o quadro", /quadro por/i.test(doc));
+  chk("o cartao nao parte ao meio entre paginas",
+      /\.cartao[^}]*break-inside:avoid/.test(doc));
+
+  /* Uma coluna por familia do status, cada item no seu lugar. */
+  const cols = app.Export.colunasQuadro(app.S.db.itens, o);
+  const porFamilia = {};
+  for(const i of app.S.db.itens) (porFamilia[app.R.familiaDe(i.status)] ??= []).push(i.item);
+  for(const [fam, itens] of Object.entries(porFamilia)){
+    const col = cols.find(x=>x.chave===fam);
+    igual(`a coluna ${fam} tem os itens certos`,
+          col?.itens.map(i=>i.item).sort(), itens.sort());
+  }
+  const soma = cols.reduce((n,x)=>n+x.itens.length, 0);
+  igual("nenhum item some nem aparece duas vezes", soma, app.S.db.itens.length);
+  for(const i of app.S.db.itens) chk(`o item ${i.item} esta no quadro`, doc.includes(i.item));
+
+  chk("as colunas vazias do dominio aparecem quando pedidas",
+      cols.length >= app.R.familias().length,
+      `${cols.length} colunas para ${app.R.familias().length} familias`);
+  const semVazias = app.Export.colunasQuadro(app.S.db.itens, {...o, kanbanVazias:false});
+  chk("e somem quando nao sao pedidas", semVazias.every(x=>x.itens.length>0));
+  chk("desligar as vazias nao perde item",
+      semVazias.reduce((n,x)=>n+x.itens.length,0) === app.S.db.itens.length);
+}
+{
+  /* O agrupamento e escolha de quem exporta, e tem de valer. */
+  const c = cenario({semPasta:true});
+  const {app} = c;
+  const base = {...app.Export.opcoes(), layout:"kanban", cols:["item","status"], kanbanVazias:false};
+
+  const porTipo = app.Export.colunasQuadro(app.S.db.itens, {...base, kanbanAgrupar:"inspType"});
+  igual("agrupado por InspType, uma coluna por tipo presente",
+        porTipo.map(x=>x.chave).sort(),
+        [...new Set(app.S.db.itens.map(i=>i.inspType))].sort());
+
+  const porStatus = app.Export.colunasQuadro(app.S.db.itens, {...base, kanbanAgrupar:"status"});
+  igual("agrupado por status, uma coluna por status presente",
+        porStatus.map(x=>x.chave).sort(),
+        [...new Set(app.S.db.itens.map(i=>i.status))].sort());
+  chk("as colunas de status saem na ordem de severidade, nao alfabetica",
+      porStatus.every((x,k)=>k===0 || app.R.ordemDe(porStatus[k-1].chave) <= app.R.ordemDe(x.chave)),
+      porStatus.map(x=>x.chave).join(" | "));
+
+  /* Agrupamento desconhecido nao pode derrubar a exportacao. */
+  let erro=null;
+  try{ app.Export.documento(app.S.db.itens,"x",{...base, kanbanAgrupar:"naoExiste"}); }
+  catch(e){ erro=e; }
+  chk("agrupamento invalido cai no padrao em vez de estourar", erro===null,
+      erro? String(erro.message):"");
+}
+{
+  /* Os filtros da tela sao o recorte do quadro: quem exporta manda a lista ja
+     filtrada, e o quadro nao pode trazer nada alem dela. */
+  const c = cenario({semPasta:true});
+  const {app} = c;
+  app.S.filtros.status = ["3 - Blocking"];
+  const filtrados = app.itensFiltrados? app.itensFiltrados() : null;
+  const lista = app.S.db.itens.filter(i=>i.status==="3 - Blocking");
+  const o = {...app.Export.opcoes(), layout:"kanban", cols:["item","status"], kanbanVazias:false};
+  const cols = app.Export.colunasQuadro(lista, o);
+  igual("so o que passou no filtro entra no quadro",
+        cols.flatMap(x=>x.itens.map(i=>i.item)).sort(), lista.map(i=>i.item).sort());
+  const doc = app.Export.documento(lista, "Bloqueantes", o);
+  const fora = app.S.db.itens.filter(i=>i.status!=="3 - Blocking");
+  for(const i of fora)
+    chk(`o item ${i.item}, fora do filtro, nao aparece`, !doc.includes(">"+i.item+"<"));
+  app.S.filtros = app.avaliar("filtrosVazios()");
+}
+{
+  /* Uma coluna por pagina: e o que torna legivel um quadro grande em papel. */
+  const c = cenario({semPasta:true});
+  const {app} = c;
+  const o = {...app.Export.opcoes(), layout:"kanban", cols:["item","status"], kanbanQuebra:"pagina"};
+  const doc = app.Export.documento(app.S.db.itens, "Quadro", o);
+  chk("cada coluna vira uma secao com quebra de pagina",
+      doc.includes('class="porpagina"') && /break-after:page/.test(doc));
+  const secoes = (doc.match(/class="porpagina"/g)||[]).length;
+  igual("uma secao por coluna", secoes,
+        app.Export.colunasQuadro(app.S.db.itens, o).length);
+
+  const umQuadro = app.Export.documento(app.S.db.itens, "Quadro", {...o, kanbanQuebra:"quadro"});
+  chk("e no modo quadro nao ha quebra forcada", !umQuadro.includes('class="porpagina"'));
+}
+{
+  /* O texto do item e dado, nunca marcacao - vale no quadro como na tabela. */
+  const c = cenario({semPasta:true});
+  const {app} = c;
+  app.S.db.itens[0].description = '<img src=x onerror=roubar()>';
+  const doc = app.Export.documento(app.S.db.itens, "x",
+    {...app.Export.opcoes(), layout:"kanban", cols:["item","description"]});
+  chk("o texto do item e escapado no quadro",
+      !doc.includes("<img src=x") && doc.includes("&lt;img"));
+}
+{
+  /* Lista vazia e recorte sem resultado nenhum: nao pode estourar. */
+  const c = cenario({semPasta:true});
+  const {app} = c;
+  let erro=null, doc="";
+  try{ doc = app.Export.documento([], "Nada",
+    {...app.Export.opcoes(), layout:"kanban", cols:["item"], kanbanVazias:false}); }
+  catch(e){ erro=e; }
+  chk("quadro sem itens nao estoura", erro===null, erro? String(erro.message):"");
+  chk("e diz que nao ha nada no recorte", doc.includes("Nenhum item"));
+}
+{
+  /* O botao do kanban abre a janela ja no formato quadro. */
+  const app = carregarApp();
+  app.ctx.toast = ()=>{}; app.ctx.marcarEstado = ()=>{};
+  app.S.db = baseDeTeste(); app.normalizar(app.S.db);
+  app.Store.dirHandle = pastaFalsa({database:JSON.stringify(app.S.db)});
+  app.Sync.parar();
+  app.S.rota = "kanban"; app.Render.nav(); app.Render.kanban();
+  chk("o kanban tem botao de exportar o quadro", typeof app.$("#kbExp")?.onclick === "function");
+  app.$("#kbExp").onclick();
+  chk("a janela de exportacao abre", !!app.$("#ov"));
+  igual("ja com o formato quadro escolhido", app.Export.opcoes().layout, "kanban");
+  app.UI.fechar();
+}
+
+secao("20. VISUALIZADOR: O MESMO MOTOR, SEM A ESCRITA");
+
+/* O visualizador e gerado a partir do index. Carrega-lo com o mesmo aparato e
+   o que garante que ele nao ficou para tras nem quebrou na geracao. */
+function visualizador(){
+  const app = carregarApp({arquivo:VISUALIZADOR});
+  app.ctx.toast = ()=>{}; app.ctx.marcarEstado = ()=>{};
+  app.S.db = baseDeTeste(); app.normalizar(app.S.db);
+  return app;
+}
+{
+  const app = visualizador();
+  chk("o arquivo carrega inteiro, sem erro de script", !!app.S.db);
+  chk("traz o mesmo motor de dominio", typeof app.R.aberto === "function"
+      && typeof app.M.shipyard === "function");
+  chk("e a mesma exportacao", typeof app.Export.documento === "function");
+  igual("inclusive o Shipyard pelo ActualJx",
+        app.M.shipyard(app.S.db.itens).total,
+        app.S.db.itens.filter(i=>i.inspType==="Shipyard prerequisites" && i.actualJx==="J08").length);
+}
+{
+  /* O que importa: nao existe caminho de codigo daqui ate um writer. */
+  const app = visualizador();
+  const pasta = pastaFalsa({database:JSON.stringify(app.S.db)});
+  app.Store.dirHandle = pasta;
+
+  const recusou = async fn => { try{ await fn(); return false; }catch(e){ return e.message==="SOMENTE_LEITURA"; } };
+  for(const m of ["gravar","backup","restaurarBackup","travar","destravar","arquivarHistorico"])
+    chk(`Store.${m} recusa`, await recusou(()=>app.Store[m](app.S.db)));
+
+  /* A pasta de mentira conta cada writer aberto: zero e a prova de que nao
+     houve tentativa de escrita, nao so de que ela falhou. */
+  igual("nenhum writer foi aberto na pasta", pasta.estado.maxWriters, 0);
+  igual("e nada foi escrito", pasta.estado.escritas.length, 0);
+  igual("o database.json na pasta continua o mesmo",
+        JSON.parse(pasta.conteudo()).meta.revisao, 7);
+  igual("nenhum backup foi criado", pasta.backups(), []);
+}
+{
+  /* Uma tentativa de edicao nao pode mudar o item nem sujar a base. */
+  const app = visualizador();
+  const antes = app.S.db.itens[0].status;
+  const avisos = [];
+  app.ctx.toast = (m,k)=>avisos.push(k);
+  app.Pend.alterar("A-001","status","1 - Validated by ICN");
+  igual("editar nao muda o item", app.S.db.itens[0].status, antes);
+  igual("e nao cria pendencia", app.S.db.pendentes.length, 0);
+  igual("nem suja a base", app.S.sujo, false);
+  chk("e a pessoa e avisada de que ali nao se altera", avisos.includes("warn"));
+  igual("o diario fica vazio", app.Pend.diario.length, 0);
+}
+{
+  /* A interface nao oferece o que nao da para fazer. */
+  const app = visualizador();
+  app.Store.dirHandle = pastaFalsa({database:JSON.stringify(app.S.db)});
+  chk("nao ha rota de Configuracoes", !app.ROTAS.some(r=>r.id==="config"));
+  chk("ha 'Sobre a base' no lugar", app.ROTAS.some(r=>r.id==="sobre"));
+  chk("o modulo de item novo nao existe", app.NovoItem===undefined);
+  chk("nem o de arquivamento", app.Arquivamento===undefined);
+
+  const desenhar = rota => { app.S.rota=rota; app.Render.nav(); app.Render[rota](); };
+  for(const rota of ["dashboard","itens","kanban","fluxo","historico","relatorios","sobre"]){
+    let e=null; try{ desenhar(rota); }catch(x){ e=x; }
+    chk(`a tela ${rota} desenha`, e===null, e? String(e.message):"");
+  }
+  desenhar("itens");
+  chk("sem botao de item novo", !app.$("#btnNovo")?.onclick);
+  chk("mas com o de exportar", typeof app.$("#btnExpTab")?.onclick === "function");
+  chk("a barra de edicao em lote nao aparece", app.Lote.barra([])==="");
+  desenhar("kanban");
+  chk("o kanban continua exportando o quadro", typeof app.$("#kbExp")?.onclick === "function");
+}
+{
+  /* O detalhe mostra, nao edita. */
+  const app = visualizador();
+  app.Store.dirHandle = pastaFalsa({database:JSON.stringify(app.S.db)});
+  app.S.rota="itens"; app.Render.nav(); app.Render.itens();
+  app.UI.detalhe("A-001");
+  chk("a janela do item abre", !!app.$("#ov"));
+  chk("sem seletor de status", !app.$("#dStatus")?.id);
+  chk("sem campo de observacao editavel", !app.$("#dObs")?.id);
+  chk("e sem caixa para escrever observacao nova", !app.$("#oTxt")?.id);
+  const html = app.ctx.document.querySelector("#ov").innerHTML;
+  chk("mostra o status do item", html.includes("3 - Blocking"));
+  chk("e tem as abas de historico e observacoes",
+      html.includes('data-t="h"') && html.includes('data-t="o"'));
+  app.UI.fechar();
+}
+{
+  /* A exportacao e o motivo de o visualizador existir: tem de sair inteira. */
+  const app = visualizador();
+  const saidas = [];
+  app.ctx.URL = {createObjectURL:()=>"blob:x", revokeObjectURL(){}};
+  app.ctx.Blob = class { constructor(p){ saidas.push(p.join("")); } };
+
+  app.Export.csv(app.S.db.itens, {cols:["item","status"]});
+  chk("o CSV sai", saidas.at(-1).includes("Actual Status"));
+  const doc = app.Export.documento(app.S.db.itens,"Quadro",
+    {...app.Export.opcoes(), layout:"kanban", cols:["item","status"]});
+  chk("e o relatorio em quadro tambem", doc.includes('class="quadro"'));
+  chk("com a capa dizendo de onde veio", doc.includes("StatusMilestone"));
+}
+{
+  /* O nome so serve ao rodape do relatorio; o visualizador nao pergunta. */
+  const app = carregarApp({arquivo:VISUALIZADOR, autor:""});
+  app.ctx.prompt = ()=>{ throw new Error("PERGUNTOU O NOME"); };
+  let e=null; try{ app.Usuario.garantir(); }catch(x){ e=x; }
+  chk("nao pergunta o nome de ninguem", e===null, e? String(e.message):"");
+  igual("e aceita nao ter nome", app.Usuario.garantir(), "");
+}
+{
+  /* O visualizador e GERADO: se o index mudar e ninguem regerar, ele passa a
+     mentir sobre o estado da base. O teste falha antes que isso saia do repo. */
+  const { execFileSync } = await import("node:child_process");
+  let saida="", erro=null;
+  try{ saida = execFileSync("python3",
+        ["ferramentas/gerar_visualizador.py","--conferir"],{encoding:"utf8"}); }
+  catch(e){ erro = e; }
+  chk("docs/visualizador.html esta em dia com docs/index.html", erro===null,
+      erro? String(erro.stdout||erro.message).split("\n")[0] : saida.trim());
 }
 
 console.log(falhas.length ? `\n${falhas.length} FALHA(S):\n  `+falhas.join("\n  ") : "\nTudo certo.");
