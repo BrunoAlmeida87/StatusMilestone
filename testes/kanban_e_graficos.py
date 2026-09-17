@@ -81,7 +81,7 @@ with sync_playwright() as pw:
     chk("Item natural (9 antes de 10)", n==sorted(n), str(n[:6]))
 
     print("=== F) telas e temas ===")
-    for r in ["dashboard","itens","kanban","fluxo","historico","relatorios","conflitos","config"]:
+    for r in ["dashboard","itens","kanban","fluxo","historico","relatorios","config"]:
         pg.evaluate(f"irPara('{r}')"); pg.wait_for_timeout(260)
     pg.evaluate("irPara('fluxo')"); pg.wait_for_timeout(800)
     chk("2 diagramas de fluxo", pg.locator("#view svg marker").count()==2)

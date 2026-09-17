@@ -142,9 +142,9 @@ Chave lógica: **(item, campo)** — é o que garante o agrupamento.
 ### `observacoes` · `conflitos` · `marcos` · `config`
 
 - **`observacoes`**: `id` · `item` · `texto` · `criadoEm` · `autor`. Acumulativas, nunca sobrescrevem.
-- **`conflitos`**: `id` · `item` · `campo` · `valorArquivo1` · `valorArquivo2` · `valorAplicado` · `resolvido` · `resolvidoPor` · `resolvidoEm` · `justificativa`. Resolver gera evento no histórico.
+- **`conflitos`**: `id` · `item` · `campo` · `valorArquivo1` · `valorArquivo2` · `valorAplicado` · `resolvido` · `resolvidoPor` · `resolvidoEm` · `justificativa`. Resolver gerava evento no histórico. **Os 40 estão decididos e a tela saiu** (ver Etapa 8); o array permanece na base, intacto, como registro do que cada arquivo dizia.
 - **`marcos`**: `id` · `nome` · `data` · `tipo`. São as emissões de relatório (29/07, 09/09, 10/09). É contra eles que se calcula "mudou no ciclo" e as setas ▲▼.
-- **`config`**: status (com `ativo`), famílias/colunas do Kanban, minutos de consolidação, limites de aging, `statusAbertoExcecoes` (a **única** fonte de "em aberto", casada por prefixo), tipos funcionais, `mbAvisoTamanho` e `vistas` (filtros salvos com nome, compartilhados por ficarem na base).
+- **`config`**: status (com `ativo`), famílias/colunas do Kanban, minutos de consolidação, limites de aging, `statusAbertoExcecoes` (a **única** fonte de "em aberto", casada por prefixo), tipos funcionais, `mbAvisoTamanho`, `vistas` (filtros salvos com nome, compartilhados por ficarem na base) e `caminhoPadrao` (onde a base mora na rede — fica aqui, e não no navegador, para valer para todo mundo que abrir aquele `database.json`).
 
 ### Relacionamentos
 
@@ -242,13 +242,19 @@ diagrama) e cada faixa da barra empilhada leva o seu número dentro.
 
 ## Etapa 8 — Organização visual
 
-Menu final: **Dashboard · Itens · Kanban · Histórico · Relatórios · Conflitos · Configurações**.
-A única adição à sua proposta é **Conflitos**, exigida pelo princípio de não sobrescrever nada
-silenciosamente — ela some sozinha quando a fila zera.
+Menu final: **Dashboard · Itens · Kanban · Evidence Flow · Histórico · Relatórios · Configurações**.
+
+A tela **Conflitos** existiu enquanto houve fila: era exigida pelo princípio de não sobrescrever
+nada silenciosamente. Com os 40 conflitos de migração decididos, ela **saiu do menu** — os
+registros continuam na base (`conflitos`), nada foi apagado, e o que era genuinamente independente
+dela — a regra de coerência entre status e observação — ficou, alimentando o relatório
+*Inconsistências* e a verificação de integridade.
 
 ### Dashboard
 Cinco KPIs (total, em aberto com Δ vs. marco anterior, validados, % conclusão, alterados no ciclo)
-→ os dois blocos do **Evidence Flow** (B05 / exceto B05) → **Shipyard Prerequisites**,
+→ os dois blocos do **Evidence Flow** (B05 / exceto B05) → **Shipyard Prerequisites** (filtrado por
+**`ActualJx = J08`**: o marco que vale é o atual, não o de origem — um pré-requisito transferido de
+J07 para J08 é do J08, e o que saiu para o J09 deixou de ser),
 **Functional Insp. Type** com as setas ▲▼ do Excel, e a distribuição em rosca →
 quatro gráficos: evolução no tempo, aging, pendências por tipo de inspeção e por função vital.
 
@@ -269,10 +275,37 @@ em aberto no início e no fim, melhoraram, pioraram, sem alteração, novos, tab
 com Δ, curva de evolução, ranking de transições e a lista de eventos consolidados.
 
 ### Relatórios
-Doze relatórios prontos (em aberto, B05 em aberto, bloqueantes, alterados em 7/30 dias,
-parados há 30/60 dias, alterados no ciclo, com observação, com NCR, **inconsistências status × observação**,
-itens com conflito). Combinam-se com os filtros. Exportam em CSV, **Excel** (arquivo com três abas:
-Resumo, Itens, Histórico), JSON e impressão/PDF.
+Onze relatórios prontos (em aberto, B05 em aberto, bloqueantes, alterados em 7/30 dias,
+parados há 30/60 dias, alterados no ciclo, com observação, com NCR, **inconsistências status ×
+observação**). Combinam-se com os filtros.
+
+### Exportação
+**Uma porta só** para sair da base, usada por Dashboard, Itens, Histórico e Relatórios: o mesmo
+catálogo de 27 campos, a mesma escolha de colunas (guardada por pessoa, no navegador) e o mesmo
+saneamento de texto alimentam cinco saídas.
+
+- **CSV** com separador, codificação (UTF-8 com ou sem BOM) e tratamento de quebra de linha
+  escolhidos. O saneamento é o ponto central: caracteres de controle saem, `\r` é normalizado,
+  toda célula vai entre aspas e fórmula (`=`, `+`, `-`, `@`) é desarmada com apóstrofo. Eram as
+  três causas do arquivo que chegava desalinhado ou truncado.
+- **Relatório PDF / HTML**: um documento próprio, montado do zero — capa com o recorte, quem gerou
+  e a revisão da base; resumo com KPIs, Evidence Flow, Shipyard e função vital; tabela paginada em
+  A4 (retrato ou paisagem) com `thead` repetido em toda página e `break-inside: avoid` por linha.
+  A impressão corre num `<iframe>` escondido, que não depende de o navegador liberar janela nova.
+  **Não é mais `window.print()` da tela viva.**
+- **Excel** (SpreadsheetML, três abas: Resumo, Itens, Histórico) e **JSON** com o recorte, as
+  colunas escolhidas e a revisão da base.
+
+O resumo do Excel e a capa do relatório saem da **mesma** função (`Export.resumo`): um número só
+poderia divergir entre os dois se o cálculo fosse duplicado.
+
+### Item novo
+Um item pode nascer à mão (**Itens ▸ + Novo item**), não só pela migração. Formulário com todos os
+campos, sugestão dos valores já existentes, código conferido enquanto se digita (repetido não
+entra, nem com a caixa trocada) e status inicial forçado a ser um **em aberto**. O item entra pelo
+mesmo caminho de qualquer edição — pendente, autosave, evento no histórico — e o diário ganha um
+registro `item-novo`, rebasável: se outra pessoa gravar no meio, o item é reposto por cima da
+versão dela. Se os dois criarem o mesmo código, abre a tela de decisão.
 
 ### Convenções visuais
 Cor por **severidade do status** (1 verde, 2 azul, 3/7 vermelho, 4 laranja, 5 âmbar, 6/8 cinza),

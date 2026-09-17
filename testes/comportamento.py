@@ -52,7 +52,7 @@ with sync_playwright() as pw:
 
     print("=== 2. NAVEGACAO ENTRE TELAS")
     for rota,marca in [("itens","table"),("kanban",".kb"),("historico","table"),
-                       ("relatorios",".chip"),("conflitos","table"),("config",".panel")]:
+                       ("relatorios",".chip"),("config",".panel")]:
         pg.evaluate(f"irPara('{rota}')"); pg.wait_for_timeout(250)
         chk(f"tela {rota}", pg.locator(f"#view {marca}").count()>0)
 
@@ -160,32 +160,38 @@ with sync_playwright() as pw:
     chk("filtro Bigram AC = 168", pg.evaluate("itensFiltrados().length")==168, str(pg.evaluate("itensFiltrados().length")))
     pg.evaluate("S.filtros=filtrosVazios()")
 
-    print("=== 13. CONFLITOS")
-    pg.evaluate("""S.db.conflitos.filter(c=>c.campo==='Bigram').slice(0,3)
-        .forEach(c=>{c.resolvido=false; delete c.valorAplicado;}); irPara('conflitos');""")
-    pg.wait_for_timeout(250)
-    chk("40 conflitos, 3 reabertos para decisao manual (Bigram)",
-        pg.evaluate("S.db.conflitos.length")==40 and pg.evaluate("S.db.conflitos.filter(c=>!c.resolvido).length")==3)
-    cid = pg.evaluate("S.db.conflitos.find(c=>!c.resolvido).id")
-    pg.evaluate(f"UI.resolverConflito('{cid}','1')"); pg.wait_for_timeout(300)
-    chk("conflito resolvido", pg.evaluate("S.db.conflitos.filter(c=>!c.resolvido).length")==2)
-    chk("resolucao gerou evento de historico", pg.evaluate("S.db.historico.filter(h=>h.origem==='conflito').length")==1)
+    print("=== 13. A ABA CONFLITOS SAIU, OS DADOS FICARAM")
+    chk("nao ha mais rota de conflitos", pg.evaluate("ROTAS.some(r=>r.id==='conflitos')") is False)
+    chk("o menu nao mostra a aba", "Conflitos" not in pg.inner_text("#nav"))
+    chk("os conflitos decididos continuam guardados na base",
+        pg.evaluate("Array.isArray(S.db.conflitos) && S.db.conflitos.length")==40)
+    pg.evaluate("irPara('conflitos')"); pg.wait_for_timeout(250)
+    chk("link antigo para #conflitos cai no dashboard, sem tela em branco",
+        pg.locator("#view .kpi").count()>0)
 
     print("=== 14. INTEGRIDADE, IDIOMA, TEMA, EXPORT")
     pg.evaluate("irPara('config')"); pg.wait_for_timeout(250)
-    chk("verificacao de integridade roda", "conflito" in pg.inner_text("#integ").lower() or "✓" in pg.inner_text("#integ"))
+    chk("verificacao de integridade roda", len(pg.inner_text("#integ").strip())>0)
     pg.locator("#btnLang").click(); pg.wait_for_timeout(350)
     chk("interface em ingles", "Settings" in pg.inner_text("#nav"))
     pg.locator("#btnLang").click(); pg.wait_for_timeout(350)
     chk("volta para portugues", "Configura" in pg.inner_text("#nav"))
     pg.locator("#btnTheme").click(); pg.wait_for_timeout(200)
     chk("tema alterna", pg.evaluate("document.documentElement.dataset.theme")in("dark","light"))
-    csv = pg.evaluate("(()=>{const l=S.db.itens.slice(0,3);const q=s=>'\"'+String(s).replace(/\"/g,'\"\"')+'\"';return [Export.COLS.map(c=>q(c[1])).join(';')].concat(l.map(i=>Export.COLS.map(c=>q(Export.val(i,c[0]))).join(';'))).join('\\n');})()")
+    # O CSV sai do proprio gerador, nao de uma copia da logica: e o arquivo que a
+    # pessoa recebe que e conferido, com quebra de linha e aspas de verdade dentro.
+    csv = pg.evaluate("Export.textoCSV(S.db.itens.slice(0,3),{cols:Export.PADRAO,sep:';'})")
     import io as _io, csv as _csv
     linhas=list(_csv.reader(_io.StringIO(csv),delimiter=";"))
     chk("CSV gera cabecalho + 3 linhas, colunas alinhadas",
         len(linhas)==4 and len({len(l) for l in linhas})==1 and "Actual Status" in csv,
         f"{len(linhas)} linhas x {len(linhas[0])} colunas")
+    chk("nenhum caractere de controle sobra no CSV",
+        not any(ord(ch)<32 and ch not in "\r\n" for ch in csv))
+    doc = pg.evaluate("Export.docHTML(S.db.itens.slice(0,40),'Teste',"
+                      "{...Export.opcoes(),cols:['item','status','description']})")
+    chk("relatorio PDF e um documento proprio, com pagina A4 e cabecalho repetido",
+        doc.startswith("<!doctype html") and "@page" in doc and "table-header-group" in doc)
     xls_ok = pg.evaluate("(()=>{try{ const o=[]; const orig=window.URL.createObjectURL; window.URL.createObjectURL=b=>{o.push(b);return 'blob:x'}; Export.excel(S.db.itens.slice(0,5),'teste'); window.URL.createObjectURL=orig; return o.length===1 && o[0].size>1000;}catch(e){return 'ERRO:'+e.message}})()")
     chk("export Excel (SpreadsheetML) gera arquivo", xls_ok is True, str(xls_ok))
 

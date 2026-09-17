@@ -6,7 +6,7 @@ comportamento em Chromium real, via Playwright.
 ## Unidade (Node, sem navegador e sem base real)
 
 ```bash
-node testes/unidade.mjs        # 218 verificações: persistência (arquivo inexistente,
+node testes/unidade.mjs        # 381 verificações: persistência (arquivo inexistente,
                                # conflito de revisão, JSON corrompido, permissão negada,
                                # falha em createWritable/write/close), fila de gravação,
                                # edição durante a escrita, descarte de pendentes (tudo e
@@ -15,7 +15,11 @@ node testes/unidade.mjs        # 218 verificações: persistência (arquivo inex
                                # desde a última visita", validação estrutural da base,
                                # regra aberto/fechado vinda da config, arquivamento de
                                # histórico, colunas escolhidas, edição em lote, teclado,
-                               # presença por item e a tela de Evidence Flow
+                               # presença por item, a tela de Evidence Flow, o CSV
+                               # (colunas, separador, BOM, quebra de linha dentro da
+                               # célula, fórmula desarmada), o relatório PDF, o item
+                               # criado à mão, o Shipyard por ActualJx e o caminho
+                               # padrão da base
 ```
 
 Não precisa instalar nada e não usa dado nenhum do projeto: `testes/app_em_node.mjs`
@@ -42,15 +46,18 @@ export SM_CHROMIUM=/caminho/do/chrome             # opcional (padrão: o do Play
 
 ```bash
 pip install playwright
-python3 testes/comportamento.py        # 65 verificações: carga, edição, pendentes,
+python3 testes/comportamento.py        # 62 verificações: carga, edição, pendentes,
                                        # consolidação, agrupamento, descarte, histórico,
                                        # filtros, exportação, temas, responsivo
-python3 testes/kanban_e_graficos.py    # 55: arraste real, seletor de status no card,
+python3 testes/kanban_e_graficos.py    # 56: arraste real, seletor de status no card,
                                        # ordenação alfanumérica, diagramas de fluxo (base sem
                                        # config.fluxo, quadro "outros status" dentro da moldura),
                                        # balão de texto completo, gráfico de função vital,
                                        # painéis recolhíveis, ordem da página, paleta de status
-python3 testes/conflitos.py            # 10: tela de conflitos, lote, regra de coerência
+python3 testes/exportacao.py           # 48: janela de exportação, CSV conferido com leitor
+                                       # de CSV de verdade, relatório PDF aberto num navegador
+                                       # limpo, formulário de item novo, Shipyard por ActualJx
+                                       # e caminho padrão
 python3 testes/sincronizacao.py        # 31: duas pessoas na mesma base — junção automática,
                                        # decisão campo a campo, gravação concorrente, presença
 ```

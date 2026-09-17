@@ -23,13 +23,12 @@ Também funciona **sem internet**: baixe `docs/index.html` e abra por duplo cliq
 
 | Tela | Conteúdo |
 |---|---|
-| **Dashboard** | KPIs, Shipyard Prerequisites, B05 Status, Functional Insp. Type, evolução, aging, pendências por tipo e por função vital, e os dois Evidence Flow (B05 / exceto B05) no fim. Todo painel recolhe ao clicar no cabeçalho |
-| **Itens** | Tabela ordenável com busca, filtros combináveis e edição pelo detalhe. **Colunas à escolha de cada um**, **seleção múltipla para aplicar o mesmo status em lote** e navegação por teclado (↑↓ anda, Enter abre, espaço marca). Célula cortada mostra o conteúdo inteiro ao passar o mouse; o botão **Texto completo** desliga o corte. No celular a tabela vira uma pilha de cartões |
+| **Dashboard** | KPIs, Shipyard Prerequisites (**ActualJx = J08**), B05 Status, Functional Insp. Type, evolução, aging, pendências por tipo e por função vital, e os dois Evidence Flow (B05 / exceto B05) no fim. Todo painel recolhe ao clicar no cabeçalho |
+| **Itens** | Tabela ordenável com busca, filtros combináveis, **botão de item novo** e edição pelo detalhe. **Colunas à escolha de cada um**, **seleção múltipla para aplicar o mesmo status em lote** e navegação por teclado (↑↓ anda, Enter abre, espaço marca). Célula cortada mostra o conteúdo inteiro ao passar o mouse; o botão **Texto completo** desliga o corte. No celular a tabela vira uma pilha de cartões |
 | **Kanban** | 6 colunas por família de status, **horizontal ou vertical**, arrastar e soltar, colunas recolhíveis |
 | **Evidence Flow** | Os dois diagramas de fluxo (B05 / exceto B05), em tela própria |
 | **Histórico** | Compara **quaisquer duas datas** e reconstrói o estado em cada uma |
-| **Relatórios** | 12 relatórios prontos, exportação em CSV / Excel / JSON / PDF |
-| **Conflitos** | Fila de decisão das divergências entre os dois Excel — nada foi sobrescrito |
+| **Relatórios** | 11 relatórios prontos e a **janela de exportação**: escolha as colunas e saia em CSV, Excel, JSON, HTML ou **relatório PDF** |
 | **Configurações** | Parâmetros, status ativos, **regra de "em aberto"**, backup/restauração, **tamanho da base e arquivamento de histórico**, integridade, log técnico (descartes e sobrescritas ficam 30 dias, configurável; o índice dos arquivamentos fica para sempre) |
 
 Os filtros são o endereço da tela: aparecem como pílulas com **✕** ao lado da busca, sobrevivem
@@ -37,6 +36,45 @@ ao F5, viajam no fim da URL (dá para mandar o link de "estes 12 itens" para out
 virar **vistas salvas** com nome — que ficam no `database.json` e valem para todo mundo. Na
 abertura, uma faixa no Dashboard resume **o que mudou desde a sua última visita**, com atalho para
 o histórico do período.
+
+## Exportação e relatórios
+
+Toda tela que lista itens (Dashboard, Itens, Histórico, Relatórios) tem **um único botão de
+exportar**, que abre a mesma janela:
+
+- **as colunas são suas** — 27 campos para marcar, incluindo derivados (família do status, em
+  aberto, aging, observações). A escolha fica guardada no seu navegador, com atalhos para *Todas*,
+  *Padrão* e *Iguais às da tabela*;
+- **CSV que abre certo** — separador (`;`, `,` ou tabulação), UTF-8 com ou sem BOM, e o que fazer
+  com quebra de linha dentro da célula. O gerador tira caracteres de controle, normaliza `\r`,
+  fecha toda célula entre aspas e desarma fórmula (`=`, `+`, `-`, `@`) — as três causas do arquivo
+  que chegava desalinhado ou truncado;
+- **relatório PDF de verdade** — um documento montado do zero: capa com o recorte, quem gerou e a
+  revisão da base; resumo com KPIs, Evidence Flow, Shipyard e função vital; e a tabela paginada em
+  A4 (retrato ou paisagem), com o cabeçalho repetido em toda página e linha que não parte ao meio.
+  Não é mais a tela impressa. O mesmo documento sai como **HTML** para anexar num e-mail;
+- **Excel** em três abas (Resumo, Itens, Histórico) e **JSON** com o recorte e as colunas escolhidas.
+
+## Acrescentar um item à mão
+
+**Itens ▸ + Novo item** abre um formulário com todos os campos da base (os de valor repetido
+sugerem o que já existe). O código é conferido enquanto se digita — código repetido não entra, nem
+com a caixa trocada. O item nasce com um evento no histórico com o seu nome e entra pelo mesmo
+caminho de qualquer edição: pendente, autosave, e sobrevive à gravação de outra pessoa no meio.
+Se os dois criarem o mesmo código, a tela de decisão aparece em vez de alguém perder o item.
+
+## Onde a base fica
+
+O caminho padrão é **`G:\DOP\GTO\3_INTERNO\01_SAFE_TO_DIVE\11_STATUS MILESTONE J08`** e pode
+ser mudado em **Configurações ▸ Pasta da base** — a mudança fica guardada no próprio
+`database.json`, então vale para todo mundo que abrir aquela base.
+
+Nenhum navegador deixa um site abrir o seletor de pasta já dentro de um caminho (é trava de
+segurança deles, não limitação daqui). Então o caminho aparece na tela de abertura com um botão
+**Copiar**: cola-se na barra de endereço da janela do Windows (`Ctrl+L`) e chega-se lá num Enter.
+Da segunda vez em diante a pasta volta sozinha, sem perguntar nada. Se a pasta escolhida não
+terminar com o nome do caminho padrão, o sistema avisa — abrir a base errada é o engano que só
+aparece semanas depois.
 
 ## Como as alterações são salvas
 
@@ -95,21 +133,27 @@ O sistema reproduz **todos** os números dos dois dashboards originais:
 | B05 total / em aberto | 166 / 12 | ✅ 166 / 12 |
 | Exceto B05 total / em aberto | 262 / 59 | ✅ 262 / 59 |
 | Functional Insp. total / em aberto | 240 / 38 | ✅ 240 / 38 |
-| Shipyard Prerequisites (J08) | 22 / 21 | **21 / 20** ⚠️ |
+| Shipyard Prerequisites (ActualJx = J08) | 22 / 21 | ver nota ⚠️ |
 | Total geral em aberto | 71 | ✅ 71 |
 | Estado em 29/07 e 09/09 (reconstruído) | 74 e 80 | ✅ 74 e 80 |
 
-⚠️ **A única diferença é intencional**: o item 3102 tem `OriginalJx = J06` (Arquivo 2), e não `J08`
-como constava no Arquivo 1. Como o painel filtra por J08, ele sai da conta. Decisão registrada em
-[`analise/02_DECISOES.md`](analise/02_DECISOES.md) (C3/C4).
+⚠️ **O painel passou a contar pelo marco atual (`ActualJx`), não pelo de origem.** Um
+pré-requisito que nasceu em J07 e foi transferido para o J08 é um pré-requisito do J08; o que saiu
+do J08 para o J09 deixou de ser. Era essa a regra do Excel, e a divergência de 21/20 que a versão
+anterior registrava (item 3102, com `OriginalJx = J06` no Arquivo 2 — ver
+[`analise/02_DECISOES.md`](analise/02_DECISOES.md), C3/C4) vinha de filtrar pelo campo errado.
+`migracao/validar.py` agora confere os 22/21 por `ActualJx` e imprime a conta por `OriginalJx` ao
+lado, para comparação — **rode-o na sua base para confirmar o fechamento**.
 
 Rode você mesmo: `python3 migracao/validar.py caminho/para/database.json`
 
 O comportamento simultâneo tem suíte própria: `SM_DATABASE=... python3 testes/sincronizacao.py`
 (31 verificações). O motor de gravação, a validação da base, o descarte de pendentes, o histórico,
 o arquivamento, os filtros, as colunas, o lote e o teclado têm testes de unidade que rodam sem
-navegador e sem base real: `node testes/unidade.mjs` (293 verificações, das quais 75 são as
-regressões da auditoria em [`analise/04_AUDITORIA.md`](analise/04_AUDITORIA.md)).
+navegador e sem base real: `node testes/unidade.mjs` (381 verificações, das quais 75 são as
+regressões da auditoria em [`analise/04_AUDITORIA.md`](analise/04_AUDITORIA.md)). A exportação, o
+relatório PDF e o item novo têm suíte própria em Chromium: `SM_DATABASE=... python3
+testes/exportacao.py`.
 
 ## Estrutura
 

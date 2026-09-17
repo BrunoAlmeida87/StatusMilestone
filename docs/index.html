@@ -295,7 +295,7 @@ dl.kv dd{margin:0;white-space:pre-wrap;word-break:break-word}
 /* ------------------------------- i18n ---------------------------------- */
 const I18N = {
  pt:{dashboard:"Dashboard",itens:"Itens",kanban:"Kanban",historico:"Histórico",relatorios:"Relatórios",
-   conflitos:"Conflitos",config:"Configurações",tema:"Tema",fluxo:"Evidence Flow",salvarAgora:"Salvar alterações agora",
+   config:"Configurações",tema:"Tema",fluxo:"Evidence Flow",salvarAgora:"Salvar alterações agora",
    total:"Total de itens",emAberto:"Em aberto",validados:"Validados",conclusao:"Conclusão",
    alterados:"Alterados no ciclo",selecionarPasta:"Selecionar pasta da base",
    semBase:"Nenhuma base carregada",semBaseTxt:"Selecione a pasta onde fica o arquivo database.json. Pode ser uma pasta no seu computador ou na rede compartilhada.",
@@ -308,13 +308,9 @@ const I18N = {
    b05:"B05",naoB05:"Não B05",tipoInsp:"Tipo de inspeção",funcaoVital:"Função vital",
    origem:"Marco de origem",aging:"Aging",semAtualizacao:"Sem atualização",dias:"dias",
    evolucao:"Evolução",distribuicao:"Distribuição",campo:"Campo",anterior:"Anterior",novo:"Novo",
-   data:"Data",autor:"Autor",item:"Item",acoes:"Ações",resolver:"Resolver",
-   arquivo1:"SafetyMilestoneJ08",arquivo2:"Resumo Fluxo Evidências",
-   usarEste:"Usar este",combinar:"Combinar os dois",outro:"Escrever outro valor",
-   aplicado:"aplicado hoje",emLote:"Resolver em lote",incoerente:"Texto não combina com o status atual",
-   semConflito:"Nenhum conflito em aberto",tudoResolvido:"Todos os conflitos foram decididos."},
+   data:"Data",autor:"Autor",item:"Item",acoes:"Ações",resolver:"Resolver"},
  en:{dashboard:"Dashboard",itens:"Items",kanban:"Kanban",historico:"History",relatorios:"Reports",
-   conflitos:"Conflicts",config:"Settings",tema:"Theme",fluxo:"Evidence Flow",salvarAgora:"Save changes now",
+   config:"Settings",tema:"Theme",fluxo:"Evidence Flow",salvarAgora:"Save changes now",
    total:"Total items",emAberto:"Open",validados:"Validated",conclusao:"Completion",
    alterados:"Changed in cycle",selecionarPasta:"Select database folder",
    semBase:"No database loaded",semBaseTxt:"Select the folder holding database.json. It can be a local folder or a shared network folder.",
@@ -327,11 +323,7 @@ const I18N = {
    b05:"B05",naoB05:"Non-B05",tipoInsp:"Inspection type",funcaoVital:"Vital function",
    origem:"Origin milestone",aging:"Aging",semAtualizacao:"No update for",dias:"days",
    evolucao:"Trend",distribuicao:"Distribution",campo:"Field",anterior:"Previous",novo:"New",
-   data:"Date",autor:"Author",item:"Item",acoes:"Actions",resolver:"Resolve",
-   arquivo1:"SafetyMilestoneJ08",arquivo2:"Evidence Flow Summary",
-   usarEste:"Use this one",combinar:"Combine both",outro:"Write another value",
-   aplicado:"currently applied",emLote:"Resolve in bulk",incoerente:"Text does not match the current status",
-   semConflito:"No open conflicts",tudoResolvido:"All conflicts have been decided."}
+   data:"Date",autor:"Author",item:"Item",acoes:"Actions",resolver:"Resolve"}
 };
 let LANG = localStorage.getItem("sm.lang") || "pt";
 const T = k => (I18N[LANG][k] ?? I18N.pt[k] ?? k);
@@ -366,10 +358,17 @@ function toast(msg,kind=""){
   $("#toast").append(d); setTimeout(()=>{d.style.opacity=0;setTimeout(()=>d.remove(),250)},3800);
 }
 function confirmar(msg){ return window.confirm(msg); }
+/* Um download so acaba quando o navegador termina de LER o blob. Revogar a URL
+   1,5 s depois do clique cortava o arquivo no meio quando a base era grande ou
+   o destino era uma pasta de rede lenta - e o que chegava ao disco era um CSV
+   truncado no meio de uma linha ("arquivo corrompido"). O minuto de folga custa
+   memoria de nada e o blob e liberado de qualquer jeito ao fechar a aba. */
 function dl(nome,conteudo,mime){
   const b=new Blob([conteudo],{type:mime||"text/plain;charset=utf-8"});
-  const a=document.createElement("a"); a.href=URL.createObjectURL(b); a.download=nome;
-  document.body.append(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href),1500);
+  const url=URL.createObjectURL(b);
+  const a=document.createElement("a"); a.href=url; a.download=nome; a.rel="noopener";
+  document.body.append(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url), 60000);
 }
 
 /* ------------------- IndexedDB: handle + copia de seguranca ------------- */
@@ -1179,6 +1178,7 @@ const Sync = {
         if(meus.has(k)) meus.get(k).para = e.para;
         else meus.set(k, {...e});
       }else if(e.t==="obs"){ meus.set("obs:"+e.obj.id, {...e});
+      }else if(e.t==="item-novo"){ meus.set("novo:"+e.obj.item, {...e});
       }else naoRebasavel = e;
     }
 
@@ -1203,6 +1203,15 @@ const Sync = {
     const ok=[], colide=[];
     for(const e of meus.values()){
       if(e.t==="obs"){ ok.push(e); continue; }
+      /* Item criado aqui: so e disputa se a outra pessoa criou um com o mesmo
+         codigo. Caso contrario e so acrescentar de volta. */
+      if(e.t==="item-novo"){
+        const ja = disco.itens.find(i=>i.item===e.obj.item);
+        if(!ja) ok.push(e);
+        else colide.push({...e, item:e.obj.item, campo:LANG==="pt"?"(item novo)":"(new item)",
+                          para:e.obj.status, remoto:ja.status});
+        continue;
+      }
       const it = disco.itens.find(i=>i.item===e.item);
       if(!it){ colide.push({...e, remoto:null}); continue; }
       const rv = it[e.campo] ?? "";
@@ -1224,6 +1233,19 @@ const Sync = {
     for(const e of lista){
       if(e.t==="obs"){
         if(!S.db.observacoes.some(o=>o.id===e.obj.id)) S.db.observacoes.push(e.obj);
+        Pend.registrar(e);
+      }else if(e.t==="item-novo"){
+        /* Nunca por cima do item de mesmo codigo que ja veio do disco: o que a
+           outra pessoa gravou fica, e a decisao ja foi tomada la em cima. */
+        if(!S.db.itens.some(i=>i.item===e.obj.item)){
+          S.db.itens.push(structuredClone(e.obj));
+          if(!S.db.historico.some(h=>h.item===e.obj.item))
+            S.db.historico.push({id:uid(), item:e.obj.item, campo:"status", valorAnterior:"",
+              valorNovo:e.obj.status, dataEfetiva:e.obj.criadoEm, primeiraAlteracaoEm:agora(),
+              consolidadoEm:agora(), autor:Usuario.nome(), origem:"manual", tipo:"status",
+              observacao: LANG==="pt"?"item criado manualmente":"item created manually"});
+          R.invalidarHist();
+        }
         Pend.registrar(e);
       }else{
         Pend.alterar(e.item, e.campo, e.para, {dataEfetiva:e.dataEfetiva, motivo:e.motivo});
@@ -1429,9 +1451,12 @@ const M = {
                      status:this.porStatus(l)});
     return {b05:bloco(b05), exceto:bloco(nb)};
   },
-  /* Painel "Shipyard Prerequisites": filtra OriginalJx = J08. */
+  /* Painel "Shipyard Prerequisites": o marco que vale e o ATUAL (ActualJx), nao
+     o de origem. Um pre-requisito que nasceu em J07 e foi transferido para o J08
+     e um pre-requisito do J08 - e era exatamente esse que ficava de fora quando
+     o filtro olhava OriginalJx. */
   shipyard(itens,jx="J08"){
-    const l=itens.filter(i=>i.inspType==="Shipyard prerequisites" && i.originalJx===jx);
+    const l=itens.filter(i=>i.inspType==="Shipyard prerequisites" && i.actualJx===jx);
     return {total:l.length, aberto:l.filter(i=>R.aberto(i.status)).length,
             status:this.porStatus(l), itens:l};
   },
@@ -1712,6 +1737,111 @@ const G = {
 </script>
 <script>
 "use strict";
+/* ===================== caminho padrão da base =======================
+   O navegador NAO abre o seletor de pasta num caminho escolhido por nós: a
+   File System Access API so aceita um handle ja autorizado ou um lugar
+   generico ("documents", "downloads"). Por isso o caminho padrao aqui e o que
+   da para ser: fica escrito na tela de abertura, com um botao que o copia para
+   a area de transferencia - cola-se na barra de endereco do seletor do Windows
+   e chega-se la num Enter. Depois da primeira autorizacao a pasta volta
+   sozinha pelo handle guardado no IndexedDB e ninguem precisa mais disto.
+
+   O valor mora em dois lugares de proposito: na config da base (vale para
+   todo mundo que abre aquele database.json) e numa copia no localStorage -
+   e esta que a tela de abertura consegue ler, porque nesse momento ainda nao
+   ha base nenhuma carregada.                                             */
+const Caminho = {
+  FABRICA: "G:\\DOP\\GTO\\3_INTERNO\\01_SAFE_TO_DIVE\\11_STATUS MILESTONE J08",
+  padrao(){
+    const daBase = S.db?.config?.caminhoPadrao;
+    if(typeof daBase === "string" && daBase.trim()) return daBase.trim();
+    try{ const l = localStorage.getItem("sm.caminhoPadrao");
+         if(l && l.trim()) return l.trim(); }catch{}
+    return this.FABRICA;
+  },
+  /* Guarda nos dois lugares. Na base entra como qualquer alteracao de config:
+     pendente + autosave, para viajar para as outras pessoas. */
+  definir(valor, {gravar=true}={}){
+    const v = String(valor ?? "").trim();
+    try{ localStorage.setItem("sm.caminhoPadrao", v); }catch{}
+    if(gravar && S.db){
+      if((S.db.config.caminhoPadrao ?? "") === v) return;
+      S.db.config.caminhoPadrao = v;
+      Pend.registrar({t:"outro", o:"caminho"}); Pend.agendarAutosave();
+    }
+  },
+  /* Ao carregar a base, a config manda: e ela que vale para a equipe. */
+  sincronizarDaBase(){
+    const v = S.db?.config?.caminhoPadrao;
+    if(typeof v === "string" && v.trim()) this.definir(v, {gravar:false});
+  },
+  /* Ultimo pedaco do caminho - o nome que a pasta escolhida deveria ter. */
+  ultimaPasta(c){
+    const partes = String(c ?? this.padrao()).split(/[\\/]+/).filter(Boolean);
+    return partes[partes.length-1] || "";
+  },
+  /* Escolheu outra pasta? Nao e erro (a base pode estar noutro lugar), mas
+     abrir a pasta errada e gravar nela e o tipo de engano que so aparece
+     semanas depois, quando falta metade do trabalho. */
+  conferir(){
+    const esperada = this.ultimaPasta();
+    const real = Store.dirHandle?.name || "";
+    if(!esperada || !real) return true;
+    if(real.toLowerCase() === esperada.toLowerCase()) return true;
+    toast(LANG==="pt"
+      ? `Pasta "${real}" — o caminho padrão termina em "${esperada}". Confira se é a base certa.`
+      : `Folder "${real}" — the default path ends in "${esperada}". Check this is the right database.`, "warn");
+    return false;
+  },
+  copiar(){
+    const txt = this.padrao();
+    const pronto = ()=>toast(LANG==="pt"?"Caminho copiado — cole na barra de endereço do seletor de pasta"
+                                        :"Path copied — paste it in the folder picker address bar","ok");
+    try{
+      navigator.clipboard?.writeText(txt).then(pronto, ()=>this.copiarNaMao(txt));
+    }catch{ this.copiarNaMao(txt); }
+  },
+  /* Sem permissao de area de transferencia (http:// ou file://), o caminho
+     aparece selecionado numa caixa: Ctrl+C resolve. */
+  copiarNaMao(txt){
+    const el = $("#cmPadrao");
+    if(el?.select){ el.focus(); el.select();
+      return toast(LANG==="pt"?"Pressione Ctrl+C para copiar":"Press Ctrl+C to copy"); }
+    toast(txt);
+  },
+  /* O bloco que aparece na tela de abertura e na de configurações. */
+  blocoHTML({editavel=false}={}){
+    return `<div class="panel pad" style="background:var(--panel-2)">
+      <b style="font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--fg-3)">
+        ${LANG==="pt"?"Caminho padrão da base":"Default database path"}</b>
+      <div class="rowflex" style="margin-top:7px;gap:7px">
+        <input type="text" id="cmPadrao" class="mono" style="flex:1;min-width:180px;font-size:11.5px"
+          value="${esc(this.padrao())}" ${editavel?"":"readonly"}
+          spellcheck="false" autocomplete="off">
+        <button class="btn sm" id="cmCopiar">${LANG==="pt"?"Copiar":"Copy"}</button>
+        ${editavel?`<button class="btn sm pri" id="cmSalvar">${T("salvar")}</button>
+                    <button class="btn sm" id="cmReset" title="${esc(this.FABRICA)}">${LANG==="pt"?"Restaurar padrão":"Reset"}</button>`:""}
+      </div>
+      <p class="muted" style="font-size:11.5px;line-height:1.7;margin-top:9px">${LANG==="pt"
+        ? "O navegador não deixa nenhum site abrir o seletor de pasta já dentro de um caminho — é uma trava de segurança dele, não uma limitação daqui. Então: <b>Copiar</b>, clicar em <b>Selecionar pasta da base</b> e colar o caminho na <b>barra de endereço</b> da janela do Windows (ou <code>Ctrl+L</code> e colar). Da segunda vez em diante a pasta volta sozinha."
+        : "Browsers do not let any site open the folder picker already inside a path — that is their security rule, not a limitation here. So: <b>Copy</b>, click <b>Select database folder</b> and paste the path into the <b>address bar</b> of the Windows dialog (or <code>Ctrl+L</code> and paste). From the second time on the folder comes back on its own."}</p>
+      ${editavel?`<p class="muted" style="font-size:11.5px;margin-top:7px">${LANG==="pt"
+        ? "Guardado na base: quem abrir este <code>database.json</code> vê o mesmo caminho."
+        : "Stored in the database: anyone who opens this <code>database.json</code> sees the same path."}</p>`:""}
+    </div>`;
+  },
+  ligar({editavel=false}={}){
+    const c=$("#cmCopiar"); if(c) c.onclick=()=>this.copiar();
+    if(!editavel) return;
+    const s=$("#cmSalvar"); if(s) s.onclick=()=>{
+      this.definir($("#cmPadrao")?.value ?? "");
+      toast(LANG==="pt"?"Caminho padrão salvo":"Default path saved","ok"); Render.atual(); };
+    const r=$("#cmReset"); if(r) r.onclick=()=>{
+      this.definir(this.FABRICA);
+      toast(LANG==="pt"?"Caminho restaurado":"Path reset","ok"); Render.atual(); };
+  },
+};
+
 /* ============================== navegação ============================== */
 const ROTAS = [
   {id:"dashboard", ic:"◧", t:"dashboard"},
@@ -1720,16 +1850,13 @@ const ROTAS = [
   {id:"fluxo",     ic:"⇉", t:"fluxo"},
   {id:"historico", ic:"◴", t:"historico"},
   {id:"relatorios",ic:"◰", t:"relatorios"},
-  {id:"conflitos", ic:"⚠", t:"conflitos"},
   {id:"config",    ic:"⚙", t:"config"},
 ];
 
 const Render = {
   nav(){
-    const abertos = (S.db?.conflitos??[]).filter(c=>!c.resolvido).length;
     $("#nav").innerHTML = ROTAS.map(r=>`<button data-r="${r.id}" class="${S.rota===r.id?"on":""}">
-      <span class="ic">${r.ic}</span><span>${T(r.t)}</span>
-      ${r.id==="conflitos"&&abertos?`<span class="cnt">${abertos}</span>`:""}</button>`).join("");
+      <span class="ic">${r.ic}</span><span>${T(r.t)}</span></button>`).join("");
     $$("#nav button").forEach(b=>b.onclick=()=>irPara(b.dataset.r));
     $("#whoami").textContent = Usuario.nome() ? (LANG==="pt"?"Usuário: ":"User: ")+Usuario.nome() : "";
   },
@@ -1751,14 +1878,16 @@ const Render = {
       <h3 style="border:0;padding:0;text-transform:none;font-size:17px;letter-spacing:-.02em;color:var(--fg)">${T("semBase")}</h3>
       <p class="muted" style="margin:10px 0 18px">${T("semBaseTxt")}</p>
       ${motivo?`<p style="color:var(--bad);margin-bottom:14px">${esc(motivo)}</p>`:""}
-      ${semSuporte? `<div class="panel pad" style="background:var(--panel-2);border-color:var(--bad)">
+      ${/* O caminho vale nos dois casos: sem a API de pasta ainda e por ele que
+            a pessoa acha o database.json para abrir a mao. */ Caminho.blocoHTML()}
+      ${semSuporte? `<div class="panel pad" style="margin-top:14px;background:var(--panel-2);border-color:var(--bad)">
           <b style="color:var(--bad)">${LANG==="pt"?"Navegador sem suporte":"Unsupported browser"}</b>
           <p class="muted" style="margin:8px 0 0">${LANG==="pt"
             ? "A gravação direta em pasta exige Chrome ou Edge. Neste navegador você pode apenas abrir e baixar a base manualmente."
             : "Direct folder writing requires Chrome or Edge. Here you can only open and download the database manually."}</p></div>
           <div class="rowflex" style="margin-top:14px">
             <button class="btn pri" id="btnAbrirArq">${LANG==="pt"?"Abrir database.json":"Open database.json"}</button></div>`
-        : `<div class="rowflex">
+        : `<div class="rowflex" style="margin-top:14px">
             <button class="btn pri" id="btnPasta">📁 ${T("selecionarPasta")}</button>
             ${Store.dirHandlePendente?`<button class="btn" id="btnRetomar">${LANG==="pt"?"Reautorizar pasta anterior":"Re-authorize previous folder"}</button>`:""}
             <button class="btn" id="btnEspelho">${LANG==="pt"?"Recuperar cópia local":"Recover local copy"}</button>
@@ -1768,6 +1897,7 @@ const Render = {
         ? "Os dados ficam sempre no arquivo <b>database.json</b> da pasta escolhida — nunca dentro desta página. Backups automáticos vão para a subpasta <b>backups/</b>."
         : "Data always lives in <b>database.json</b> inside the chosen folder — never inside this page. Automatic backups go to the <b>backups/</b> subfolder."}</p>
     </div>`;
+    Caminho.ligar();
     const bp=$("#btnPasta"); if(bp) bp.onclick=()=>UI.abrirPasta();
     const br=$("#btnRetomar"); if(br) br.onclick=()=>UI.retomarPasta();
     const be=$("#btnEspelho"); if(be) be.onclick=()=>UI.recuperarEspelho();
@@ -1811,7 +1941,8 @@ const Render = {
   /* ------------------------------ dashboard ---------------------------- */
   dashboard(){
     $("#pageTitle").textContent=T("dashboard");
-    $("#headerExtra").innerHTML = Filtros.resumoHTML();
+    $("#headerExtra").innerHTML = Filtros.resumoHTML()+
+      `<button class="btn sm noprint" id="dExp">↓ ${LANG==="pt"?"Exportar":"Export"}</button>`;
     const itens = itensFiltrados();
     const k = M.kpis(itens);
     const ef = M.evidenceFlow(itens);
@@ -1835,7 +1966,7 @@ const Render = {
       ${kpi(T("alterados"),k.mudou, ma?`${LANG==="pt"?"desde":"since"} ${fmtD(ma.data)}`:"")}
     </div>
     <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(min(330px,100%),1fr));margin-bottom:14px">
-      ${painel("shipyard","Shipyard Prerequisites","OriginalJx = J08",
+      ${painel("shipyard","Shipyard Prerequisites","ActualJx = J08",
         `<div class="pad">${cabecalhoRemaining(sy.aberto, sy.total)}
           ${M.statusComDelta(sy.itens).map(r=>linhaStatus(r.st,r.n,sy.total,r.ant)).join("")||`<div class="muted">—</div>`}
         </div>`)}
@@ -1878,6 +2009,7 @@ const Render = {
     const nv=$("#novVer"); if(nv) nv.onclick=()=>{
       S.histDe = S.novidades.dataDe; S.histAte = hoje(); S.novidades=null; irPara("historico"); };
     const nx=$("#novX"); if(nx) nx.onclick=()=>{ S.novidades=null; Render.atual(); };
+    $("#dExp").onclick=()=>Export.painel(itens,"Dashboard");
   },
 };
 
@@ -2240,6 +2372,166 @@ const Lote = {
   },
 };
 
+/* ========================= item novo, à mão =========================
+   Ate aqui a base so crescia pela migracao: um item que aparecesse depois
+   (evidencia nova, item desdobrado, pre-requisito acrescentado pelo estaleiro)
+   nao tinha por onde entrar. O item nasce aqui com o mesmo caminho de gravacao
+   de qualquer edicao - pendente, autosave, historico - e entra no diario como
+   uma criacao, para sobreviver a uma gravacao de outra pessoa no meio.   */
+const NovoItem = {
+  /* Os campos que fazem sentido preencher na criacao. O resto (aging, criadoEm,
+     ultimaAlteracaoStatus) e derivado e nao se digita. */
+  CAMPOS:[
+    {id:"inspType",            pt:"InspType",              en:"InspType", lista:"inspType"},
+    {id:"insp",                pt:"Insp",                  en:"Insp", lista:"insp"},
+    {id:"originalJx",          pt:"OriginalJx",            en:"OriginalJx", lista:"originalJx"},
+    {id:"actualJx",            pt:"ActualJx",              en:"ActualJx", lista:"actualJx"},
+    {id:"actualJxDescription", pt:"ActualJxDescription",   en:"ActualJxDescription"},
+    {id:"numAndDescription",   pt:"Nº and Description",    en:"Nº and Description", lista:"numAndDescription"},
+    {id:"evidence",            pt:"Evidence",              en:"Evidence"},
+    {id:"description",         pt:"Description",           en:"Description", area:2},
+    {id:"hullPassageParts",    pt:"HullPassageParts",      en:"HullPassageParts"},
+    {id:"performance",         pt:"Performance",           en:"Performance", lista:"performance"},
+    {id:"mode",                pt:"Mode",                  en:"Mode", lista:"mode"},
+    {id:"positionAC",          pt:"Position AC",           en:"Position AC"},
+    {id:"sbr",                 pt:"SBR",                   en:"SBR"},
+    {id:"ncr",                 pt:"NCR's",                 en:"NCR's"},
+    {id:"updatedStatusObs",    pt:"Updated Status Obs",    en:"Updated Status Obs", area:2},
+    {id:"generalObs",          pt:"General Obs",           en:"General Obs", area:2},
+    {id:"tests",               pt:"Tests",                 en:"Tests", area:3},
+  ],
+  rotulo(c){ return LANG==="pt"? c.pt : c.en; },
+
+  /* Ja existe alguem com este codigo? A comparacao ignora caixa e espaco: um
+     "SM-014" e um "sm-014 " sao a mesma coisa para quem le a planilha, e dois
+     itens com codigo quase igual e o comeco de uma base que ninguem confere. */
+  existente(codigo){
+    const chave = String(codigo||"").trim().toLowerCase();
+    return (S.db?.itens||[]).find(i=>String(i.item).trim().toLowerCase()===chave) || null;
+  },
+
+  painel(){
+    if(!S.db) return;
+    const ativos = R.statusAtivos();
+    /* Um item que acaba de nascer esta em aberto por definicao. statusAtivos()
+       ja vem ordenado do mais pendente para o mais resolvido, mas fixar a regra
+       aqui impede que reordenar as familias nas Configuracoes faca um item novo
+       nascer "Validated by ICN". */
+    const inicial = ativos.find(st=>R.aberto(st)) ?? ativos[0] ?? "";
+    const campo = c => {
+      const lista = c.lista? R.valoresDe(c.lista) : null;
+      const dl = lista?.length? ` list="nl-${c.id}"` : "";
+      const corpo = c.area
+        ? `<textarea id="n-${c.id}" rows="${c.area}"></textarea>`
+        : `<input type="text" id="n-${c.id}"${dl}>`;
+      return `<label class="fld"><span>${esc(this.rotulo(c))}</span>${corpo}${
+        lista?.length? `<datalist id="nl-${c.id}">${lista.slice(0,400).map(v=>`<option value="${esc(v)}"></option>`).join("")}</datalist>`:""
+      }</label>`;
+    };
+    const largos = new Set(["description","updatedStatusObs","generalObs","tests","actualJxDescription","numAndDescription"]);
+
+    UI.modal(LANG==="pt"?"Novo item":"New item", `
+      <p class="muted" style="margin-bottom:13px">${LANG==="pt"
+        ? "O item entra na base como qualquer edição: vira alteração pendente, é gravado pelo autosave e ganha um evento no histórico com o seu nome. Só o <b>código do item</b> é obrigatório."
+        : "The item enters the database like any edit: it becomes a pending change, is written by autosave, and gets a history event under your name. Only the <b>item code</b> is required."}</p>
+
+      <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(min(230px,100%),1fr));gap:11px">
+        <label class="fld"><span>${LANG==="pt"?"Código do item":"Item code"} *</span>
+          <input type="text" id="n-item" placeholder="${LANG==="pt"?"ex.: SM-0472":"e.g. SM-0472"}" autocomplete="off"></label>
+        <label class="fld"><span>${T("status")}</span>
+          <select id="n-status">${ativos.map(st=>`<option${st===inicial?" selected":""}>${esc(st)}</option>`).join("")}</select></label>
+        <label class="fld"><span>${LANG==="pt"?"Data de criação":"Creation date"}</span>
+          <input type="date" id="n-criadoEm" value="${hoje()}" max="${hoje()}"></label>
+        <label class="fld"><span>Bigram <span class="muted">(${LANG==="pt"?"separe por ; ou ,":"separate with ; or ,"})</span></span>
+          <input type="text" id="n-bigram" autocomplete="off"></label>
+      </div>
+      <div class="rowflex" style="margin:11px 0 4px">
+        <label class="rowflex" style="gap:7px"><input type="checkbox" id="n-isB05">
+          <span>${LANG==="pt"?"Conta como B05 nos painéis (marcado sozinho quando InspType = B05)":"Counts as B05 in the panels (ticks itself when InspType = B05)"}</span></label>
+      </div>
+      <div id="n-aviso" style="margin:6px 0"></div>
+      <div class="sep"></div>
+      <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(min(230px,100%),1fr));gap:11px">
+        ${this.CAMPOS.filter(c=>!largos.has(c.id)).map(c=>campo(c)).join("")}
+      </div>
+      <div class="sep"></div>
+      <div style="display:grid;gap:11px">
+        ${this.CAMPOS.filter(c=>largos.has(c.id)).map(c=>campo(c)).join("")}
+      </div>`,
+      [{txt:T("fechar"), cls:"btn", fn:()=>UI.fechar()},
+       {txt:LANG==="pt"?"Criar e abrir":"Create and open", cls:"btn", fn:()=>this.criar({abrir:true})},
+       {txt:LANG==="pt"?"Criar":"Create", cls:"btn pri", fn:()=>this.criar({})}]);
+
+    /* Aviso enquanto se digita: descobrir que o codigo ja existe so na hora de
+       salvar custa o formulario inteiro preenchido de novo. */
+    const cod = $("#n-item");
+    if(cod) cod.oninput = ()=>{
+      const av = $("#n-aviso"); if(!av) return;
+      const j = this.existente(cod.value);
+      av.innerHTML = j
+        ? `<div class="panel pad" style="border-left:3px solid var(--bad);padding:8px 11px">
+             <b style="color:var(--bad)">${LANG==="pt"?"Já existe":"Already exists"}</b>
+             <span class="muted"> — ${esc(j.item)} · ${esc(j.status)}</span></div>`
+        : "";
+    };
+    const it = $("#n-inspType");
+    if(it) it.oninput = ()=>{ const b=$("#n-isB05");
+      if(b && String(it.value).trim().toUpperCase()==="B05") b.checked = true; };
+    cod?.focus?.();
+  },
+
+  ler(){
+    const v = id => String($("#n-"+id)?.value ?? "").trim();
+    const item = v("item");
+    if(!item) return {erro: LANG==="pt"?"O código do item é obrigatório.":"The item code is required."};
+    if(item.length>60) return {erro: LANG==="pt"?"Código do item longo demais (máx. 60).":"Item code too long (max 60)."};
+    const j = this.existente(item);
+    if(j) return {erro: (LANG==="pt"?`Já existe o item ${j.item} na base.`:`Item ${j.item} already exists.`)};
+    const criadoEm = v("criadoEm") || hoje();
+    const novo = {
+      item, status: v("status"),
+      bigram: v("bigram").split(/[;,]/).map(x=>x.trim()).filter(Boolean),
+      isB05: !!$("#n-isB05")?.checked,
+      criadoEm, ultimaAlteracaoStatus: criadoEm, atualizadoEm: agora(),
+      presenteEm: LANG==="pt"?"criado no sistema":"created in the app",
+    };
+    for(const c of this.CAMPOS) novo[c.id] = v(c.id);
+    /* Os campos que a normalizacao espera encontrar como texto, mesmo vazios. */
+    for(const k of ["updatedStatusObs","generalObs","ncr","tests","description","evidence",
+                    "inspType","insp","originalJx","actualJx","actualJxDescription",
+                    "numAndDescription","performance","mode","positionAC","hullPassageParts","sbr"])
+      novo[k] ??= "";
+    return {novo};
+  },
+
+  criar({abrir=false}={}){
+    const {novo, erro} = this.ler();
+    if(erro) return toast(erro,"bad");
+    const autor = Usuario.garantir();
+    S.db.itens.push(novo);
+    /* O nascimento vira evento na hora: ele nao passa pela consolidacao porque
+       nao e a mudanca de um valor anterior - e a existencia do item. Sem isso, a
+       reconstrucao historica nao sabe desde quando ele conta. */
+    S.db.historico.push({
+      id:uid(), item:novo.item, campo:"status",
+      valorAnterior:"", valorNovo:novo.status,
+      dataEfetiva:novo.criadoEm, primeiraAlteracaoEm:agora(), consolidadoEm:agora(),
+      autor, origem:"manual", tipo:"status",
+      observacao: LANG==="pt"?"item criado manualmente":"item created manually",
+    });
+    R.invalidarHist();
+    /* Entra no diario como criacao: se outra pessoa gravar antes do nosso
+       autosave, o item e reposto por cima da versao dela em vez de sumir. */
+    Pend.registrar({t:"item-novo", item:novo.item, obj:structuredClone(novo)});
+    S.sujo = true;
+    Pend.agendarAutosave();
+    UI.fechar();
+    Render.atual();
+    toast(LANG==="pt"?`Item ${novo.item} criado`:`Item ${novo.item} created`,"ok");
+    if(abrir) UI.detalhe(novo.item);
+  },
+};
+
 Render.itens = function(){
   $("#pageTitle").textContent=T("itens");
   $("#headerExtra").innerHTML = Filtros.resumoHTML()+
@@ -2249,7 +2541,8 @@ Render.itens = function(){
        : "Switch between one line per item (full text on hover) and the whole text in the table"}">${
        S.textoCompleto? (LANG==="pt"?"⇕ Texto completo":"⇕ Full text")
                       : (LANG==="pt"?"⇔ Uma linha":"⇔ Single line")}</button>`+
-    `<button class="btn" id="btnExpTab">↓ CSV</button>`;
+    `<button class="btn" id="btnNovo" title="${LANG==="pt"?"Acrescentar um item à base":"Add an item to the database"}">+ ${LANG==="pt"?"Novo item":"New item"}</button>`+
+    `<button class="btn" id="btnExpTab">↓ ${LANG==="pt"?"Exportar":"Export"}</button>`;
   const lista = ordenar(itensFiltrados());
   const visiveis = new Set(lista.map(i=>i.item));
   for(const id of [...S.selecao]) if(!visiveis.has(id)) S.selecao.delete(id);  /* filtro mudou */
@@ -2301,7 +2594,8 @@ Render.itens = function(){
   Lote.ligar(lista);
   Sync.pintarEdicao();                    /* quem mais está com cada item aberto */
   $("#btnCols").onclick=()=>Colunas.painel();
-  $("#btnExpTab").onclick=()=>Export.csv(lista);
+  $("#btnExpTab").onclick=()=>Export.painel(lista, LANG==="pt"?"Itens":"Items");
+  $("#btnNovo").onclick=()=>NovoItem.painel();
   $("#btnTxt").onclick=()=>{ S.textoCompleto=!S.textoCompleto;
     localStorage.setItem("sm.textoCompleto", S.textoCompleto?"1":"0"); Render.atual(); };
   Filtros.ligar();
@@ -2518,7 +2812,8 @@ Render.historico = function(){
         ||`<div class="empty">${LANG==="pt"?"Nenhuma transição":"No transitions"}</div>`}</div></div>
   </div>
   <div class="panel"><h3>${LANG==="pt"?"Eventos consolidados":"Consolidated events"} <span class="sub">${evs.length}</span>
-    <button class="btn sm" id="hExp" style="margin-left:8px">↓ CSV</button></h3>
+    <button class="btn sm noprint" id="hExp" style="margin-left:8px">↓ CSV</button>
+    <button class="btn sm noprint" id="hPdf">↓ ${LANG==="pt"?"Relatório":"Report"}</button></h3>
     <div class="tblwrap" style="max-height:440px"><table><thead><tr>
       <th>${T("data")}</th><th>${T("item")}</th><th>${T("campo")}</th><th>${T("anterior")}</th>
       <th>${T("novo")}</th><th>${T("autor")}</th><th>${LANG==="pt"?"Observação":"Note"}</th></tr></thead><tbody>
@@ -2534,8 +2829,34 @@ Render.historico = function(){
   $("#hGo").onclick=()=>{S.histDe=$("#hDe").value; S.histAte=$("#hAte").value; Render.atual();};
   $("#hMarco").onchange=e=>{if(e.target.value){S.histDe=e.target.value; S.histAte=hoje(); Render.atual();}};
   $("#hExp").onclick=()=>Export.historico(evs);
+  /* O relatorio do periodo sai com os itens do recorte, nao com a lista de
+     eventos: e o documento que se manda para a reuniao de marco. */
+  $("#hPdf").onclick=()=>Export.painel(itens,
+    `${LANG==="pt"?"Histórico":"History"} ${fmtD(d1)} — ${fmtD(d2)}`);
   $$("tbody tr[data-i]").forEach(tr=>tr.onclick=()=>UI.detalhe(tr.dataset.i));
 };
+
+/* ================= coerência entre status e observação =================
+   Nada a ver com a extinta tela de conflitos de migracao: aqui o que se olha e
+   se o TEXTO da observacao contradiz o status do proprio item. Alimenta o
+   relatorio "Inconsistências" e a verificacao de integridade. */
+function textoDizConcluido(t){
+  t=(t||"").toLowerCase();
+  return /done|conform|accepted|waiver|aceito|conclu/.test(t);
+}
+/* Alguns status sao POSTERIORES a execucao: fazer o B05 e depois aguardar o teste
+   a vacuo ou a assinatura e o fluxo normal, entao "B05 done" neles nao e
+   contradicao. A lista fica em config, ajustavel sem mexer no codigo. */
+function statusAceitaTextoConcluido(st){
+  const l = S.db?.config?.statusPosExecucao ?? ["7 - Missing Vacuum Test or Sign"];
+  return l.includes(st);
+}
+function incoerente(status,texto){
+  if(!texto) return false;
+  if(statusAceitaTextoConcluido(status)) return false;
+  const c=textoDizConcluido(texto);
+  return (R.aberto(status) && c) || (status==="1 - Validated by ICN" && !c);
+}
 
 /* ============================= relatórios ============================= */
 const RELATORIOS = [
@@ -2557,8 +2878,6 @@ const RELATORIOS = [
   {id:"ncr",     pt:"Com NCR", en:"With NCR", f:i=>!!i.ncr},
   {id:"inconsist", pt:"Inconsistências status x observação", en:"Status vs note inconsistencies",
      f:i=>incoerente(i.status,i.updatedStatusObs)},
-  {id:"conflito", pt:"Itens com conflito não resolvido", en:"Items with unresolved conflict",
-     f:i=>{const s=new Set((S.db.conflitos||[]).filter(c=>!c.resolvido).map(c=>c.item)); return s.has(i.item);}},
 ];
 Render.relatorios = function(){
   $("#pageTitle").textContent=T("relatorios");
@@ -2572,10 +2891,9 @@ Render.relatorios = function(){
         ${esc(LANG==="pt"?r.pt:r.en)}</span>`).join("")}</div></div>
     <div class="panel"><h3>${esc(LANG==="pt"?def.pt:def.en)} <span class="sub">${lista.length} ${LANG==="pt"?"itens":"items"}</span>
       <span style="margin-left:auto" class="rowflex noprint">
-        <button class="btn sm" id="eCsv">CSV</button>
-        <button class="btn sm" id="eXls">Excel</button>
-        <button class="btn sm" id="eJson">JSON</button>
-        <button class="btn sm" id="ePrint">${T("imprimir")} / PDF</button></span></h3>
+        <button class="btn sm pri" id="eExp">↓ ${LANG==="pt"?"Exportar / Relatório":"Export / Report"}</button>
+        <button class="btn sm" id="eCsv" title="${LANG==="pt"?"CSV com as colunas e opções já escolhidas":"CSV with the columns and options already chosen"}">CSV</button>
+        <button class="btn sm" id="ePdf" title="${LANG==="pt"?"Relatório PDF com as colunas e opções já escolhidas":"PDF report with the columns and options already chosen"}">PDF</button></span></h3>
       <div class="tblwrap"><table><thead><tr>
         <th>${T("item")}</th><th>${T("status")}</th><th>${T("tipoInsp")}</th><th>${T("origem")}</th>
         <th>Evidence</th><th>${LANG==="pt"?"Descrição":"Description"}</th><th>${T("aging")}</th></tr></thead><tbody>
@@ -2589,113 +2907,16 @@ Render.relatorios = function(){
       </tbody></table></div></div>`;
   $$(".chip[data-r]").forEach(c=>c.onclick=()=>{S.relSel=c.dataset.r; Render.atual();});
   $$("tbody tr[data-i]").forEach(tr=>tr.onclick=()=>UI.detalhe(tr.dataset.i));
-  $("#eCsv").onclick=()=>Export.csv(lista);
-  $("#eXls").onclick=()=>Export.excel(lista, LANG==="pt"?def.pt:def.en);
-  $("#eJson").onclick=()=>dl(`relatorio-${sel}-${hoje()}.json`,JSON.stringify(lista,null,1),"application/json");
-  $("#ePrint").onclick=()=>window.print();
+  const tituloRel = LANG==="pt"?def.pt:def.en;
+  $("#eExp").onclick=()=>Export.painel(lista, tituloRel);
+  /* Atalhos para quem ja escolheu as colunas uma vez: saem direto, com a mesma
+     escolha guardada. A janela continua a um clique. */
+  $("#eCsv").onclick=()=>Export.csv(lista,{nome:`${tituloRel} - ${hoje()}`});
+  $("#ePdf").onclick=()=>Export.pdf(lista, tituloRel);
   Filtros.ligar();
 };
 
-/* ============================== conflitos ============================== */
-/* Coerencia entre o texto da observacao e o status do item: um texto que diz
-   "concluído" num item em aberto (ou o contrário) e um sinal de alerta. */
-function textoDizConcluido(t){
-  t=(t||"").toLowerCase();
-  return /done|conform|accepted|waiver|aceito|conclu/.test(t);
-}
-/* Alguns status sao POSTERIORES a execucao: fazer o B05 e depois aguardar o teste
-   a vacuo ou a assinatura e o fluxo normal, entao "B05 done" neles nao e
-   contradicao. A lista fica em config, ajustavel sem mexer no codigo. */
-function statusAceitaTextoConcluido(st){
-  const l = S.db?.config?.statusPosExecucao ?? ["7 - Missing Vacuum Test or Sign"];
-  return l.includes(st);
-}
-function incoerente(status,texto){
-  if(!texto) return false;
-  if(statusAceitaTextoConcluido(status)) return false;
-  const c=textoDizConcluido(texto);
-  return (R.aberto(status) && c) || (status==="1 - Validated by ICN" && !c);
-}
-const CAMPO_ITEM={OriginalJx:"originalJx","Updated Status Obs":"updatedStatusObs",Bigram:"bigram"};
 
-Render.conflitos = function(){
-  $("#pageTitle").textContent=T("conflitos");
-  $("#headerExtra").innerHTML="";
-  const cs=S.db.conflitos||[];
-  const abertos=cs.filter(c=>!c.resolvido), fechados=cs.filter(c=>c.resolvido);
-  const porCampo={}; abertos.forEach(c=>(porCampo[c.campo] ??= []).push(c));
-
-  const caixa=(c,qual)=>{
-    const val = qual===1? c.valorArquivo1 : c.valorArquivo2;
-    const nome = qual===1? T("arquivo1") : T("arquivo2");
-    const ativo = String(c.valorAplicado)===String(val);
-    return `<div style="flex:1 1 260px;min-width:240px;border:1px solid ${ativo?"var(--accent)":"var(--line)"};
-        border-radius:7px;padding:9px 11px;background:var(--panel-2)">
-      <div class="rowflex" style="justify-content:space-between;margin-bottom:5px">
-        <b style="font-size:10.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--fg-3)">${esc(nome)}</b>
-        ${ativo?`<span class="tag" style="color:var(--accent);border-color:var(--accent)">${T("aplicado")}</span>`:""}</div>
-      <div style="white-space:pre-wrap;min-height:34px;font-size:12.5px">${esc(val)||`<span class="muted">(vazio)</span>`}</div>
-      <button class="btn sm" style="margin-top:8px;width:100%" data-c="${c.id}" data-v="${qual}">${T("usarEste")}</button>
-    </div>`;
-  };
-
-  const cartao=c=>{
-    const it=S.db.itens.find(i=>i.item===c.item);
-    const st=it?.status||"";
-    const alerta = c.campo==="Updated Status Obs" && incoerente(st,c.valorAplicado);
-    return `<div class="panel pad" style="margin-bottom:10px;${alerta?"border-left:3px solid var(--warn)":""}">
-      <div class="rowflex" style="justify-content:space-between;margin-bottom:9px">
-        <span class="rowflex" style="gap:9px">
-          <b class="mono" style="font-size:14px">${esc(c.item)}</b>
-          <span class="pill" style="background:${R.corDe(st)}18;color:${R.corDe(st)};border-color:${R.corDe(st)}55">
-            <i class="dot" style="background:${R.corDe(st)}"></i>${esc(st)}</span></span>
-        <span class="tag">${esc(c.campo)}</span></div>
-      <div class="rowflex" style="gap:10px;align-items:stretch">${caixa(c,1)}${caixa(c,2)}</div>
-      <div class="rowflex" style="margin-top:9px">
-        ${c.campo==="Updated Status Obs"?`<button class="btn sm" data-comb="${c.id}">${T("combinar")}</button>`:""}
-        <button class="btn sm" data-c="${c.id}" data-v="x">${T("outro")}</button>
-        ${alerta?`<span class="rowflex" style="gap:5px;color:var(--warn);font-size:11.5px;margin-left:auto">
-          &#9888; ${T("incoerente")}</span>`:""}
-      </div></div>`;
-  };
-
-  $("#view").innerHTML=`
-    <div class="panel pad" style="margin-bottom:14px;border-left:3px solid var(--accent)">
-      <b>${LANG==="pt"?"O que é esta tela":"What this screen is"}</b>
-      <p class="muted" style="margin:6px 0 0;line-height:1.75">${LANG==="pt"
-        ? `Os 428 itens casaram nos dois arquivos, mas em alguns campos eles <b>diziam coisas diferentes</b>.
-           Nada foi sobrescrito: os dois valores estão guardados e o do <b>${T("arquivo2")}</b> foi aplicado
-           provisoriamente. Escolher um valor aqui o torna oficial, guarda o outro no registro do conflito e
-           gera um evento no histórico com o seu nome. <b>Nenhuma informação é perdida.</b>`
-        : `All 428 items matched across both files, but some fields <b>disagreed</b>. Nothing was overwritten:
-           both values are stored and the one from <b>${T("arquivo2")}</b> was applied provisionally. Picking a
-           value makes it official, keeps the other in the conflict record, and logs a history event under your
-           name. <b>No information is lost.</b>`}</p></div>
-
-    ${abertos.length? Object.entries(porCampo).map(([campo,lista])=>`
-      <div class="panel" style="margin-bottom:14px"><h3>${esc(campo)} <span class="sub">${lista.length}</span>
-        <span style="margin-left:auto" class="rowflex">
-          <button class="btn sm" data-lote="${esc(campo)}" data-q="2">${T("emLote")}: ${T("arquivo2")}</button>
-          <button class="btn sm" data-lote="${esc(campo)}" data-q="1">${T("emLote")}: ${T("arquivo1")}</button>
-        </span></h3>
-        <div class="pad">${lista.map(cartao).join("")}</div></div>`).join("")
-      : `<div class="panel"><div class="empty"><h3>&#10003; ${T("semConflito")}</h3>${T("tudoResolvido")}</div></div>`}
-
-    ${fechados.length?`<div class="panel"><h3>${LANG==="pt"?"Resolvidos":"Resolved"} <span class="sub">${fechados.length}</span></h3>
-      <div class="tblwrap" style="max-height:340px"><table><thead><tr>
-        <th>${T("item")}</th><th>${T("campo")}</th><th>${LANG==="pt"?"Valor oficial":"Official value"}</th>
-        <th>${LANG==="pt"?"Descartado":"Discarded"}</th><th>${T("autor")}</th></tr></thead><tbody>
-      ${fechados.map(c=>{const desc=String(c.valorAplicado)===String(c.valorArquivo1)?c.valorArquivo2:c.valorArquivo1;
-        return `<tr><td class="num"><b>${esc(c.item)}</b></td><td>${esc(c.campo)}</td>
-        <td style="max-width:300px;white-space:pre-wrap">${esc(c.valorAplicado)}</td>
-        <td style="max-width:240px;white-space:pre-wrap" class="muted">${esc(desc)}</td>
-        <td>${esc(c.resolvidoPor||"")}<div class="muted" style="font-size:10.5px">${esc(c.justificativa||"")}</div></td></tr>`;}).join("")}
-      </tbody></table></div></div>`:""}`;
-
-  $$("button[data-c]").forEach(b=>b.onclick=()=>UI.resolverConflito(b.dataset.c,b.dataset.v));
-  $$("button[data-comb]").forEach(b=>b.onclick=()=>UI.combinarConflito(b.dataset.comb));
-  $$("button[data-lote]").forEach(b=>b.onclick=()=>UI.resolverLote(b.dataset.lote,b.dataset.q));
-};
 </script>
 <script>
 "use strict";
@@ -2747,6 +2968,14 @@ Render.config = function(){
           <i class="dot" style="background:${R.corFamilia(f.id)}"></i><b style="flex:1">${esc(R.nomeFamilia(f.id))}</b>
           <span class="muted" style="font-size:11px">${c.status.filter(s=>s.familia===f.id).map(s=>s.codigo.split(" - ")[0]).join(", ")}</span>
           <span class="mono">${S.db.itens.filter(i=>R.familiaDe(i.status)===f.id).length}</span></div>`).join("")}
+    </div></div>
+
+    <div class="panel"><h3>${LANG==="pt"?"Pasta da base":"Database folder"}</h3><div class="pad">
+      <dl class="kv" style="margin-bottom:11px">
+        <dt>${LANG==="pt"?"Pasta em uso":"Folder in use"}</dt>
+        <dd class="mono">${esc(Store.dirHandle?.name || (LANG==="pt"?"— nenhuma —":"— none —"))}</dd>
+      </dl>
+      ${Caminho.blocoHTML({editavel:true})}
     </div></div>
 
     <div class="panel"><h3>${T("backup")}</h3><div class="pad">
@@ -2834,6 +3063,7 @@ Render.config = function(){
   $$("input[data-st]").forEach(cb=>cb.onchange=()=>{
     c.status[+cb.dataset.st].ativo=cb.checked;
     Pend.registrar({t:"outro", o:"status-ativo"}); Pend.agendarAutosave();});
+  Caminho.ligar({editavel:true});
   $("#bFazer").onclick=async()=>{try{const n=await Store.backup(S.db,"manual");
     toast((LANG==="pt"?"Backup criado: ":"Backup created: ")+n,"ok");}catch(e){toast(String(e.message),"bad");}};
   $("#bBaixar").onclick=()=>dl(`database-${hoje()}.json`,JSON.stringify(S.db,null,1),"application/json");
@@ -2959,9 +3189,6 @@ function validarBase(db){
   const pCampo = pend.filter(x=>!x?.campo || !Pend.campoEditavel.includes(x.campo)).length;
   if(pCampo) A(`${pCampo} pendência(s) em campo que não é editável.`,
                `${pCampo} pending change(s) on a non-editable field.`);
-  const cAb = (Array.isArray(db.conflitos)? db.conflitos : []).filter(c=>c && !c.resolvido).length;
-  if(cAb) A(`${cAb} conflito(s) de migração aguardando decisão.`,
-            `${cAb} migration conflict(s) awaiting a decision.`);
   return {valido: !erros.length, erros, avisos};
 }
 
@@ -2979,8 +3206,6 @@ function verificarIntegridade(){
   if(semSt) p.push([`${semSt} ${LANG==="pt"?"itens sem status":"items without status"}`,"bad"]);
   const orf=(S.db.historico||[]).filter(h=>!ids.includes(h.item)).length;
   if(orf) p.push([`${orf} ${LANG==="pt"?"eventos de histórico órfãos":"orphan history events"}`,"warn"]);
-  const conf=(S.db.conflitos||[]).filter(c=>!c.resolvido).length;
-  if(conf) p.push([`${conf} ${LANG==="pt"?"conflitos aguardando decisão":"conflicts awaiting decision"}`,"warn"]);
   const mb = R.tamanhoBase()/1048576, limite = S.db.config.mbAvisoTamanho ?? 8;
   if(mb > limite) p.push([`${LANG==="pt"?"Base grande":"Large database"}: ${mb.toFixed(1)} MB ${LANG==="pt"
     ? `(acima de ${limite} MB) — considere arquivar histórico antigo em Configurações`
@@ -3024,6 +3249,7 @@ const UI = {
   async abrirPasta(){
     try{
       await Store.escolherPasta();
+      Caminho.conferir();
       await this.carregarBase();
     }catch(e){ if(e.name!=="AbortError") toast(String(e.message),"bad"); }
   },
@@ -3043,6 +3269,7 @@ const UI = {
       }
       S.db = lida;
       normalizar(S.db); Pend.diario=[]; S.sujo=false;
+      Caminho.sincronizarDaBase();
       Usuario.garantir();
       S.novidades = Visita.calcular(); Visita.marcar();
       await Store.backup(S.db,"abertura").catch(()=>{});
@@ -3213,7 +3440,6 @@ const UI = {
     const obs=(S.db.observacoes||[]).filter(o=>o.item===itemId)
                 .sort((a,b)=>b.criadoEm.localeCompare(a.criadoEm));
     const pend=S.db.pendentes.filter(p=>p.item===itemId);
-    const confl=(S.db.conflitos||[]).filter(c=>c.item===itemId&&!c.resolvido);
     const ativos=R.statusAtivos();
 
     const aba=(id,txt)=>`<button data-t="${id}">${esc(txt)}</button>`;
@@ -3227,11 +3453,6 @@ const UI = {
                 ? "está com este item aberto agora. Se os dois mudarem o mesmo campo, o sistema vai pedir uma decisão."
                 : "has this item open right now. If you both change the same field, the app will ask for a decision."}</div>`
           : ""; })()}
-        ${confl.length?`<div class="panel pad" style="border-left:3px solid var(--warn);margin-bottom:12px">
-          <b style="color:var(--warn)">⚠ ${confl.length} ${LANG==="pt"?"conflito(s) de migração em aberto":"open migration conflict(s)"}</b>
-          ${confl.map(c=>`<div style="margin-top:6px;font-size:12px"><b>${esc(c.campo)}</b><br>
-            <span class="muted">${T("arquivo1")}:</span> ${esc(c.valorArquivo1)}<br>
-            <span class="muted">${T("arquivo2")}:</span> ${esc(c.valorArquivo2)}</div>`).join("")}</div>`:""}
         ${pend.length?`<div class="panel pad" style="border-left:3px solid var(--chg-line);margin-bottom:12px">
           <b>${pend.length} ${LANG==="pt"?"alteração(ões) pendente(s) de consolidação":"change(s) pending consolidation"}</b>
           ${pend.map(p=>`<div class="rowflex muted" style="font-size:11.5px;margin-top:4px">
@@ -3392,70 +3613,6 @@ const UI = {
       this.fechar(); Render.atual(); toast(`${itemId}: ${b.dataset.s}`,"ok");});
   },
 
-  /* Grava a escolha de um conflito: aplica no item, registra no historico e
-     mantem os dois valores originais no proprio conflito. */
-  aplicarResolucao(c, valor, justificativa){
-    const it=S.db.itens.find(i=>i.item===c.item);
-    const campo=CAMPO_ITEM[c.campo];
-    if(it && campo){
-      const antes = Array.isArray(it[campo])? it[campo].join(";") : it[campo];
-      if(String(antes)!==String(valor)){
-        it[campo] = campo==="bigram"? String(valor).split(/[;,]/).map(x=>x.trim()).filter(Boolean) : valor;
-        it.atualizadoEm = agora();
-        R.invalidarHist();
-        S.db.historico.push({id:uid(),item:c.item,campo:c.campo,valorAnterior:antes,valorNovo:valor,
-          dataEfetiva:hoje(),consolidadoEm:agora(),primeiraAlteracaoEm:agora(),autor:Usuario.garantir(),
-          origem:"conflito",tipo:"conflito",
-          observacao:justificativa||(LANG==="pt"?"Resolução de conflito de migração":"Migration conflict resolution")});
-      }
-    }
-    Pend.registrar({t:"outro", o:"conflito:"+c.id});
-    c.resolvido=true; c.valorAplicado=valor;
-    c.resolvidoPor=Usuario.garantir(); c.resolvidoEm=agora();
-    c.justificativa=justificativa||null;
-  },
-  resolverConflito(id, escolha){
-    const c=(S.db.conflitos||[]).find(x=>x.id===id); if(!c) return;
-    if(escolha==="x") return this.editarConflito(c, c.valorAplicado);
-    this.aplicarResolucao(c, escolha==="1"? c.valorArquivo1 : c.valorArquivo2,
-      escolha==="1"? T("arquivo1") : T("arquivo2"));
-    Pend.autosave(); Render.atual(); toast(LANG==="pt"?"Conflito resolvido":"Conflict resolved","ok");
-  },
-  combinarConflito(id){
-    const c=(S.db.conflitos||[]).find(x=>x.id===id); if(!c) return;
-    const a=(c.valorArquivo2||"").trim(), b=(c.valorArquivo1||"").trim();
-    const juntos = a && b ? (a.endsWith(".")? a+" "+b : a+". "+b) : (a||b);
-    this.editarConflito(c, juntos, LANG==="pt"?"Combinação dos dois arquivos":"Combined from both files");
-  },
-  editarConflito(c, valorInicial, justificativa){
-    const it=S.db.itens.find(i=>i.item===c.item);
-    this.modal(`${LANG==="pt"?"Item":"Item"} ${c.item} — ${c.campo}`,
-      `<div class="rowflex" style="margin-bottom:12px"><span class="muted">${T("status")}:</span>
-         <span class="pill" style="background:${R.corDe(it?.status)}18;color:${R.corDe(it?.status)}">${esc(it?.status||"")}</span></div>
-       <div class="grid" style="grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">
-         <div class="panel pad"><b style="font-size:10.5px;color:var(--fg-3)">${T("arquivo1")}</b>
-           <div style="white-space:pre-wrap;margin-top:4px">${esc(c.valorArquivo1)||"—"}</div></div>
-         <div class="panel pad"><b style="font-size:10.5px;color:var(--fg-3)">${T("arquivo2")}</b>
-           <div style="white-space:pre-wrap;margin-top:4px">${esc(c.valorArquivo2)||"—"}</div></div></div>
-       <label class="fld"><span>${LANG==="pt"?"Valor oficial":"Official value"}</span>
-         <textarea id="cfTxt" rows="4">${esc(valorInicial??"")}</textarea></label>`,
-      [{txt:T("cancelar"),cls:"btn",fn:()=>this.fechar()},
-       {txt:T("salvar"),cls:"btn pri",fn:()=>{
-          this.aplicarResolucao(c, $("#cfTxt").value, justificativa||(LANG==="pt"?"Valor informado manualmente":"Manually entered value"));
-          this.fechar(); Pend.autosave(); Render.atual();
-          toast(LANG==="pt"?"Conflito resolvido":"Conflict resolved","ok");}}]);
-  },
-  resolverLote(campo, qual){
-    const lista=(S.db.conflitos||[]).filter(c=>!c.resolvido && c.campo===campo);
-    if(!lista.length) return;
-    const nome = qual==="1"? T("arquivo1") : T("arquivo2");
-    if(!confirmar(LANG==="pt"
-      ? `Resolver ${lista.length} conflito(s) de "${campo}" usando o valor do ${nome}?\n\nO outro valor continua guardado em cada conflito e cada decisão vira um evento no histórico.`
-      : `Resolve ${lista.length} "${campo}" conflict(s) using the value from ${nome}?\n\nThe other value stays recorded and each decision is logged in the history.`)) return;
-    for(const c of lista) this.aplicarResolucao(c, qual==="1"? c.valorArquivo1 : c.valorArquivo2, nome+" (lote)");
-    Pend.autosave(); Render.atual();
-    toast(`${lista.length} ${LANG==="pt"?"conflitos resolvidos":"conflicts resolved"}`,"ok");
-  },
 
   async restaurar(nome){
     if(!confirmar(LANG==="pt"
@@ -3490,90 +3647,495 @@ const UI = {
 </script>
 <script>
 "use strict";
-/* ============================= exportação ============================= */
+/* ============================= exportação =============================
+   Uma unica porta para sair da base: mesma lista de campos, mesma escolha de
+   colunas e mesmo saneamento para CSV, Excel, PDF e JSON. Antes cada tela
+   montava o seu proprio CSV com a lista fixa de 20 colunas, e o "PDF" era o
+   window.print() da tela como ela estava - a impressao saia com menu lateral,
+   pilulas de filtro e a tabela cortada na largura da janela.               */
+
+/* Texto que vai para um arquivo. Tres estragos nascem aqui e sao consertados
+   aqui, nao em cada formato:
+   1. caracteres de controle (o NUL que vem de celula de planilha antiga)
+      cortam o arquivo no meio para a maior parte dos leitores - saem;
+   2. quebra de linha DENTRO de uma celula e legal em CSV, mas so entre aspas e
+      so com CRLF; muito leitor (e o proprio Excel no import automatico) quebra
+      a linha ali e desalinha todo o resto do arquivo - vira separador visivel;
+   3. \r solto e a origem classica do "arquivo corrompido": normaliza.      */
+function limparTexto(v, {quebras="achatar"}={}){
+  let t = String(v ?? "");
+  t = t.replace(/\r\n?/g, "\n");
+  t = t.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "");
+  if(quebras==="achatar") t = t.replace(/\n+/g, " · ").replace(/[ \t]{2,}/g," ").trim();
+  return t;
+}
+/* Nome de arquivo que o Windows aceita: \ / : * ? " < > | e ponto no fim matam
+   o download sem dizer por que. */
+function nomeArquivo(base, ext){
+  const limpo = String(base||"export").normalize("NFC")
+    .replace(/[\\/:*?"<>|\u0000-\u001F]/g,"-").replace(/\s+/g," ").trim()
+    .replace(/\.+$/,"").slice(0,90) || "export";
+  return `${limpo}.${ext}`;
+}
+
 const Export = {
-  COLS:[["item","Item"],["status","Actual Status"],["inspType","InspType"],["insp","Insp"],
-        ["originalJx","OriginalJx"],["actualJx","ActualJx"],["actualJxDescription","ActualJxDescription"],
-        ["numAndDescription","Nº and Description"],["evidence","Evidence"],
-        ["hullPassageParts","HullPassageParts"],["description","Description"],["performance","Performance"],
-        ["mode","Mode"],["positionAC","Position AC"],["bigram","Bigram"],
-        ["updatedStatusObs","Updated Status Obs"],["generalObs","General Obs"],["ncr","NCR's"],
-        ["tests","Tests"],["ultimaAlteracaoStatus","Last Status Change"]],
-  val(i,k){ const v=i[k]; return Array.isArray(v)? v.join(";") : (v??""); },
+  /* Catalogo unico de campos exportaveis. `get` existe para o campo que nao e
+     texto puro (lista, data, derivado) sair igual em todos os formatos. */
+  CAMPOS:[
+    {id:"item",                 pt:"Item",                  en:"Item"},
+    {id:"status",               pt:"Actual Status",         en:"Actual Status"},
+    {id:"inspType",             pt:"InspType",              en:"InspType"},
+    {id:"insp",                 pt:"Insp",                  en:"Insp"},
+    {id:"originalJx",           pt:"OriginalJx",            en:"OriginalJx"},
+    {id:"actualJx",             pt:"ActualJx",              en:"ActualJx"},
+    {id:"actualJxDescription",  pt:"ActualJxDescription",   en:"ActualJxDescription"},
+    {id:"numAndDescription",    pt:"Nº and Description", en:"Nº and Description"},
+    {id:"evidence",             pt:"Evidence",              en:"Evidence"},
+    {id:"hullPassageParts",     pt:"HullPassageParts",      en:"HullPassageParts"},
+    {id:"description",          pt:"Description",           en:"Description"},
+    {id:"performance",          pt:"Performance",           en:"Performance"},
+    {id:"mode",                 pt:"Mode",                  en:"Mode"},
+    {id:"positionAC",           pt:"Position AC",           en:"Position AC"},
+    {id:"bigram",               pt:"Bigram",                en:"Bigram",
+      get:i=>(i.bigram||[]).join("; ")},
+    {id:"sbr",                  pt:"SBR",                   en:"SBR"},
+    {id:"ncr",                  pt:"NCR's",                 en:"NCR's"},
+    {id:"tests",                pt:"Tests",                 en:"Tests"},
+    {id:"updatedStatusObs",     pt:"Updated Status Obs",    en:"Updated Status Obs"},
+    {id:"generalObs",           pt:"General Obs",           en:"General Obs"},
+    {id:"b05",                  pt:"É B05",            en:"Is B05",
+      get:i=>i.isB05? (LANG==="pt"?"Sim":"Yes") : (LANG==="pt"?"Não":"No")},
+    {id:"familia",              pt:"Família do status", en:"Status family",
+      get:i=>R.nomeFamilia(R.familiaDe(i.status))},
+    {id:"emAberto",             pt:"Em aberto",             en:"Open",
+      get:i=>R.aberto(i.status)? (LANG==="pt"?"Sim":"Yes") : (LANG==="pt"?"Não":"No")},
+    {id:"criadoEm",             pt:"Criado em",             en:"Created",
+      get:i=>fmtD(i.criadoEm)},
+    {id:"ultimaAlteracaoStatus",pt:"Última mudança de status", en:"Last status change",
+      get:i=>fmtD(i.ultimaAlteracaoStatus)},
+    {id:"aging",                pt:"Aging (dias)",          en:"Aging (days)",
+      get:i=>R.diasSemAtualizacao(i)},
+    {id:"observacoes",          pt:"Observações", en:"Notes",
+      get:i=>(S.db?.observacoes||[]).filter(o=>o.item===i.item)
+              .map(o=>`${o.autor||"?"}: ${o.texto}`).join(" | ")},
+  ],
+  PADRAO:["item","status","inspType","insp","originalJx","actualJx","numAndDescription",
+          "evidence","description","updatedStatusObs","generalObs","ncr","ultimaAlteracaoStatus","aging"],
+
+  campo(id){ return this.CAMPOS.find(c=>c.id===id); },
+  rotulo(c){ return LANG==="pt"? c.pt : c.en; },
+  val(i,c){ return c.get? c.get(i) : (i[c.id] ?? ""); },
+
+  /* A escolha de colunas fica no navegador de cada um, como a da tabela: e
+     preferencia de quem exporta, nao dado da base. */
+  escolhidas(){
+    let l=null;
+    try{ l = JSON.parse(localStorage.getItem("sm.exportCols")||"null"); }catch{}
+    l = Array.isArray(l)? l.filter(id=>this.campo(id)) : null;
+    return l?.length? l : [...this.PADRAO];
+  },
+  guardarColunas(l){ try{ localStorage.setItem("sm.exportCols", JSON.stringify(l)); }catch{} },
+  opcoes(){
+    let o=null;
+    try{ o = JSON.parse(localStorage.getItem("sm.exportOpc")||"null"); }catch{}
+    return Object.assign({sep:";", bom:true, quebras:"achatar",
+                          orientacao:"paisagem", resumo:true, zebra:true}, o||{});
+  },
+  guardarOpcoes(o){ try{ localStorage.setItem("sm.exportOpc", JSON.stringify(o)); }catch{} },
+
+  defs(cols){ return (cols??this.escolhidas()).map(id=>this.campo(id)).filter(Boolean); },
+
   /* Excel e LibreOffice executam o conteudo de uma celula que comeca por
      = + - @ (ou tabulacao/retorno de carro) MESMO entre aspas: um texto vindo
      da planilha de origem viraria formula na maquina de quem abre o CSV.
      O apostrofo desarma e continua legivel. */
   seguro(v){ const t=String(v??""); return /^[=+\-@\t\r]/.test(t) ? "'"+t : t; },
-  csv(lista){
-    const q=s=>`"${this.seguro(s).replace(/"/g,'""')}"`;
-    const linhas=[this.COLS.map(c=>q(c[1])).join(";")];
-    for(const i of lista) linhas.push(this.COLS.map(c=>q(this.val(i,c[0]))).join(";"));
-    dl(`itens-${hoje()}.csv`,"﻿"+linhas.join("\r\n"),"text/csv;charset=utf-8");
+
+  /* ------------------------------- CSV -------------------------------- */
+  /* Separador, BOM e tratamento de quebra de linha sao escolha de quem exporta:
+     o ";" com BOM abre no Excel em portugues com um duplo-clique; a virgula sem
+     BOM e o que um script em Python, R ou o Power BI espera. */
+  textoCSV(lista, {cols, sep=";", quebras="achatar"}={}){
+    const defs = this.defs(cols);
+    const q = v => `"${this.seguro(limparTexto(v,{quebras})).replace(/"/g,'""')}"`;
+    const linhas = [defs.map(c=>q(this.rotulo(c))).join(sep)];
+    for(const i of lista) linhas.push(defs.map(c=>q(this.val(i,c))).join(sep));
+    /* linha em branco no fim: sem ela alguns leitores comem o ultimo registro */
+    return linhas.join("\r\n")+"\r\n";
   },
-  historico(evs){
-    const q=s=>`"${Export.seguro(s).replace(/"/g,'""')}"`;
-    const h=["Item","Campo","Valor anterior","Novo valor","Data efetiva","Consolidado em","Autor","Origem","Observação"];
-    const l=[h.map(q).join(";")];
-    for(const e of evs) l.push([e.item,e.campo,e.valorAnterior,e.valorNovo,e.dataEfetiva,
-                                e.consolidadoEm,e.autor,e.origem,e.observacao].map(q).join(";"));
-    dl(`historico-${hoje()}.csv`,"﻿"+l.join("\r\n"),"text/csv;charset=utf-8");
+  csv(lista, opc={}){
+    const o = Object.assign(this.opcoes(), opc);
+    dl(nomeArquivo(o.nome || `itens-${hoje()}`,"csv"),
+       (o.bom===false? "":"\ufeff")+this.textoCSV(lista,o), "text/csv;charset=utf-8");
   },
+  historico(evs, opc={}){
+    const o = Object.assign(this.opcoes(), opc);
+    const q = v => `"${Export.seguro(limparTexto(v,{quebras:o.quebras})).replace(/"/g,'""')}"`;
+    const h = LANG==="pt"
+      ? ["Item","Campo","Valor anterior","Novo valor","Data efetiva","Consolidado em","Autor","Origem","Observação"]
+      : ["Item","Field","Previous value","New value","Effective date","Consolidated at","Author","Source","Note"];
+    const l = [h.map(q).join(o.sep)];
+    for(const e of evs) l.push([e.item,e.campo,e.valorAnterior,e.valorNovo,fmtD(e.dataEfetiva),
+                                fmtDT(e.consolidadoEm),e.autor,e.origem,e.observacao].map(q).join(o.sep));
+    dl(nomeArquivo(o.nome || `historico-${hoje()}`,"csv"),
+       (o.bom===false?"":"\ufeff")+l.join("\r\n")+"\r\n", "text/csv;charset=utf-8");
+  },
+
+  /* ------------------------------ resumo ------------------------------ */
+  /* O mesmo resumo alimenta a aba "Resumo" do Excel e a capa do relatorio: um
+     numero so pode sair diferente nos dois se o calculo for duplicado. */
+  resumo(lista){
+    const ef=M.evidenceFlow(lista), sy=M.shipyard(lista), fu=M.funcional(lista);
+    const k=M.kpis(lista);
+    const bloco=(titulo,b)=>({titulo, total:b.total, aberto:b.aberto,
+      linhas:b.status.map(([s,n])=>({rotulo:s, n, pct:n/Math.max(b.total,1)*100, cor:R.corDe(s)}))});
+    return {
+      kpis:[[T("total"),k.total],[T("emAberto"),k.aberto],[T("validados"),k.validado],
+            [T("conclusao"),(k.pct*100).toFixed(1)+"%"]],
+      blocos:[
+        bloco(LANG==="pt"?"Evidências somente B05":"Evidences only B05", ef.b05),
+        bloco(LANG==="pt"?"Evidências exceto B05":"Evidences except B05", ef.exceto),
+        bloco("Shipyard Prerequisites (ActualJx = J08)", sy),
+      ],
+      funcional:fu.linhas.filter(l=>l.total),
+    };
+  },
+
+  /* ------------------------------- Excel ------------------------------ */
   /* SpreadsheetML 2003: o Excel abre nativamente, com várias abas e formatação. */
-  excel(lista,titulo){
-    const x=s=>String(s??"").replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
-    const cel=(v,estilo="")=>`<Cell${estilo?` ss:StyleID="${estilo}"`:""}><Data ss:Type="String">${x(v)}</Data></Cell>`;
-    const num=v=>`<Cell ss:StyleID="n"><Data ss:Type="Number">${+v||0}</Data></Cell>`;
-    const aba=(nome,linhas)=>`<Worksheet ss:Name="${x(nome).slice(0,31)}"><Table>${
+  excel(lista,titulo,opc={}){
+    const o = Object.assign(this.opcoes(), opc);
+    const defs = this.defs(o.cols);
+    const x=s=>limparTexto(s,{quebras:"manter"})
+      .replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c])).replace(/\n/g,"&#10;");
+    const cel=(v,estilo="")=>`<Cell${estilo?` ss:StyleID="${estilo}"`:""}><Data ss:Type="String">${x(this.seguro(v))}</Data></Cell>`;
+    const num=v=>`<Cell ss:StyleID="n"><Data ss:Type="Number">${Number.isFinite(+v)?+v:0}</Data></Cell>`;
+    const aba=(nome,linhas,larguras)=>`<Worksheet ss:Name="${x(nome).slice(0,31)}"><Table>${
+      larguras? larguras.map(w=>`<Column ss:AutoFitWidth="0" ss:Width="${w}"/>`).join("") : ""}${
       linhas.map(l=>`<Row>${l}</Row>`).join("")}</Table>
       <WorksheetOptions xmlns="urn:schemas-microsoft-com:office:excel"><FreezePanes/><SplitHorizontal>1</SplitHorizontal>
       <TopRowBottomPane>1</TopRowBottomPane><ActivePane>2</ActivePane></WorksheetOptions></Worksheet>`;
 
-    const dados=[this.COLS.map(c=>cel(c[1],"h")).join("")]
-      .concat(lista.map(i=>this.COLS.map(c=>cel(this.val(i,c[0]))).join("")));
+    const dados=[defs.map(c=>cel(this.rotulo(c),"h")).join("")]
+      .concat(lista.map(i=>defs.map(c=>cel(this.val(i,c),"w")).join("")));
+    const larg = defs.map(c=>{
+      const curto = ["item","insp","originalJx","actualJx","aging","b05","emAberto"].includes(c.id);
+      const longo = ["description","tests","updatedStatusObs","generalObs","evidence",
+                     "numAndDescription","observacoes","actualJxDescription"].includes(c.id);
+      return curto? 62 : longo? 230 : 110;
+    });
 
-    const ef=M.evidenceFlow(lista), sy=M.shipyard(lista), fu=M.funcional(lista);
+    const r=this.resumo(lista);
     const resumo=[
       [cel("StatusMilestone — "+titulo,"t")].join(""),
       [cel(`${LANG==="pt"?"Gerado em":"Generated"} ${fmtDT(agora())} — ${Usuario.nome()}`)].join(""),
+      [cel(`${LANG==="pt"?"Recorte":"Scope"}: ${this.descricaoFiltro()}`)].join(""),
       "",
-      [cel(LANG==="pt"?"EVIDÊNCIAS SOMENTE B05":"EVIDENCES ONLY B05","h"),cel(""),cel("")].join(""),
-      [cel(LANG==="pt"?"Total":"Total"),num(ef.b05.total),cel("")].join(""),
-      [cel(LANG==="pt"?"Em aberto":"Remaining"),num(ef.b05.aberto),cel("")].join(""),
-      ...ef.b05.status.map(([s,n])=>[cel(s),num(n),cel((n/Math.max(ef.b05.total,1)*100).toFixed(2)+"%")].join("")),
+      ...r.kpis.map(([lab,v])=>[cel(lab,"h"), /^\d+$/.test(String(v))? num(v) : cel(v)].join("")),
       "",
-      [cel(LANG==="pt"?"EVIDÊNCIAS EXCETO B05":"EVIDENCES EXCEPT B05","h"),cel(""),cel("")].join(""),
-      [cel(LANG==="pt"?"Total":"Total"),num(ef.exceto.total),cel("")].join(""),
-      [cel(LANG==="pt"?"Em aberto":"Remaining"),num(ef.exceto.aberto),cel("")].join(""),
-      ...ef.exceto.status.map(([s,n])=>[cel(s),num(n),cel((n/Math.max(ef.exceto.total,1)*100).toFixed(2)+"%")].join("")),
-      "",
-      [cel("SHIPYARD PREREQUISITES (J08)","h"),cel(""),cel("")].join(""),
-      [cel(LANG==="pt"?"Total":"Total"),num(sy.total),cel("")].join(""),
-      [cel(LANG==="pt"?"Em aberto":"Remaining"),num(sy.aberto),cel("")].join(""),
-      ...sy.status.map(([s,n])=>[cel(s),num(n),cel("")].join("")),
-      "",
+      ...r.blocos.flatMap(b=>[
+        [cel(b.titulo.toUpperCase(),"h"),cel("","h"),cel("","h")].join(""),
+        [cel(LANG==="pt"?"Total":"Total"),num(b.total),cel("")].join(""),
+        [cel(LANG==="pt"?"Em aberto":"Remaining"),num(b.aberto),cel("")].join(""),
+        ...b.linhas.map(l=>[cel(l.rotulo),num(l.n),cel(l.pct.toFixed(2)+"%")].join("")),
+        "",
+      ]),
       [cel("FUNCTIONAL INSP. TYPE","h"),cel(LANG==="pt"?"Em aberto":"Open","h"),
        cel(LANG==="pt"?"Anterior":"Previous","h"),cel("Δ","h"),cel("Total","h")].join(""),
-      ...fu.linhas.filter(l=>l.total).map(l=>[cel(l.tipo),num(l.atual),num(l.anterior),
+      ...r.funcional.map(l=>[cel(l.tipo),num(l.atual),num(l.anterior),
         cel((l.delta>0?"▼-":l.delta<0?"▲+":"▬")+(l.delta?Math.abs(l.delta):"")),num(l.total)].join("")),
-    ].filter(r=>r!=="").map(r=>r||cel(""));
+    ].filter(v=>v!=="").map(v=>v||cel(""));
 
-    const hist=(S.db.historico||[]).filter(h=>lista.some(i=>i.item===h.item));
-    const abaHist=[["Item","Campo","Anterior","Novo","Data","Autor"].map(v=>cel(v,"h")).join("")]
-      .concat(hist.map(h=>[h.item,h.campo,h.valorAnterior,h.valorNovo,h.dataEfetiva,h.autor].map(v=>cel(v)).join("")));
+    const alvos=new Set(lista.map(i=>i.item));
+    const hist=(S.db?.historico||[]).filter(h=>alvos.has(h.item))
+                .sort((a,b)=>String(b.dataEfetiva).localeCompare(String(a.dataEfetiva)));
+    const cabH=LANG==="pt"?["Item","Campo","Anterior","Novo","Data efetiva","Autor","Observação"]
+                          :["Item","Field","Previous","New","Effective date","Author","Note"];
+    const abaHist=[cabH.map(v=>cel(v,"h")).join("")]
+      .concat(hist.map(h=>[h.item,h.campo,h.valorAnterior,h.valorNovo,fmtD(h.dataEfetiva),h.autor,h.observacao]
+        .map(v=>cel(v,"w")).join("")));
 
     const xml=`<?xml version="1.0"?><?mso-application progid="Excel.Sheet"?>
 <Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
  xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel"
  xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
 <Styles>
- <Style ss:ID="h"><Font ss:Bold="1" ss:Color="#FFFFFF"/><Interior ss:Color="#2F5FA8" ss:Pattern="Solid"/></Style>
+ <Style ss:ID="Default" ss:Name="Normal"><Alignment ss:Vertical="Top"/><Font ss:FontName="Calibri" ss:Size="10"/></Style>
+ <Style ss:ID="h"><Font ss:Bold="1" ss:Color="#FFFFFF"/><Interior ss:Color="#2F5FA8" ss:Pattern="Solid"/>
+   <Alignment ss:Vertical="Center"/></Style>
  <Style ss:ID="t"><Font ss:Bold="1" ss:Size="13"/></Style>
+ <Style ss:ID="w"><Alignment ss:Vertical="Top" ss:WrapText="1"/></Style>
  <Style ss:ID="n"><NumberFormat ss:Format="0"/></Style>
 </Styles>
-${aba("Resumo",resumo)}${aba("Itens",dados)}${aba(LANG==="pt"?"Historico":"History",abaHist)}
+${aba("Resumo",resumo)}${aba("Itens",dados,larg)}${aba(LANG==="pt"?"Historico":"History",abaHist)}
 </Workbook>`;
-    dl(`statusmilestone-${hoje()}.xls`, xml, "application/vnd.ms-excel");
+    dl(nomeArquivo(o.nome || `statusmilestone-${hoje()}`,"xls"), xml, "application/vnd.ms-excel");
+  },
+
+  /* ------------------------------- JSON ------------------------------- */
+  json(lista, opc={}){
+    const o = Object.assign(this.opcoes(), opc);
+    const defs = this.defs(o.cols);
+    const corpo = {
+      gerado:agora(), autor:Usuario.nome(), recorte:this.descricaoFiltro(),
+      revisaoBase:S.db?.meta?.revisao ?? null,
+      colunas:defs.map(c=>c.id), total:lista.length,
+      itens: lista.map(i=>Object.fromEntries(defs.map(c=>[c.id, this.val(i,c)]))),
+    };
+    dl(nomeArquivo(o.nome || `itens-${hoje()}`,"json"), JSON.stringify(corpo,null,1), "application/json");
+  },
+
+  /* --------------------------- relatório PDF --------------------------- */
+  descricaoFiltro(){
+    const a = (typeof Filtros!=="undefined" && Filtros.ativos)? Filtros.ativos() : [];
+    if(!a.length) return LANG==="pt"?"todos os itens da base":"all items in the database";
+    return a.map(f=>f.rotulo).join(" · ");
+  },
+  /* O relatorio e um documento montado do zero - capa, resumo em numeros e a
+     tabela paginada com as colunas escolhidas -, nao a tela impressa. O
+     cabecalho da tabela repete em toda pagina e nenhuma linha parte ao meio. */
+  docHTML(lista, titulo, o){
+    const defs = this.defs(o.cols);
+    const r = this.resumo(lista);
+    const paisagem = o.orientacao!=="retrato";
+    const e = v => esc(limparTexto(v,{quebras:o.quebras==="manter"?"manter":"achatar"}));
+    const barra = b => b.linhas.map(l=>`
+      <tr><td class="st"><i style="background:${l.cor}"></i>${e(l.rotulo)}</td>
+        <td class="n">${l.n}</td><td class="n">${l.pct.toFixed(1)}%</td>
+        <td class="bar"><span style="width:${l.pct.toFixed(1)}%;background:${l.cor}"></span></td></tr>`).join("");
+
+    const resumoHTML = !o.resumo? "" : `
+      <section>
+        <h2>${LANG==="pt"?"Resumo":"Summary"}</h2>
+        <div class="kpis">${r.kpis.map(([lab,v])=>`
+          <div class="kpi"><span class="lab">${e(lab)}</span><b>${e(v)}</b></div>`).join("")}</div>
+        ${r.blocos.map(b=>`
+          <h3>${e(b.titulo)} <span class="sub">${b.aberto} ${LANG==="pt"?"em aberto de":"open of"} ${b.total}</span></h3>
+          <table class="resumo"><tbody>${barra(b)||`<tr><td colspan="4" class="vazio">—</td></tr>`}</tbody></table>`).join("")}
+        ${r.funcional.length?`
+          <h3>Functional Insp. Type</h3>
+          <table class="resumo"><thead><tr><th>${LANG==="pt"?"Tipo":"Type"}</th>
+            <th class="n">${LANG==="pt"?"Em aberto":"Open"}</th><th class="n">${LANG==="pt"?"Anterior":"Previous"}</th>
+            <th class="n">Δ</th><th class="n">Total</th></tr></thead><tbody>
+            ${r.funcional.map(l=>`<tr><td>${e(l.tipo)}</td><td class="n">${l.atual}</td>
+              <td class="n">${l.anterior}</td>
+              <td class="n" style="color:${l.delta>0?"#2f7a4f":l.delta<0?"#b3403a":"#777"}">${
+                l.delta>0?"−"+l.delta : l.delta<0? "+"+Math.abs(l.delta) : "—"}</td>
+              <td class="n">${l.total}</td></tr>`).join("")}
+          </tbody></table>`:""}
+      </section>`;
+
+    /* Largura por coluna: sem isto o texto longo empurra tudo e a tabela sai
+       com a coluna do Item com 2 cm e a descricao espremida. */
+    const larguras = defs.map(c=>{
+      const w = {item:6, status:13, aging:5, insp:6, originalJx:6, actualJx:6, criadoEm:7,
+                 ultimaAlteracaoStatus:8, b05:5, emAberto:5, familia:8}[c.id];
+      return w ?? (["description","tests","updatedStatusObs","generalObs","evidence",
+                    "numAndDescription","observacoes","actualJxDescription"].includes(c.id) ? 16 : 9);
+    });
+    const soma = larguras.reduce((a,b)=>a+b,0) || 1;
+    const rev = String(S.db?.meta?.revisao ?? "—");
+
+    return `<!doctype html><html lang="${LANG==="pt"?"pt-BR":"en"}"><head><meta charset="utf-8">
+<title>${esc(titulo)} — StatusMilestone</title>
+<style>
+  @page { size: A4 ${paisagem?"landscape":"portrait"}; margin: 12mm 10mm 14mm; }
+  * { box-sizing:border-box; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+  body { font:11px/1.45 "Segoe UI",Roboto,Helvetica,Arial,sans-serif; color:#16181d; margin:0; background:#fff; }
+  .folha { padding:14px 16px; max-width:${paisagem?"1500px":"1050px"}; margin:0 auto; }
+  header.capa { border-bottom:2px solid #2F5FA8; padding-bottom:10px; margin-bottom:14px; }
+  header.capa .marca { font-size:10px; letter-spacing:.12em; text-transform:uppercase; color:#2F5FA8; font-weight:700; }
+  header.capa h1 { font-size:19px; margin:3px 0 7px; letter-spacing:-.01em; }
+  header.capa dl { display:grid; grid-template-columns:auto 1fr; gap:2px 12px; margin:0; font-size:10.5px; }
+  header.capa dt { color:#6b7280; text-transform:uppercase; font-size:9px; letter-spacing:.06em; padding-top:2px; }
+  header.capa dd { margin:0; }
+  h2 { font-size:13px; margin:16px 0 8px; padding-bottom:4px; border-bottom:1px solid #d6d9e0; }
+  h3 { font-size:10.5px; margin:12px 0 5px; text-transform:uppercase; letter-spacing:.05em; color:#3a4150; }
+  h3 .sub { text-transform:none; letter-spacing:0; color:#6b7280; font-weight:400; }
+  .kpis { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:6px; }
+  .kpi { border:1px solid #d6d9e0; border-radius:5px; padding:6px 13px; min-width:112px; background:#f7f8fa; }
+  .kpi .lab { display:block; font-size:9px; text-transform:uppercase; letter-spacing:.06em; color:#6b7280; }
+  .kpi b { font-size:17px; }
+  table { width:100%; border-collapse:collapse; table-layout:fixed; }
+  thead { display:table-header-group; }
+  tr { break-inside:avoid; page-break-inside:avoid; }
+  th { background:#2F5FA8; color:#fff; font-size:9.5px; text-transform:uppercase; letter-spacing:.04em;
+       text-align:left; padding:5px 6px; border:1px solid #2F5FA8; font-weight:600; }
+  td { padding:4px 6px; border:1px solid #dfe2e8; vertical-align:top; word-wrap:break-word; overflow-wrap:anywhere; }
+  ${o.zebra?"tbody tr:nth-child(even) td { background:#f6f7f9; }":""}
+  td.n, th.n { text-align:right; font-variant-numeric:tabular-nums; }
+  table.resumo { width:auto; min-width:min(100%,430px); table-layout:auto; margin-bottom:4px; }
+  table.resumo td, table.resumo th { border:0; border-bottom:1px solid #e6e8ec; padding:3px 10px 3px 0; }
+  table.resumo th { background:none; color:#3a4150; text-transform:uppercase; font-size:9px; }
+  td.st i { display:inline-block; width:8px; height:8px; border-radius:2px; margin-right:6px; }
+  td.bar { width:150px; }
+  td.bar span { display:block; height:7px; border-radius:3px; min-width:1px; }
+  td.vazio { color:#9aa0aa; }
+  .pill { display:inline-block; padding:1px 6px; border-radius:9px; font-size:9.5px; font-weight:600;
+          border:1px solid currentColor; }
+  footer { margin-top:14px; padding-top:7px; border-top:1px solid #d6d9e0; font-size:9px; color:#6b7280;
+           display:flex; justify-content:space-between; gap:12px; }
+  .nada { padding:22px; text-align:center; color:#6b7280; border:1px dashed #d6d9e0; border-radius:6px; }
+  @media screen { body { background:#e9ebef; padding:18px 0; }
+    .folha { background:#fff; box-shadow:0 1px 6px rgba(0,0,0,.14); border-radius:4px; } }
+</style></head><body><div class="folha">
+  <header class="capa">
+    <div class="marca">StatusMilestone — J08</div>
+    <h1>${esc(titulo)}</h1>
+    <dl>
+      <dt>${LANG==="pt"?"Recorte":"Scope"}</dt><dd>${e(this.descricaoFiltro())}</dd>
+      <dt>${LANG==="pt"?"Itens":"Items"}</dt><dd>${lista.length}</dd>
+      <dt>${LANG==="pt"?"Gerado em":"Generated"}</dt><dd>${esc(fmtDT(agora()))}</dd>
+      <dt>${LANG==="pt"?"Por":"By"}</dt><dd>${esc(Usuario.nome()||"—")}</dd>
+      <dt>${LANG==="pt"?"Revisão da base":"Database revision"}</dt><dd>${esc(rev)}</dd>
+    </dl>
+  </header>
+  ${resumoHTML}
+  <h2>${LANG==="pt"?"Itens":"Items"} <span style="font-weight:400;color:#6b7280">(${lista.length})</span></h2>
+  ${lista.length? `<table>
+    <colgroup>${larguras.map(w=>`<col style="width:${(w/soma*100).toFixed(2)}%">`).join("")}</colgroup>
+    <thead><tr>${defs.map(c=>`<th class="${c.id==="aging"?"n":""}">${esc(this.rotulo(c))}</th>`).join("")}</tr></thead>
+    <tbody>${lista.map(i=>`<tr>${defs.map(c=>{
+      if(c.id==="status"){ const cor=R.corDe(i.status);
+        return `<td><span class="pill" style="color:${cor};background:${cor}1a">${e(i.status)}</span></td>`; }
+      if(c.id==="aging") return `<td class="n">${e(this.val(i,c))}</td>`;
+      return `<td>${e(this.val(i,c))||'<span style="color:#b6bac2">—</span>'}</td>`;
+    }).join("")}</tr>`).join("")}</tbody></table>`
+   : `<div class="nada">${LANG==="pt"?"Nenhum item neste recorte.":"No items in this scope."}</div>`}
+  <footer>
+    <span>StatusMilestone · ${esc(fmtDT(agora()))} · ${esc(Usuario.nome()||"—")}</span>
+    <span>database.json · ${LANG==="pt"?"revisão":"revision"} ${esc(rev)}</span>
+  </footer>
+</div></body></html>`;
+  },
+  /* Imprime num quadro escondido: nao depende de o navegador liberar janela
+     nova (bloqueador de pop-up e o padrao em muita instalacao corporativa) e
+     nao mexe na tela que a pessoa esta usando. */
+  pdf(lista, titulo, opc={}){
+    const o = Object.assign(this.opcoes(), opc);
+    const html = this.docHTML(lista, titulo, o);
+    try{
+      $("#quadroImpressao")?.remove();
+      const f = document.createElement("iframe");
+      f.id = "quadroImpressao";
+      f.setAttribute("aria-hidden","true");
+      f.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden";
+      f.onload = ()=>{
+        try{ f.contentWindow.focus(); f.contentWindow.print(); }
+        catch{ this.pdfJanela(html); }
+        /* o quadro nao pode sair antes de a caixa de impressao terminar de ler */
+        setTimeout(()=>f.remove(), 60000);
+      };
+      f.srcdoc = html;
+      document.body.append(f);
+      toast(LANG==="pt"?'Relatório montado — escolha "Salvar como PDF" na caixa de impressão'
+                       :'Report built — pick "Save as PDF" in the print dialog',"ok");
+    }catch{ this.pdfJanela(html); }
+  },
+  pdfJanela(html){
+    const w = window.open("","_blank");
+    if(!w) return toast(LANG==="pt"?"O navegador bloqueou a janela do relatório"
+                                   :"The browser blocked the report window","bad");
+    w.document.write(html); w.document.close();
+    setTimeout(()=>{ try{ w.focus(); w.print(); }catch{} }, 350);
+  },
+  /* O mesmo relatorio como arquivo: da para anexar num e-mail sem passar pela
+     caixa de impressao, e abre igual em qualquer maquina. */
+  html(lista, titulo, opc={}){
+    const o = Object.assign(this.opcoes(), opc);
+    dl(nomeArquivo(o.nome || `relatorio-${hoje()}`,"html"),
+       this.docHTML(lista, titulo, o), "text/html;charset=utf-8");
+  },
+
+  /* ---------------------- a janela única de exportação ----------------- */
+  painel(lista, titulo){
+    const o = this.opcoes();
+    const sel = new Set(this.escolhidas());
+    const lerSelecao = ()=>this.CAMPOS.map(c=>c.id)
+      .filter(id=>$$(`.chip[data-xc="${id}"]`)[0]?.classList.contains("on"));
+    const lerOpcoes = ()=>({
+      sep: $("#xSep")?.value || o.sep,
+      bom: ($("#xBom")?.value ?? (o.bom?"1":"0"))==="1",
+      quebras: $("#xQuebra")?.value || o.quebras,
+      orientacao: $("#xOrient")?.value || o.orientacao,
+      resumo: $("#xResumo")? !!$("#xResumo").checked : o.resumo,
+      zebra:  $("#xZebra")?  !!$("#xZebra").checked  : o.zebra,
+    });
+    const sair = fn => {
+      const cols = lerSelecao();
+      if(!cols.length) return toast(LANG==="pt"?"Escolha ao menos uma coluna":"Pick at least one column","bad");
+      const opc = lerOpcoes();
+      this.guardarColunas(cols); this.guardarOpcoes(opc);
+      UI.fechar();
+      fn({...opc, cols, nome:`${titulo} - ${hoje()}`});
+    };
+
+    UI.modal(`${LANG==="pt"?"Exportar":"Export"} — ${titulo}`, `
+      <p class="muted" style="margin-bottom:13px">${LANG==="pt"
+        ? `<b>${lista.length}</b> item(ns) no recorte atual (${esc(this.descricaoFiltro())}). As colunas e as opções abaixo ficam guardadas para as próximas exportações.`
+        : `<b>${lista.length}</b> item(s) in the current scope (${esc(this.descricaoFiltro())}). Columns and options below are remembered for next time.`}</p>
+
+      <h3 style="border:0;padding:0;font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--fg-3);margin-bottom:7px">
+        ${LANG==="pt"?"Colunas do relatório":"Report columns"}
+        <span class="sub" id="xConta">${sel.size}</span></h3>
+      <div class="chips" style="margin-bottom:8px">${this.CAMPOS.map(c=>
+        `<span class="chip ${sel.has(c.id)?"on":""}" data-xc="${esc(c.id)}">${esc(this.rotulo(c))}</span>`).join("")}</div>
+      <div class="rowflex" style="margin-bottom:12px">
+        <button class="btn sm" id="xTodas">${LANG==="pt"?"Todas":"All"}</button>
+        <button class="btn sm" id="xNenhuma">${LANG==="pt"?"Nenhuma":"None"}</button>
+        <button class="btn sm" id="xPadrao">${LANG==="pt"?"Padrão":"Default"}</button>
+        <button class="btn sm" id="xDaTabela">${LANG==="pt"?"Iguais às da tabela":"Same as the table"}</button>
+      </div>
+
+      <div class="sep"></div>
+      <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(min(230px,100%),1fr));gap:11px">
+        <label class="fld"><span>${LANG==="pt"?"Separador do CSV":"CSV separator"}</span>
+          <select id="xSep">
+            <option value=";" ${o.sep===";"?"selected":""}>${LANG==="pt"?"Ponto e vírgula ;  (Excel em português)":"Semicolon ;  (Excel pt/es/fr)"}</option>
+            <option value="," ${o.sep===","?"selected":""}>${LANG==="pt"?"Vírgula ,  (padrão internacional)":"Comma ,  (international standard)"}</option>
+            <option value="\u0009" ${o.sep==="\u0009"?"selected":""}>${LANG==="pt"?"Tabulação  (colar direto na planilha)":"Tab  (paste straight into a sheet)"}</option>
+          </select></label>
+        <label class="fld"><span>${LANG==="pt"?"Codificação do CSV":"CSV encoding"}</span>
+          <select id="xBom">
+            <option value="1" ${o.bom?"selected":""}>${LANG==="pt"?"UTF-8 com BOM (acento certo no Excel)":"UTF-8 with BOM (accents open right in Excel)"}</option>
+            <option value="0" ${!o.bom?"selected":""}>${LANG==="pt"?"UTF-8 puro (Python, R, Power BI)":"Plain UTF-8 (Python, R, Power BI)"}</option>
+          </select></label>
+        <label class="fld"><span>${LANG==="pt"?"Quebra de linha dentro da célula":"Line break inside a cell"}</span>
+          <select id="xQuebra">
+            <option value="achatar" ${o.quebras!=="manter"?"selected":""}>${LANG==="pt"?"Virar “ · ” numa linha só (recomendado)":"Flatten to “ · ” on one line (recommended)"}</option>
+            <option value="manter"  ${o.quebras==="manter"?"selected":""}>${LANG==="pt"?"Manter (algumas ferramentas desalinham)":"Keep (some tools misalign)"}</option>
+          </select></label>
+        <label class="fld"><span>${LANG==="pt"?"Orientação do relatório":"Report orientation"}</span>
+          <select id="xOrient">
+            <option value="paisagem" ${o.orientacao!=="retrato"?"selected":""}>${LANG==="pt"?"Paisagem (cabe mais coluna)":"Landscape (fits more columns)"}</option>
+            <option value="retrato"  ${o.orientacao==="retrato"?"selected":""}>${LANG==="pt"?"Retrato":"Portrait"}</option>
+          </select></label>
+      </div>
+      <div class="rowflex" style="margin-top:11px;gap:16px;flex-wrap:wrap">
+        <label class="rowflex" style="gap:7px"><input type="checkbox" id="xResumo" ${o.resumo?"checked":""}>
+          <span>${LANG==="pt"?"Incluir o resumo (KPIs, B05, Shipyard, função vital)":"Include the summary (KPIs, B05, Shipyard, vital function)"}</span></label>
+        <label class="rowflex" style="gap:7px"><input type="checkbox" id="xZebra" ${o.zebra?"checked":""}>
+          <span>${LANG==="pt"?"Linhas zebradas":"Zebra rows"}</span></label>
+      </div>
+      <p class="muted" style="font-size:11.5px;margin-top:13px;line-height:1.7">${LANG==="pt"
+        ? "O <b>relatório PDF</b> abre a caixa de impressão do navegador: escolha <b>Salvar como PDF</b>. Ele é um documento próprio — capa, resumo e tabela paginada com cabeçalho repetido —, não uma foto da tela. O botão <b>HTML</b> gera o mesmo documento como arquivo, para anexar num e-mail."
+        : "The <b>PDF report</b> opens the browser print dialog: pick <b>Save as PDF</b>. It is a document of its own — cover, summary and paginated table with a repeating header — not a screenshot. The <b>HTML</b> button saves the same document as a file, to attach to an e-mail."}</p>`,
+      [{txt:"CSV",   cls:"btn", fn:()=>sair(opc=>this.csv(lista,opc))},
+       {txt:"Excel", cls:"btn", fn:()=>sair(opc=>this.excel(lista,titulo,opc))},
+       {txt:"JSON",  cls:"btn", fn:()=>sair(opc=>this.json(lista,opc))},
+       {txt:"HTML",  cls:"btn", fn:()=>sair(opc=>this.html(lista,titulo,opc))},
+       {txt:LANG==="pt"?"Relatório PDF":"PDF report", cls:"btn pri", fn:()=>sair(opc=>this.pdf(lista,titulo,opc))}]);
+
+    const conta = ()=>{ const el=$("#xConta"); if(el) el.textContent=$$(".chip[data-xc].on").length; };
+    $$("[data-xc]").forEach(c=>c.onclick=()=>{ c.classList.toggle("on"); conta(); });
+    const marcar = ids => { const s=new Set(ids);
+      $$("[data-xc]").forEach(c=>c.classList.toggle("on", s.has(c.dataset.xc))); conta(); };
+    $("#xTodas").onclick   = ()=>marcar(this.CAMPOS.map(c=>c.id));
+    $("#xNenhuma").onclick = ()=>marcar([]);
+    $("#xPadrao").onclick  = ()=>marcar(this.PADRAO);
+    /* "as mesmas da tabela": os ids batem entre os dois catalogos, e o que so
+       existe na tabela (marcas visuais) simplesmente nao entra. */
+    $("#xDaTabela").onclick= ()=>marcar(Colunas.escolhidas().filter(id=>this.campo(id)));
   },
 };
 
@@ -3595,6 +4157,7 @@ function baseVazia(){
   return {schemaVersion:1, meta:{criadoEm:agora(),atualizadoEm:agora(),revisao:0,
       ultimoAutor:"",appVersion:"1.0.0",origem:"base vazia"},
     config:{idioma:"pt",minutosConsolidacao:10,diasSemAtualizacao:30,diasAlertaAging:60,
+      caminhoPadrao:Caminho.FABRICA,
       status:[], familias:[], statusAbertoExcecoes:["1 - Validated by ICN","2 - Not Blocking","2 - Not Available Jx"],
       inspTypesFuncionais:[]},
     marcos:[], itens:[], historico:[], pendentes:[], observacoes:[], conflitos:[]};
@@ -3636,6 +4199,7 @@ function normalizar(db){
   c.mbAvisoTamanho ??= 8;               /* acima disso, a tela avisa (ver Arquivamento) */
   c.statusPosExecucao ??= ["7 - Missing Vacuum Test or Sign"];
   c.diasLogTecnico ??= 30;              /* decisao A3: o descarte e recuperavel por alguns dias */
+  c.caminhoPadrao ??= Caminho.FABRICA;  /* onde a base mora na rede, para quem abre pela primeira vez */
   podarLogs(db);
   if(!c.familias.length) c.familias=[
     {id:"pendente",pt:"Pendente",en:"Pending",cor:"#8a8f98",ordem:1},

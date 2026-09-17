@@ -1114,5 +1114,347 @@ const travaDe = (autor, segundosAtras=0) => JSON.stringify(
   chk("cada gravação leva um carimbo novo", c.disco().meta.carimbo !== carimboAntes);
 }
 
+/* ============ 18. EXPORTACAO, ITEM NOVO, SHIPYARD E CAMINHO ============ */
+secao("18. EXPORTACAO: CSV QUE NAO SE DESALINHA");
+
+/* Captura o que dl() mandaria para o disco, sem tocar em disco nenhum. */
+function comCaptura(app){
+  const saidas = [];
+  app.ctx.URL = {createObjectURL:()=>"blob:x", revokeObjectURL(){}};
+  app.ctx.Blob = class { constructor(p){ saidas.push(p.join("")); } };
+  return saidas;
+}
+/* Leitor de CSV honesto o bastante para o que se quer provar: respeita aspas,
+   aspas duplicadas e CRLF fora de aspas. Se o gerador desalinhar, isto acusa. */
+function lerCSV(txt, sep=";"){
+  if(txt.charCodeAt(0)===0xFEFF) txt = txt.slice(1);
+  const linhas=[]; let campo="", linha=[], dentro=false;
+  for(let k=0;k<txt.length;k++){
+    const c=txt[k];
+    if(dentro){
+      if(c==='"'){ if(txt[k+1]==='"'){ campo+='"'; k++; } else dentro=false; }
+      else campo+=c;
+    }else if(c==='"'){ dentro=true; }
+    else if(c===sep){ linha.push(campo); campo=""; }
+    else if(c==="\r"){ /* espera o \n */ }
+    else if(c==="\n"){ linha.push(campo); linhas.push(linha); linha=[]; campo=""; }
+    else campo+=c;
+  }
+  if(campo!=="" || linha.length){ linha.push(campo); linhas.push(linha); }
+  return linhas;
+}
+
+{
+  /* Uma celula com quebra de linha, um NUL vindo de planilha velha e um \r
+     solto: era daqui que saia o "arquivo mal formatado". */
+  const c = cenario({semPasta:true});
+  const {app} = c;
+  app.S.db.itens[0].description = "linha 1\r\nlinha 2\u0000\rlinha 3";
+  app.S.db.itens[0].updatedStatusObs = 'ele disse "pronto"; e assinou';
+  const saidas = comCaptura(app);
+
+  app.Export.csv(app.S.db.itens, {cols:["item","description","updatedStatusObs","status"]});
+  const csv = saidas.at(-1);
+  const linhas = lerCSV(csv);
+  igual("uma linha por item, mais o cabeçalho", linhas.length, app.S.db.itens.length+1);
+  igual("toda linha tem o mesmo número de colunas",
+        [...new Set(linhas.map(l=>l.length))], [4]);
+  chk("a quebra de linha da célula virou separador visível",
+      linhas[1][1] === "linha 1 \u00b7 linha 2 \u00b7 linha 3", JSON.stringify(linhas[1][1]));
+  chk("o caractere de controle não chegou ao arquivo", !csv.includes("\u0000"));
+  igual("aspas dentro do texto sobrevivem à ida e volta",
+        linhas[1][2], 'ele disse "pronto"; e assinou');
+  chk("o arquivo começa por BOM, para o Excel ler o acento", csv.charCodeAt(0)===0xFEFF);
+  chk("e termina em quebra de linha", csv.endsWith("\r\n"));
+}
+{
+  /* A defesa contra formula continua de pe - era a garantia do teste A7. */
+  const c = cenario({semPasta:true});
+  const {app} = c;
+  app.S.db.itens[0].description = '=HYPERLINK("http://mau","clique")';
+  const saidas = comCaptura(app);
+  app.Export.csv(app.S.db.itens, {cols:["item","description"]});
+  chk("CSV desarma fórmula no campo do item", saidas.at(-1).includes(`"'=HYPERLINK`));
+  app.Export.historico([{item:"A-001", campo:"status", valorAnterior:"", valorNovo:"@SUM(1+1)",
+    dataEfetiva:"2026-01-01", consolidadoEm:"", autor:"", origem:"", observacao:""}]);
+  chk("e também no CSV do histórico", saidas.at(-1).includes(`"'@SUM(1+1)"`));
+}
+{
+  /* Separador e BOM sao escolha de quem exporta, e a escolha tem de valer. */
+  const c = cenario({semPasta:true});
+  const {app} = c;
+  const saidas = comCaptura(app);
+  app.Export.csv(app.S.db.itens, {cols:["item","status"], sep:",", bom:false});
+  const csv = saidas.at(-1);
+  chk("sem BOM quando se pede UTF-8 puro", csv.charCodeAt(0)!==0xFEFF);
+  igual("a vírgula separa e as colunas continuam alinhadas",
+        [...new Set(lerCSV(csv,",").map(l=>l.length))], [2]);
+}
+{
+  /* Escolher as colunas e escolher mesmo: nem uma a mais, nem fora de ordem. */
+  const c = cenario({semPasta:true});
+  const {app} = c;
+  const saidas = comCaptura(app);
+  app.Export.csv(app.S.db.itens, {cols:["status","item"]});
+  igual("o cabeçalho sai na ordem escolhida",
+        lerCSV(saidas.at(-1))[0], ["Actual Status","Item"]);
+  app.Export.csv(app.S.db.itens, {cols:["item","naoExiste","aging"]});
+  igual("coluna inexistente é ignorada em vez de virar coluna vazia",
+        lerCSV(saidas.at(-1))[0].length, 2);
+}
+{
+  /* Nome de arquivo com caractere que o Windows recusa. */
+  const {app} = cenario({semPasta:true});
+  const n = app.nomeArquivo('Bloqueantes: B05/"J08" *', "csv");
+  chk("nome de arquivo sem caractere proibido", !/[\\/:*?"<>|]/.test(n), n);
+  chk("e com a extensão pedida", n.endsWith(".csv"), n);
+}
+
+secao("18b. RELATORIO PDF: DOCUMENTO, NAO FOTO DA TELA");
+{
+  const c = cenario({semPasta:true});
+  const {app} = c;
+  const doc = app.Export.docHTML(app.S.db.itens, "Todos em aberto",
+    {...app.Export.opcoes(), cols:["item","status","description"]});
+  chk("é um documento HTML completo", doc.startsWith("<!doctype html") && doc.includes("</html>"));
+  chk("com regra de página A4", /@page[^}]*A4/.test(doc));
+  chk("o cabeçalho da tabela repete em toda página", doc.includes("display:table-header-group"));
+  chk("e a linha não parte ao meio entre páginas", doc.includes("page-break-inside:avoid"));
+  chk("traz a capa com quem gerou e quando", doc.includes("StatusMilestone") && doc.includes("</header>"));
+  chk("traz o resumo pedido", doc.includes("Shipyard Prerequisites"));
+  for(const i of app.S.db.itens)
+    chk(`o item ${i.item} está no relatório`, doc.includes(i.item));
+  chk("nenhuma coluna não pedida entrou",
+      !doc.includes("HullPassageParts") && !doc.includes("Bigram"));
+
+  const semResumo = app.Export.docHTML(app.S.db.itens, "x",
+    {...app.Export.opcoes(), cols:["item"], resumo:false});
+  chk("sem resumo quando se desmarca a opção", !semResumo.includes("Shipyard Prerequisites"));
+
+  const retrato = app.Export.docHTML([], "x", {...app.Export.opcoes(), cols:["item"], orientacao:"retrato"});
+  chk("retrato quando se pede retrato", /@page[^}]*A4 portrait/.test(retrato));
+  chk("lista vazia não estoura o relatório", retrato.includes("Nenhum item"));
+}
+{
+  /* O relatorio nunca pode virar porta de injecao: o texto do item e dado. */
+  const c = cenario({semPasta:true});
+  const {app} = c;
+  app.S.db.itens[0].description = '<script>roubar()<\/script>';
+  const doc = app.Export.docHTML(app.S.db.itens, "t", {...app.Export.opcoes(), cols:["item","description"]});
+  chk("o texto do item é escapado no relatório",
+      !doc.includes("<script>roubar()") && doc.includes("&lt;script&gt;"));
+}
+
+secao("18c. SHIPYARD PREREQUISITES: J08 ATUAL, NAO O DE ORIGEM");
+{
+  const c = cenario({semPasta:true});
+  const {app} = c;
+  /* Tres pre-requisitos: um so no J08 atual (veio do J07), um so no de origem
+     (ja saiu para o J09) e um nos dois. O painel tem de contar o atual. */
+  app.S.db.itens.push(
+    {item:"S-1", status:"3 - Blocking", inspType:"Shipyard prerequisites",
+     originalJx:"J07", actualJx:"J08", criadoEm:"2026-01-05", bigram:[]},
+    {item:"S-2", status:"3 - Blocking", inspType:"Shipyard prerequisites",
+     originalJx:"J08", actualJx:"J09", criadoEm:"2026-01-05", bigram:[]},
+    {item:"S-3", status:"1 - Validated by ICN", inspType:"Shipyard prerequisites",
+     originalJx:"J08", actualJx:"J08", criadoEm:"2026-01-05", bigram:[]});
+  app.normalizar(app.S.db);
+  const sy = app.M.shipyard(app.S.db.itens);
+  igual("conta os que ESTÃO no J08 hoje", sy.itens.map(i=>i.item).sort(), ["S-1","S-3"]);
+  chk("o transferido para o J09 fica de fora", !sy.itens.some(i=>i.item==="S-2"));
+  chk("o que veio do J07 entra", sy.itens.some(i=>i.item==="S-1"));
+  igual("o total segue a mesma regra", sy.total, 2);
+  igual("e o em aberto também", sy.aberto, 1);
+}
+
+secao("18d. ITEM NOVO A MAO");
+{
+  const c = cenario();
+  const {app} = c;
+  app.ctx.localStorage.setItem("sm.autor","Bruno");
+  const antes = app.S.db.itens.length;
+  app.NovoItem.painel();
+  app.$("#n-item").value = "  Z-900 ";
+  app.$("#n-status").value = "3 - Blocking";
+  app.$("#n-inspType").value = "B05";
+  app.$("#n-bigram").value = "AA; BB";
+  app.$("#n-criadoEm").value = "2026-02-01";
+  app.NovoItem.criar({});
+  clearTimeout(app.Pend.timerAuto);
+
+  const novo = app.S.db.itens.find(i=>i.item==="Z-900");
+  chk("o item entra na base", !!novo);
+  igual("um item a mais, não dois", app.S.db.itens.length, antes+1);
+  igual("o código é guardado sem espaço à toa", novo?.item, "Z-900");
+  igual("o Bigram vira lista", novo?.bigram, ["AA","BB"]);
+  igual("a data de criação é a informada", novo?.criadoEm, "2026-02-01");
+  igual("e o aging parte dela", novo?.ultimaAlteracaoStatus, "2026-02-01");
+  chk("nasce com um evento no histórico",
+      app.S.db.historico.some(h=>h.item==="Z-900" && h.valorAnterior==="" && h.autor==="Bruno"));
+  chk("o nascimento entra no diário, para sobreviver a uma gravação alheia",
+      app.Pend.diario.some(e=>e.t==="item-novo" && e.obj.item==="Z-900"));
+  chk("e a base fica suja, pedindo gravação", app.S.sujo===true);
+  igual("a reconstrução histórica já o conhece",
+        app.R.statusEm("Z-900","2026-02-05"), "3 - Blocking");
+  chk("antes de existir, não tem status", !app.R.statusEm("Z-900","2026-01-01"));
+}
+{
+  /* Codigo repetido nao pode entrar: duas linhas quase iguais e uma base que
+     ninguem mais confere. */
+  const c = cenario();
+  const {app} = c;
+  const avisos = [];
+  app.ctx.toast = (m,k)=>avisos.push([m,k]);
+  const antes = app.S.db.itens.length;
+  app.NovoItem.painel();
+  app.$("#n-item").value = "a-001";          /* A-001 ja existe, so muda a caixa */
+  app.NovoItem.criar({});
+  igual("código repetido não cria item", app.S.db.itens.length, antes);
+  chk("e o motivo é dito", avisos.some(([m,k])=>k==="bad" && /A-001/.test(m)), JSON.stringify(avisos));
+
+  app.$("#n-item").value = "   ";
+  app.NovoItem.criar({});
+  igual("código em branco também não cria", app.S.db.itens.length, antes);
+  chk("existente() ignora caixa e espaço", app.NovoItem.existente(" A-002 ")?.item === "A-002");
+  chk("e não inventa o que não existe", app.NovoItem.existente("NAO-EXISTE")===null);
+}
+{
+  /* O item criado aqui nao pode sumir quando outra pessoa grava no meio. */
+  const c = cenario();
+  const {app} = c;
+  app.ctx.localStorage.setItem("sm.autor","Bruno");
+  app.NovoItem.painel();
+  app.$("#n-item").value = "Z-901";
+  app.NovoItem.criar({});
+  clearTimeout(app.Pend.timerAuto);
+
+  const deles = JSON.parse(JSON.stringify(c.db));
+  deles.meta.revisao = 30; deles.meta.ultimoAutor = "Ana";
+  deles.itens = deles.itens.filter(i=>i.item!=="Z-901");
+  deles.itens[0].ncr = "NCR-DA-ANA";
+  const r = app.Sync.receber(deles);
+  igual("junta sozinho, sem pedir decisão", r, "juntado");
+  chk("o item criado aqui sobrevive à gravação da outra pessoa",
+      app.S.db.itens.some(i=>i.item==="Z-901"));
+  chk("e o trabalho dela também chega",
+      app.S.db.itens.find(i=>i.item==="A-001")?.ncr === "NCR-DA-ANA");
+}
+{
+  /* Os dois criaram o mesmo codigo: isso e decisao, nao merge silencioso. */
+  const c = cenario();
+  const {app} = c;
+  app.NovoItem.painel();
+  app.$("#n-item").value = "Z-902";
+  app.$("#n-status").value = "3 - Blocking";
+  app.NovoItem.criar({});
+  clearTimeout(app.Pend.timerAuto);
+
+  /* c.db E a base em memoria: o Z-902 recem-criado ja esta la dentro. A versao
+     "dela" tem de sair sem ele antes de ganhar o dela, senao o que se testa e
+     uma base com id repetido, que a validacao recusa antes de chegar aqui. */
+  const deles = JSON.parse(JSON.stringify(c.db));
+  deles.meta.revisao = 31; deles.meta.ultimoAutor = "Ana";
+  deles.itens = deles.itens.filter(i=>i.item!=="Z-902");
+  deles.itens.push({item:"Z-902", status:"1 - Validated by ICN", inspType:"", isB05:false,
+                    originalJx:"", actualJx:"", criadoEm:"2026-02-01", bigram:[]});
+  const r = app.Sync.receber(deles);
+  igual("mesmo código dos dois lados vira decisão", r, "decidir");
+  chk("a janela de decisão está aberta", !!app.$("#ov"));
+  app.UI.fechar();
+}
+
+secao("18e. CAMINHO PADRAO DA BASE");
+{
+  const c = cenario();
+  const {app} = c;
+  igual("o caminho de fábrica é o da pasta de rede do J08",
+        app.Caminho.FABRICA, "G:\\DOP\\GTO\\3_INTERNO\\01_SAFE_TO_DIVE\\11_STATUS MILESTONE J08");
+  igual("a normalização o coloca numa base que não o tinha",
+        app.S.db.config.caminhoPadrao, app.Caminho.FABRICA);
+  igual("a última pasta do caminho é o que se espera encontrar",
+        app.Caminho.ultimaPasta(), "11_STATUS MILESTONE J08");
+
+  app.Caminho.definir("Z:\\outro\\lugar");
+  igual("dá para mudar", app.Caminho.padrao(), "Z:\\outro\\lugar");
+  igual("e a mudança vai para a base, valendo para a equipe",
+        app.S.db.config.caminhoPadrao, "Z:\\outro\\lugar");
+  chk("a alteração pede gravação",
+      app.Pend.diario.some(e=>e.t==="outro" && e.o==="caminho"));
+  clearTimeout(app.Pend.timerAuto);
+
+  app.Caminho.definir(app.Caminho.FABRICA);
+  igual("e dá para voltar ao padrão", app.Caminho.padrao(), app.Caminho.FABRICA);
+  clearTimeout(app.Pend.timerAuto);
+
+  /* A pasta escolhida e conferida contra o caminho: abrir a errada e gravar
+     nela e o engano que so aparece semanas depois. */
+  const avisos = [];
+  app.ctx.toast = (m,k)=>avisos.push(k);
+  app.Store.dirHandle = {name:"11_STATUS MILESTONE J08"};
+  chk("pasta com o nome esperado passa calada", app.Caminho.conferir()===true && !avisos.length);
+  app.Store.dirHandle = {name:"Downloads"};
+  chk("pasta diferente avisa", app.Caminho.conferir()===false && avisos.includes("warn"));
+}
+
+secao("18f. A ABA CONFLITOS SAIU, OS DADOS FICARAM");
+{
+  const c = cenario();
+  const {app} = c;
+  chk("não há mais rota de conflitos", !app.ROTAS.some(r=>r.id==="conflitos"));
+  chk("nem tela para desenhá-la", app.Render.conflitos===undefined);
+  chk("o array continua na base, nada foi apagado", Array.isArray(app.S.db.conflitos));
+  /* Quem tiver o link antigo no favorito nao pode cair numa tela em branco. */
+  app.S.rota = "conflitos";
+  let erro=null; try{ app.Render.atual(); }catch(e){ erro=e; }
+  chk("um link antigo para #conflitos cai no dashboard, sem estourar", erro===null,
+      erro? String(erro.message):"");
+}
+
+secao("18g. AS TELAS CONTINUAM DE PE E OS BOTOES LIGADOS");
+{
+  /* Redesenhar uma tela e reconectar os botoes dela: o DOM de mentira cria os
+     elementos com id que aparecem no innerHTML, entao da para provar aqui que
+     nenhum botao novo ficou solto. */
+  /* cenario() silencia Render.atual/semBase para os testes de gravacao; aqui e
+     justamente o desenho que se quer provar, entao a app vem sem essa mordaca. */
+  const app = carregarApp();
+  app.ctx.toast = ()=>{}; app.ctx.marcarEstado = ()=>{};
+  app.S.db = baseDeTeste(); app.normalizar(app.S.db);
+  app.Store.dirHandle = pastaFalsa({database:JSON.stringify(app.S.db)});
+  app.Sync.parar();
+  const desenhar = rota => { app.S.rota = rota; app.Render.nav(); app.Render[rota](); };
+  for(const rota of ["dashboard","itens","kanban","fluxo","historico","relatorios","config"]){
+    let e=null; try{ desenhar(rota); }catch(x){ e=x; }
+    chk(`a tela ${rota} desenha`, e===null, e? String(e.message):"");
+  }
+  let e=null; try{ app.Render.semBase(); }catch(x){ e=x; }
+  chk("e a tela de abertura também", e===null, e? String(e.message):"");
+  chk("o caminho padrão aparece na abertura, com botão de copiar",
+      typeof app.$("#cmCopiar")?.onclick === "function");
+
+  desenhar("itens");
+  chk("botão de item novo ligado",  typeof app.$("#btnNovo")?.onclick==="function");
+  chk("botão de exportar ligado",   typeof app.$("#btnExpTab")?.onclick==="function");
+  desenhar("relatorios");
+  chk("exportar/relatório ligado",  typeof app.$("#eExp")?.onclick==="function");
+  chk("atalho de PDF ligado",       typeof app.$("#ePdf")?.onclick==="function");
+  chk("atalho de CSV ligado",       typeof app.$("#eCsv")?.onclick==="function");
+  desenhar("config");
+  chk("salvar o caminho padrão ligado", typeof app.$("#cmSalvar")?.onclick==="function");
+  chk("restaurar o padrão ligado",      typeof app.$("#cmReset")?.onclick==="function");
+
+  app.Export.painel(app.S.db.itens,"Itens");
+  chk("a janela de exportação abre", !!app.$("#ov"));
+  chk("com os atalhos de seleção ligados",
+      typeof app.$("#xTodas")?.onclick==="function" &&
+      typeof app.$("#xNenhuma")?.onclick==="function" &&
+      typeof app.$("#xPadrao")?.onclick==="function" &&
+      typeof app.$("#xDaTabela")?.onclick==="function");
+  app.UI.fechar();
+  app.NovoItem.painel();
+  chk("o formulário de item novo abre", !!app.$("#n-item"));
+  app.UI.fechar();
+}
+
 console.log(falhas.length ? `\n${falhas.length} FALHA(S):\n  `+falhas.join("\n  ") : "\nTudo certo.");
 process.exit(falhas.length ? 1 : 0);

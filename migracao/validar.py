@@ -77,11 +77,17 @@ def main(caminho):
     check("Functional Insp Total", tot, 240)
     check("Functional Insp Remaining", rem, 38)
 
-    sp = [i for i in itens if i["inspType"] == "Shipyard prerequisites" and i["originalJx"] == "J08"]
-    print("\n  Shipyard Prerequisites (OriginalJx = J08):")
-    check("Shipyard Prereq Total  [C3: 22 -> 21]", len(sp), 21)
-    check("Shipyard Prereq Remaining [C3: 21 -> 20]",
-          len(sp) - sum(1 for i in sp if not aberto(i["status"])), 20)
+    # O painel conta pelo marco ATUAL (ActualJx), nao pelo de origem: um
+    # pre-requisito transferido de J07 para J08 e um pre-requisito do J08, e o
+    # que saiu do J08 para o J09 deixou de ser. A conta do Excel e 22 / 21.
+    sp  = [i for i in itens if i["inspType"] == "Shipyard prerequisites" and i["actualJx"]   == "J08"]
+    spo = [i for i in itens if i["inspType"] == "Shipyard prerequisites" and i["originalJx"] == "J08"]
+    print("\n  Shipyard Prerequisites (ActualJx = J08):")
+    print(f"      pelo marco de origem (OriginalJx = J08): total={len(spo):3d}  "
+          f"em aberto={sum(1 for i in spo if aberto(i['status'])):3d}   [so para comparacao]")
+    check("Shipyard Prereq Total", len(sp), 22)
+    check("Shipyard Prereq Remaining",
+          sum(1 for i in sp if aberto(i["status"])), 21)
 
     b = [i for i in itens if i["inspType"] == "B05"]
     check("B05 Total", len(b), 166)

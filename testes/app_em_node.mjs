@@ -112,7 +112,8 @@ export function carregarApp({autor="Teste", confirmar=()=>true}={}){
   blocos.forEach((codigo,i)=>vm.runInContext(codigo, ctx, {filename:`docs/index.html <script ${i+1}>`}));
   /* os modulos sao declarados com const, que no escopo lexico global de um script
      classico nao vira propriedade de globalThis: buscamos as referencias aqui. */
-  const nomes = ["IDB","Store","Usuario","S","R","Pend","Sync","M","G","Render","UI","Export","hoje","agora","T","Filtros","FiltroURL","Visita","ROTAS","Arquivamento","Colunas","Lote","TecladoItens","COLUNAS_PADRAO"];
+  const nomes = ["IDB","Store","Usuario","S","R","Pend","Sync","M","G","Render","UI","Export","hoje","agora","T","Filtros","FiltroURL","Visita","ROTAS","Arquivamento","Colunas","Lote","TecladoItens","COLUNAS_PADRAO",
+                 "NovoItem","Caminho","limparTexto","nomeArquivo","$","$$"];
   const app = vm.runInContext(`({${nomes.join(",")}})`, ctx);
   app.ctx = ctx;
   app.avaliar = codigo => vm.runInContext(codigo, ctx);
