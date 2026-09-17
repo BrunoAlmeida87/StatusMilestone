@@ -303,6 +303,21 @@ saneamento de texto alimentam cinco saídas.
 
   Capa, resumo, folha de estilo e rodapé são os mesmos nos dois formatos (`capaHTML`,
   `resumoDocHTML`, `cssRelatorio`, `moldura`): o que muda é só o corpo.
+
+  **Recorte** (`Export.recorte`): `somenteAberto` tira os validados, com `R.aberto` — a mesma regra
+  dos painéis, lida da config. Aplicado na porta de `csv`, `excel`, `json` e `documento`, então os
+  cinco formatos e a previsão de páginas enxergam a mesma lista, e o resumo, calculado dentro de
+  cada um, acompanha.
+
+  **Aparência** é dimensionada por uma variável só: `--q` na `.quadro`, com o resto em `em`. O
+  `cssExtra` de quem exporta entra por último na folha de estilo, então vence o padrão sem
+  `!important`.
+
+  **`previsaoPaginas`** monta o documento num `<iframe>` com a largura útil da folha e lê a altura
+  real — não estima a partir de um modelo de altura de cartão, porque estimativa errada é pior que
+  número nenhum. **`ajustarParaCaber`** desce a escada `ESCADA` (do cartão mais legível ao mais
+  apertado, e depois tudo de novo sem o resumo) medindo cada degrau, e para no primeiro que couber:
+  o resultado é o cartão mais legível que ainda cabe, não o menor. Quando nada cabe, diz isso.
 - **Excel** (SpreadsheetML, três abas: Resumo, Itens, Histórico) e **JSON** com o recorte, as
   colunas escolhidas e a revisão da base.
 

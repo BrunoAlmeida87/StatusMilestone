@@ -6,7 +6,7 @@ comportamento em Chromium real, via Playwright.
 ## Unidade (Node, sem navegador e sem base real)
 
 ```bash
-node testes/unidade.mjs        # 503 verificações: persistência (arquivo inexistente,
+node testes/unidade.mjs        # 532 verificações: persistência (arquivo inexistente,
                                # conflito de revisão, JSON corrompido, permissão negada,
                                # falha em createWritable/write/close), fila de gravação,
                                # edição durante a escrita, descarte de pendentes (tudo e
@@ -24,7 +24,11 @@ node testes/unidade.mjs        # 503 verificações: persistência (arquivo inex
                                # a partir do docs/visualizador.html gerado —, a
                                # aparência do quadro (densidade, escala, CSS próprio)
                                # e o caminho "ler a janela e guardar", que é
-                               # percorrido acionando os botões de verdade
+                               # percorrido acionando os botões de verdade, o recorte
+                               # "somente em aberto" nos cinco formatos e a escada
+                               # do "ajustar para caber" (a medição de verdade
+                               # exige navegador, então aqui a régua é trocada por
+                               # uma de mentira e o que se testa é a decisão)
 ```
 
 Não precisa instalar nada e não usa dado nenhum do projeto: `testes/app_em_node.mjs`
@@ -66,7 +70,7 @@ python3 testes/kanban_e_graficos.py    # 56: arraste real, seletor de status no 
                                        # config.fluxo, quadro "outros status" dentro da moldura),
                                        # balão de texto completo, gráfico de função vital,
                                        # painéis recolhíveis, ordem da página, paleta de status
-python3 testes/exportacao.py           # 48: janela de exportação, CSV conferido com leitor
+python3 testes/exportacao.py           # 53: janela de exportação, CSV conferido com leitor
                                        # de CSV de verdade, relatório PDF aberto num navegador
                                        # limpo, formulário de item novo, Shipyard por ActualJx
                                        # e caminho padrão

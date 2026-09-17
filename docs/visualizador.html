@@ -2966,11 +2966,23 @@ const Export = {
                           orientacao:"paisagem", resumo:true, zebra:true,
                           layout:"tabela", kanbanAgrupar:"familia", kanbanColunas:"auto",
                           kanbanVazias:true, kanbanQuebra:"quadro",
-                          kanbanDensidade:"compacto", kanbanEscala:100, cssExtra:""}, o||{});
+                          kanbanDensidade:"compacto", kanbanEscala:100, cssExtra:"",
+                          somenteAberto:false}, o||{});
   },
   guardarOpcoes(o){ try{ localStorage.setItem("sm.exportOpc", JSON.stringify(o)); }catch{} },
 
   defs(cols){ return (cols??this.escolhidas()).map(id=>this.campo(id)).filter(Boolean); },
+
+  /* "Somente em aberto" e um recorte da EXPORTACAO, nao um filtro de tela: quem
+     esta olhando a base inteira quer poder tirar dali so o que falta sem mexer
+     nos filtros. Aplicado na porta de cada formato, entao CSV, Excel, JSON,
+     relatorio e a previsao de paginas enxergam exatamente a mesma lista - e o
+     resumo, que e calculado dentro de cada um, tambem. A regra e a mesma dos
+     paineis (R.aberto), lida da config: nao ha uma segunda definicao de
+     "pendente" para divergir. */
+  recorte(lista, o){
+    return o?.somenteAberto ? (lista||[]).filter(i=>R.aberto(i.status)) : (lista||[]);
+  },
 
   /* Excel e LibreOffice executam o conteudo de uma celula que comeca por
      = + - @ (ou tabulacao/retorno de carro) MESMO entre aspas: um texto vindo
@@ -2992,6 +3004,7 @@ const Export = {
   },
   csv(lista, opc={}){
     const o = Object.assign(this.opcoes(), opc);
+    lista = this.recorte(lista, o);
     dl(nomeArquivo(o.nome || `itens-${hoje()}`,"csv"),
        (o.bom===false? "":"\ufeff")+this.textoCSV(lista,o), "text/csv;charset=utf-8");
   },
@@ -3032,6 +3045,7 @@ const Export = {
   /* SpreadsheetML 2003: o Excel abre nativamente, com várias abas e formatação. */
   excel(lista,titulo,opc={}){
     const o = Object.assign(this.opcoes(), opc);
+    lista = this.recorte(lista, o);
     const defs = this.defs(o.cols);
     const x=s=>limparTexto(s,{quebras:"manter"})
       .replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c])).replace(/\n/g,"&#10;");
@@ -3102,6 +3116,7 @@ ${aba("Resumo",resumo)}${aba("Itens",dados,larg)}${aba(LANG==="pt"?"Historico":"
   /* ------------------------------- JSON ------------------------------- */
   json(lista, opc={}){
     const o = Object.assign(this.opcoes(), opc);
+    lista = this.recorte(lista, o);
     const defs = this.defs(o.cols);
     const corpo = {
       gerado:agora(), autor:Usuario.nome(), recorte:this.descricaoFiltro(),
@@ -3264,7 +3279,8 @@ ${densidade==="etiqueta" ? `
     <div class="marca">StatusMilestone — J08</div>
     <h1>${esc(titulo)}</h1>
     <dl>
-      <dt>${LANG==="pt"?"Recorte":"Scope"}</dt><dd>${e(this.descricaoFiltro())}</dd>
+      <dt>${LANG==="pt"?"Recorte":"Scope"}</dt><dd>${e(this.descricaoFiltro())}${
+        o.somenteAberto? ` · ${LANG==="pt"?"somente em aberto":"open items only"}` : ""}</dd>
       ${subtitulo?`<dt>${LANG==="pt"?"Formato":"Layout"}</dt><dd>${e(subtitulo)}</dd>`:""}
       <dt>${LANG==="pt"?"Itens":"Items"}</dt><dd>${lista.length}</dd>
       <dt>${LANG==="pt"?"Gerado em":"Generated"}</dt><dd>${esc(fmtDT(agora()))}</dd>
@@ -3422,6 +3438,7 @@ ${this.rodapeHTML()}
 
   /* Uma porta so: quem chama pede o documento e o formato decide o corpo. */
   documento(lista, titulo, o){
+    lista = this.recorte(lista, o);
     return o.layout==="kanban"? this.docKanbanHTML(lista, titulo, o)
                               : this.docHTML(lista, titulo, o);
   },
@@ -3456,6 +3473,50 @@ ${this.rodapeHTML()}
       document.body.append(f);
       setTimeout(()=>responder(null), 8000);          /* nunca deixa a janela pendurada */
     });
+  },
+
+  /* "Cabe em uma pagina" sem chute: a escada vai do mais legivel ao mais
+     apertado e cada degrau e MEDIDO. Para no primeiro que couber, entao o
+     resultado e sempre o cartao mais legivel que ainda cabe - nao o menor.
+     Se nem o ultimo degrau couber, diz isso em vez de entregar um quadro
+     cortado fingindo que coube. */
+  ESCADA:[
+    {kanbanDensidade:"completo", kanbanEscala:100},
+    {kanbanDensidade:"completo", kanbanEscala:90},
+    {kanbanDensidade:"completo", kanbanEscala:80},
+    {kanbanDensidade:"compacto", kanbanEscala:100},
+    {kanbanDensidade:"compacto", kanbanEscala:90},
+    {kanbanDensidade:"compacto", kanbanEscala:80},
+    {kanbanDensidade:"compacto", kanbanEscala:70},
+    {kanbanDensidade:"etiqueta", kanbanEscala:100},
+    {kanbanDensidade:"etiqueta", kanbanEscala:85},
+    {kanbanDensidade:"etiqueta", kanbanEscala:70},
+    {kanbanDensidade:"etiqueta", kanbanEscala:60},
+  ],
+  rotuloDegrau(d){
+    const nome = {completo: LANG==="pt"?"Completo":"Full",
+                  compacto: LANG==="pt"?"Compacto":"Compact",
+                  etiqueta: LANG==="pt"?"Etiqueta":"Chip"}[d.kanbanDensidade];
+    return `${nome} ${d.kanbanEscala}%`;
+  },
+  async ajustarParaCaber(lista, titulo, opc={}, {paginas=1}={}){
+    const base = Object.assign(this.opcoes(), opc, {layout:"kanban"});
+    const tentativas = [];
+    /* O resumo ocupa quase meia folha. Enquanto ele estiver ligado, a escada
+       corre com ele; se nada couber, corre de novo sem ele antes de desistir -
+       e diz que desligou, porque isso muda o que sai no papel. */
+    for(const semResumo of (base.resumo? [false, true] : [false])){
+      for(const degrau of this.ESCADA){
+        const o = {...base, ...degrau, resumo: base.resumo && !semResumo};
+        const r = await this.previsaoPaginas(lista, titulo, o);
+        if(!r) return {erro:"medicao"};
+        tentativas.push({...degrau, semResumo, paginas:r.paginas});
+        if(r.paginas <= paginas && !r.cortaNaLargura)
+          return {o, degrau, semResumo, paginas:r.paginas, tentativas};
+      }
+    }
+    return {naoCoube:true, tentativas,
+            melhor: tentativas.reduce((a,b)=>b.paginas<a.paginas?b:a, tentativas[0])};
   },
 
   /* Imprime num quadro escondido: nao depende de o navegador liberar janela
@@ -3519,6 +3580,7 @@ ${this.rodapeHTML()}
       kanbanDensidade: $("#xKdens")?.value || o.kanbanDensidade,
       kanbanEscala: Math.min(140, Math.max(60, +($("#xKescala")?.value) || o.kanbanEscala)),
       cssExtra: $("#xCss") ? String($("#xCss").value||"") : o.cssExtra,
+      somenteAberto: $("#xAberto")? !!$("#xAberto").checked : o.somenteAberto,
     });
     const sair = fn => {
       const cols = lerSelecao();
@@ -3627,6 +3689,10 @@ ${this.rodapeHTML()}
           <span>${LANG==="pt"?"Incluir o resumo (KPIs, B05, Shipyard, função vital)":"Include the summary (KPIs, B05, Shipyard, vital function)"}</span></label>
         <label class="rowflex" style="gap:7px"><input type="checkbox" id="xZebra" ${o.zebra?"checked":""}>
           <span>${LANG==="pt"?"Linhas zebradas":"Zebra rows"}</span></label>
+        <label class="rowflex" style="gap:7px"><input type="checkbox" id="xAberto" ${o.somenteAberto?"checked":""}>
+          <span>${LANG==="pt"
+            ? `Somente os <b>em aberto</b> — tira os validados (${lista.filter(i=>R.aberto(i.status)).length} de ${lista.length})`
+            : `<b>Open</b> items only — drops the validated ones (${lista.filter(i=>R.aberto(i.status)).length} of ${lista.length})`}</span></label>
       </div>
       <p class="muted" style="font-size:11.5px;margin-top:13px;line-height:1.7">${LANG==="pt"
         ? "O <b>relatório PDF</b> abre a caixa de impressão do navegador: escolha <b>Salvar como PDF</b>. Ele é um documento próprio — capa, resumo e tabela paginada com cabeçalho repetido —, não uma foto da tela. O botão <b>HTML</b> gera o mesmo documento como arquivo, para anexar num e-mail."
@@ -3665,6 +3731,7 @@ ${this.rodapeHTML()}
       /* O resultado vai num span ao lado, nao no lugar do botao: substituir o
          innerHTML inteiro apagava o proprio botao e so dava para prever uma vez. */
       dica.innerHTML = `<button class="btn sm" id="xPrever">${LANG==="pt"?"Quantas páginas vai dar?":"How many pages?"}</button>
+        <button class="btn sm pri" id="xCaber">${LANG==="pt"?"Ajustar para caber em 1 página":"Fit on 1 page"}</button>
         <span id="xKdicaR" style="margin-left:8px"></span>`;
       const saida = $("#xKdicaR");
       $("#xPrever").onclick = async ()=>{
@@ -3685,6 +3752,37 @@ ${this.rodapeHTML()}
           ${r.cortaNaLargura?`<br><b style="color:var(--bad)">${LANG==="pt"
             ? "corta na largura — reduza as colunas por página ou o tamanho do cartão"
             : "clipped horizontally — reduce columns per page or card size"}</b>`:""}`;
+      };
+
+      /* Ajustar e medir varias vezes: pode levar um segundo, e a tela diz isso
+         em vez de parecer travada. */
+      $("#xCaber").onclick = async ()=>{
+        const cols = lerSelecao();
+        if(!cols.length) return toast(LANG==="pt"?"Escolha ao menos uma coluna":"Pick at least one column","bad");
+        $("#xLayout").value = "kanban"; trocouLayout();
+        saida.textContent = LANG==="pt"?"ajustando…":"fitting…";
+        const r = await this.ajustarParaCaber(lista, titulo, {...lerOpcoes(), cols});
+        if(r.erro) return void (saida.textContent = LANG==="pt"?"não consegui medir aqui":"could not measure here");
+        if(r.naoCoube){
+          saida.innerHTML = `<b style="color:var(--warn)">${LANG==="pt"
+            ? `não cabe em 1 página: o menor cartão ainda dá ${r.melhor.paginas}`
+            : `does not fit on 1 page: the smallest card still needs ${r.melhor.paginas}`}</b>
+            <span class="muted"> — ${LANG==="pt"
+              ? "marque <b>Somente os em aberto</b>, tire o resumo, ou aceite mais páginas."
+              : "tick <b>Open items only</b>, drop the summary, or accept more pages."}</span>`;
+          return;
+        }
+        /* O que foi decidido volta para os controles: a pessoa ve o que mudou e
+           pode continuar mexendo a partir dali. */
+        $("#xKdens").value  = r.degrau.kanbanDensidade;
+        $("#xKescala").value = r.degrau.kanbanEscala;
+        const ev=$("#xKescalaV"); if(ev) ev.textContent = r.degrau.kanbanEscala+"%";
+        if(r.semResumo && $("#xResumo")) $("#xResumo").checked = false;
+        saida.innerHTML = `<b style="color:var(--ok)">${LANG==="pt"?"cabe em 1 página":"fits on 1 page"}</b>
+          <span class="muted"> — ${LANG==="pt"?"cartão":"card"} <b>${esc(this.rotuloDegrau(r.degrau))}</b>${
+            r.semResumo? (LANG==="pt"?", sem o resumo":", summary off") : ""}. ${LANG==="pt"
+              ? "É o cartão mais legível que ainda coube, não o menor."
+              : "It is the most readable card that still fits, not the smallest."}</span>`;
       };
     }
   },
