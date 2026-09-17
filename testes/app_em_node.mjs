@@ -18,7 +18,11 @@ function elemento(doc){
     style:new Proxy({},{get:(o,k)=>o[k]??"", set:(o,k,v)=>(o[k]=v,true)}),
     dataset:{}, children:[], parentElement:null, parentNode:null, offsetWidth:800, offsetHeight:600,
     scrollTop:0, scrollLeft:0, clientWidth:800, clientHeight:600,
-    classList:{add(){},remove(){},toggle(){},contains(){return false}},
+    classList:(()=>{ const c=new Set();
+      return { _set:c,
+        add(...n){ n.forEach(x=>c.add(x)); }, remove(...n){ n.forEach(x=>c.delete(x)); },
+        toggle(n,f){ const v = f===undefined? !c.has(n) : !!f; v? c.add(n):c.delete(n); return v; },
+        contains(n){ return c.has(n); } }; })(),
     append(x){ if(x?.id && doc) doc.porId.set(x.id, x); }, appendChild(x){ el.append(x); return x; },
     prepend(x){ el.append(x); },
     remove(){ if(!doc) return; if(el.id) doc.porId.delete(el.id);
@@ -32,17 +36,40 @@ function elemento(doc){
   };
   /* innerHTML como no navegador: atribuir cria os elementos com id que estao
      no texto (e apaga os da atribuicao anterior). E o que permite testar a
-     ligacao dos botoes de uma tela recem-desenhada. */
+     ligacao dos botoes de uma tela recem-desenhada.
+
+     Alem dos ids, tambem indexa os elementos por atributo data-* e semeia o
+     classList com o class="..." do proprio texto. Sem isso, uma tela cujos
+     controles sao chips com data-xc (as colunas da exportacao) ficava invisivel
+     aos testes, e um defeito no caminho "ler a janela e guardar" so aparecia no
+     navegador. */
   let html = "";
   el.__ids = [];
+  el.__dados = [];
   Object.defineProperty(el, "innerHTML", {
     get:()=>html,
     set(v){
       html = String(v ?? "");
-      if(doc){
-        for(const id of el.__ids) doc.porId.delete(id);
-        el.__ids = [...html.matchAll(/id="([\w-]+)"/g)].map(m=>m[1]);
-        for(const id of el.__ids){ const e=elemento(doc); e.id=id; doc.porId.set(id,e); }
+      if(!doc) return;
+      for(const id of el.__ids) doc.porId.delete(id);
+      for(const k of el.__dados) doc.porDados.get(k.attr)?.delete(k.valor);
+      el.__ids = [...html.matchAll(/id="([\w-]+)"/g)].map(m=>m[1]);
+      for(const id of el.__ids){ const e=elemento(doc); e.id=id; doc.porId.set(id,e); }
+
+      el.__dados = [];
+      /* uma tag por vez, para que o class= lido seja o da MESMA tag do data-* */
+      for(const [tag] of html.matchAll(/<[a-zA-Z][^>]*>/g)){
+        const classes = (/class="([^"]*)"/.exec(tag)?.[1] || "").split(/\s+/).filter(Boolean);
+        const idDaTag = /id="([\w-]+)"/.exec(tag)?.[1] || "";
+        for(const [,attr,valor] of tag.matchAll(/data-([a-zA-Z0-9-]+)="([^"]*)"/g)){
+          const e = idDaTag && doc.porId.get(idDaTag) || elemento(doc);
+          if(idDaTag) e.id = idDaTag;
+          e.dataset[attr.replace(/-([a-z])/g,(_,c)=>c.toUpperCase())] = valor;
+          classes.forEach(c=>e.classList.add(c));
+          if(!doc.porDados.has(attr)) doc.porDados.set(attr, new Map());
+          doc.porDados.get(attr).set(valor, e);
+          el.__dados.push({attr, valor});
+        }
       }
     },
   });
@@ -59,7 +86,7 @@ const ID_ESTATICOS = new Set(["app","brandsub","btnLang","btnSaveNow","btnTheme"
 
 function criarContexto(){
   const armazem = new Map();
-  const doc = { porId:new Map(), title:"" };
+  const doc = { porId:new Map(), porDados:new Map(), title:"" };
   Object.assign(doc, {
     documentElement:elemento(doc), body:elemento(doc), head:elemento(doc),
     createElement:()=>elemento(doc), createElementNS:()=>elemento(doc), createTextNode:()=>elemento(doc),
@@ -74,7 +101,23 @@ function criarContexto(){
       if(ID_ESTATICOS.has(id)){ const e=elemento(doc); e.id=id; doc.porId.set(id,e); return e; }
       return null;
     },
-    querySelectorAll:()=>[], getElementById:id=>doc.querySelector("#"+id),
+    /* Entende os dois formatos que as telas usam: "[data-x]" (todos) e
+       ".classe[data-x=\"valor\"]" (um). O resto continua devolvendo vazio. */
+    querySelectorAll(sel){
+      const t = String(sel||"");
+      const um = /\[data-([\w-]+)="([^"]*)"\]/.exec(t);
+      if(um) { const e = doc.porDados.get(um[1])?.get(um[2]); return e? [e] : []; }
+      const todos = /\[data-([\w-]+)\]/.exec(t);
+      if(todos){
+        const mapa = doc.porDados.get(todos[1]); if(!mapa) return [];
+        const classe = /^\.([\w-]+)/.exec(t)?.[1];
+        const sufixo = /\.([\w-]+)$/.exec(t)?.[1];
+        return [...mapa.values()].filter(e =>
+          (!classe || e.classList.contains(classe)) && (!sufixo || e.classList.contains(sufixo)));
+      }
+      return [];
+    },
+    getElementById:id=>doc.querySelector("#"+id),
     getElementsByClassName:()=>[], addEventListener(){}, removeEventListener(){},
     execCommand(){return true}, hasFocus(){return true},
   });

@@ -57,11 +57,27 @@ exportar**, que abre a mesma janela:
     que não parte ao meio;
   - **quadro Kanban** — o board em papel. As colunas agrupam por família do status, status, InspType,
     OriginalJx, ActualJx, função vital ou Insp; as colunas marcadas viram os campos do cartão (o
-    **Item** é o título, o **Actual Status** a pílula colorida); dá para escolher quantas colunas por
-    página, mostrar ou não as colunas vazias, e imprimir tudo num quadro só ou **uma coluna por
-    página** quando o cartão precisa de espaço. O botão **↓ Exportar quadro** no Kanban já abre a
-    janela nesse formato;
+    **Item** é o título, o **Actual Status** a pílula colorida). O botão **↓ Exportar quadro** no
+    Kanban já abre a janela nesse formato. Para caber no papel:
+
+    | Cartão | O que mostra | 428 itens dão |
+    |---|---|---|
+    | Completo | rótulo e valor de cada campo | ~36 páginas |
+    | Compacto (padrão) | os valores, sem os rótulos | ~27 páginas |
+    | **Etiqueta** | só o código, colorido pelo status | **3 páginas — 1 a 70%** |
+
+    Some-se a isso o **tamanho do cartão** (60–140%), as **colunas por página**, mostrar ou não as
+    colunas vazias e imprimir num quadro só ou **uma coluna por página**. O botão **Quantas páginas
+    vai dar?** monta o documento num quadro escondido e **mede** a altura — não é estimativa: nos
+    testes o número bate com a contagem real do PDF;
 - **Excel** em três abas (Resumo, Itens, Histórico) e **JSON** com o recorte e as colunas escolhidas.
+
+**Mudar o desenho do relatório** sem mexer no sistema: a janela tem uma caixa de **CSS próprio** que
+entra por último na folha de estilo, então vence o padrão sem precisar de `!important`. Os seletores
+do quadro são `.quadro` (a grade), `.coluna`, `.coluna > .topo`, `.cartoes`, `.cartao`,
+`.cartao .id`, `.cartao .campo` e `.pill`. Quase tudo está em `em` a partir da variável `--q` da
+`.quadro` — mexer nela encolhe o cartão inteiro. O que se escreve ali fica guardado, vale para as
+próximas exportações e **sai dentro do arquivo HTML**, que dá para abrir e continuar editando.
 
 ## O visualizador (pasta de transferência)
 
@@ -181,7 +197,7 @@ Rode você mesmo: `python3 migracao/validar.py caminho/para/database.json`
 O comportamento simultâneo tem suíte própria: `SM_DATABASE=... python3 testes/sincronizacao.py`
 (31 verificações). O motor de gravação, a validação da base, o descarte de pendentes, o histórico,
 o arquivamento, os filtros, as colunas, o lote e o teclado têm testes de unidade que rodam sem
-navegador e sem base real: `node testes/unidade.mjs` (460 verificações, das quais 75 são as
+navegador e sem base real: `node testes/unidade.mjs` (503 verificações, das quais 75 são as
 regressões da auditoria em [`analise/04_AUDITORIA.md`](analise/04_AUDITORIA.md)). A exportação, o
 relatório PDF e o item novo têm suíte própria em Chromium (`SM_DATABASE=... python3
 testes/exportacao.py`), e o visualizador tem a sua, servido de uma pasta com o `database.json` ao

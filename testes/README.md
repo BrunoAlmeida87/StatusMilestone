@@ -6,7 +6,7 @@ comportamento em Chromium real, via Playwright.
 ## Unidade (Node, sem navegador e sem base real)
 
 ```bash
-node testes/unidade.mjs        # 460 verificações: persistência (arquivo inexistente,
+node testes/unidade.mjs        # 503 verificações: persistência (arquivo inexistente,
                                # conflito de revisão, JSON corrompido, permissão negada,
                                # falha em createWritable/write/close), fila de gravação,
                                # edição durante a escrita, descarte de pendentes (tudo e
@@ -21,7 +21,10 @@ node testes/unidade.mjs        # 460 verificações: persistência (arquivo inex
                                # criado à mão, o Shipyard por ActualJx, o caminho
                                # padrão da base, o relatório em quadro (Kanban) e o
                                # visualizador — que é carregado pelo mesmo aparato,
-                               # a partir do docs/visualizador.html gerado
+                               # a partir do docs/visualizador.html gerado —, a
+                               # aparência do quadro (densidade, escala, CSS próprio)
+                               # e o caminho "ler a janela e guardar", que é
+                               # percorrido acionando os botões de verdade
 ```
 
 Não precisa instalar nada e não usa dado nenhum do projeto: `testes/app_em_node.mjs`
@@ -35,6 +38,13 @@ O DOM de mentira imita o que importa: atribuir `innerHTML` passa a "criar" os
 elementos com `id` que estão no texto, e `#ov` só existe enquanto há um modal
 aberto. É isso que permite testar a ligação dos botões de uma tela recém-desenhada
 (a barra de lote, por exemplo) sem abrir navegador.
+
+Ele também indexa os elementos por atributo `data-*` e guarda o `class="..."` num
+`classList` com estado, então `$$('.chip[data-xc="item"]')` responde. Sem isso, os
+controles que não têm `id` — as colunas da exportação são chips com `data-xc` —
+ficavam invisíveis, e um defeito no caminho "ler a janela e guardar" só aparecia
+no navegador. Os botões do rodapé de um modal têm `id` (`#mb0`, `#mb1`, …)
+justamente para poderem ser acionados aqui.
 
 ## Comportamento (Chromium real, via Playwright)
 
