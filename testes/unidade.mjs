@@ -1710,5 +1710,137 @@ function visualizador(){
       erro? String(erro.stdout||erro.message).split("\n")[0] : saida.trim());
 }
 
+secao("21. APARENCIA DO QUADRO: DENSIDADE, ESCALA E CSS PROPRIO");
+{
+  const c = cenario({semPasta:true});
+  const {app} = c;
+  const base = {...app.Export.opcoes(), layout:"kanban", cols:["item","status","inspType","description"]};
+  const doc = d => app.Export.documento(app.S.db.itens, "Q", {...base, ...d});
+
+  /* Cada densidade muda o CSS, e a etiqueta e a unica que esconde os campos -
+     e dela que sai o quadro de uma pagina so. */
+  const completo = doc({kanbanDensidade:"completo"});
+  const compacto = doc({kanbanDensidade:"compacto"});
+  const etiqueta = doc({kanbanDensidade:"etiqueta"});
+  chk("completo mantem os rotulos dos campos", !/\.cartao \.campo b \{ display:none/.test(completo));
+  chk("compacto esconde os rotulos", /\.cartao \.campo b \{ display:none/.test(compacto));
+  chk("etiqueta esconde o campo inteiro", /\.cartao \.campo \{ display:none/.test(etiqueta));
+  chk("e poe as etiquetas lado a lado", /\.cartoes \{ flex-direction:row/.test(etiqueta));
+  chk("mas o codigo do item continua em todas",
+      [completo,compacto,etiqueta].every(d=>d.includes("A-001")));
+
+  /* A escala e uma variavel so: o resto esta em em e acompanha. */
+  const m = d => (d.match(/--q:([\d.]+)px/)||[])[1];
+  igual("escala 100 da o tamanho base", m(doc({kanbanEscala:100})), "11.00");
+  igual("escala 70 encolhe proporcionalmente", m(doc({kanbanEscala:70})), "7.70");
+  igual("escala 140 aumenta", m(doc({kanbanEscala:140})), "15.40");
+  igual("valor fora da faixa e preso no limite", m(doc({kanbanEscala:5})), "6.60");
+  igual("e o limite de cima tambem", m(doc({kanbanEscala:9999})), "15.40");
+
+  /* Colunas: automatico nao fixa a contagem, um numero fixa. */
+  chk("automatico deixa as colunas se acomodarem",
+      /grid-template-columns:repeat\(auto-fit/.test(doc({kanbanColunas:"auto"})));
+  chk("um numero fixa a contagem",
+      /grid-template-columns:repeat\(3, minmax/.test(doc({kanbanColunas:3})));
+  chk("numero absurdo e preso no limite",
+      /grid-template-columns:repeat\(10, minmax/.test(doc({kanbanColunas:99})));
+}
+{
+  /* O CSS de quem exporta tem de entrar DEPOIS do nosso: e o que faz ele
+     vencer sem precisar de !important. */
+  const c = cenario({semPasta:true});
+  const {app} = c;
+  const o = {...app.Export.opcoes(), layout:"kanban", cols:["item","status"],
+             cssExtra:".cartao { border-left-width:6px }"};
+  const doc = app.Export.documento(app.S.db.itens, "Q", o);
+  chk("o CSS proprio sai no documento", doc.includes("border-left-width:6px"));
+  chk("e depois do estilo padrao",
+      doc.indexOf("border-left-width:6px") > doc.lastIndexOf(".cartao .id {"));
+  chk("com um comentario dizendo de onde veio", /ajustes de quem exportou/.test(doc));
+
+  /* Vale para a tabela tambem - e a mesma moldura. */
+  const tab = app.Export.documento(app.S.db.itens, "T",
+    {...o, layout:"tabela", cssExtra:"td { font-size:7px }"});
+  chk("o CSS proprio tambem vale na tabela", tab.includes("td { font-size:7px }"));
+
+  /* Fechar a tag <style> seria a unica saida dali: nao pode passar. */
+  const mau = app.Export.documento(app.S.db.itens, "Q",
+    {...o, cssExtra:"</style><script>roubar()<\/script>"});
+  chk("nao da para fechar o <style> pelo CSS proprio",
+      !/<\/style><script>roubar/.test(mau));
+  chk("o documento continua com um <style> so",
+      (mau.match(/<style>/g)||[]).length === 1);
+  const vazio = app.Export.documento(app.S.db.itens, "Q", {...o, cssExtra:""});
+  chk("sem CSS proprio nao sobra comentario a toa", !/ajustes de quem exportou/.test(vazio));
+  igual("texto gigante e cortado", app.Export.cssDoUsuario("a".repeat(30000)).length, 20000);
+}
+{
+  /* Os controles novos existem e estao ligados. */
+  const app = carregarApp();
+  app.ctx.toast = ()=>{}; app.ctx.marcarEstado = ()=>{};
+  app.S.db = baseDeTeste(); app.normalizar(app.S.db);
+  app.Store.dirHandle = pastaFalsa({database:JSON.stringify(app.S.db)});
+  app.Sync.parar();
+  app.Export.guardarOpcoes({...app.Export.opcoes(), layout:"kanban"});
+  app.Export.painel(app.S.db.itens, "Itens");
+  for(const id of ["xKdens","xKescala","xKcols","xCss","xKdica"])
+    chk(`o controle ${id} esta na janela`, !!app.$("#"+id)?.id);
+  chk("o cursor de tamanho atualiza o valor ao lado",
+      typeof app.$("#xKescala")?.oninput === "function");
+  chk("e ha o botao que mede as paginas", typeof app.$("#xPrever")?.onclick === "function");
+  /* O resultado vai ao lado do botao: substituir o bloco inteiro apagava o
+     proprio botao, e so dava para prever uma vez. */
+  chk("com um lugar proprio para o resultado, que nao apaga o botao",
+      !!app.$("#xKdicaR")?.id);
+  app.UI.fechar();
+}
+{
+  /* Os PADROES e a LEITURA da janela sao um caminho proprio: passar as opcoes
+     direto para Export.documento, como fazem os testes acima, nao exercita
+     nenhum dos dois. Foi por isso que uma edicao perdida nos padroes passou
+     despercebida ate o navegador. */
+  const app = carregarApp();
+  app.ctx.toast = ()=>{}; app.ctx.marcarEstado = ()=>{};
+  app.S.db = baseDeTeste(); app.normalizar(app.S.db);
+  app.Store.dirHandle = pastaFalsa({database:JSON.stringify(app.S.db)});
+  app.Sync.parar();
+  app.ctx.localStorage.removeItem("sm.exportOpc");
+
+  const padrao = app.Export.opcoes();
+  igual("o padrao do cartao e o compacto", padrao.kanbanDensidade, "compacto");
+  igual("o da escala e 100", padrao.kanbanEscala, 100);
+  igual("o das colunas e automatico", padrao.kanbanColunas, "auto");
+  igual("e o CSS proprio nasce vazio", padrao.cssExtra, "");
+
+  /* Mexer nos controles e SAIR pelo botao: e esse caminho (lerOpcoes +
+     guardarOpcoes) que nenhum outro teste percorria. */
+  let saida = null;
+  app.ctx.URL = {createObjectURL:()=>"blob:x", revokeObjectURL(){}};
+  app.ctx.Blob = class { constructor(p){ saida = p.join(""); } };
+  app.Export.painel(app.S.db.itens, "Itens");
+  app.$("#xLayout").value  = "kanban";
+  app.$("#xKdens").value   = "etiqueta";
+  app.$("#xKescala").value = "70";
+  app.$("#xKcols").value   = "3";
+  app.$("#xKquebra").value = "pagina";
+  app.$("#xAgrupar").value = "inspType";
+  app.$("#xCss").value     = ".cartao { border-left-width:6px }";
+  /* os botoes do rodape da janela, na ordem: CSV, Excel, JSON, HTML, PDF */
+  app.$("#mb3").onclick();
+
+  const g = app.Export.opcoes();
+  igual("a densidade escolhida foi guardada", g.kanbanDensidade, "etiqueta");
+  igual("a escala tambem", g.kanbanEscala, 70);
+  igual("as colunas tambem", g.kanbanColunas, 3);
+  igual("o agrupamento tambem", g.kanbanAgrupar, "inspType");
+  igual("a quebra tambem", g.kanbanQuebra, "pagina");
+  igual("o CSS proprio tambem", g.cssExtra, ".cartao { border-left-width:6px }");
+  igual("e o formato", g.layout, "kanban");
+  chk("o documento gerado usa a escala escolhida", /--q:7\.70px/.test(saida||""));
+  chk("sai como quadro, nao tabela", (saida||"").includes('class="quadro"'));
+  chk("e leva o CSS proprio", (saida||"").includes("border-left-width:6px"));
+
+}
+
 console.log(falhas.length ? `\n${falhas.length} FALHA(S):\n  `+falhas.join("\n  ") : "\nTudo certo.");
 process.exit(falhas.length ? 1 : 0);

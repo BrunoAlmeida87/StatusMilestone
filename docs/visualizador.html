@@ -2450,11 +2450,13 @@ const UI = {
     ov.innerHTML=`<div class="modal"><header><h2>${esc(titulo)}</h2>
         <button class="btn sm" id="mX">✕</button></header>
       <div class="body">${corpo}</div>
-      ${botoes.length?`<footer>${botoes.map((b,k)=>`<button class="${b.cls||"btn"}" data-b="${k}">${esc(b.txt)}</button>`).join("")}</footer>`:""}</div>`;
+      ${botoes.length?`<footer>${botoes.map((b,k)=>`<button class="${b.cls||"btn"}" data-b="${k}" id="mb${k}">${esc(b.txt)}</button>`).join("")}</footer>`:""}</div>`;
     document.body.append(ov);
     ov.onclick=e=>{if(e.target===ov) this.fechar();};
     $("#mX").onclick=()=>this.fechar();
-    $$("[data-b]",ov).forEach(b=>b.onclick=()=>botoes[+b.dataset.b].fn());
+    /* Ligados pelo id, nao pelo seletor de atributo: e o que permite acionar o
+       botao de uma janela nos testes em Node, onde so os ids existem. */
+    botoes.forEach((b,k)=>{ const el=$("#mb"+k); if(el) el.onclick=()=>b.fn(); });
     return ov;
   },
   /* aoFechar corre SEMPRE que a janela sai - pelo X, pelo clique fora ou porque
@@ -2962,8 +2964,9 @@ const Export = {
     try{ o = JSON.parse(localStorage.getItem("sm.exportOpc")||"null"); }catch{}
     return Object.assign({sep:";", bom:true, quebras:"achatar",
                           orientacao:"paisagem", resumo:true, zebra:true,
-                          layout:"tabela", kanbanAgrupar:"familia", kanbanColunas:4,
-                          kanbanVazias:true, kanbanQuebra:"quadro"}, o||{});
+                          layout:"tabela", kanbanAgrupar:"familia", kanbanColunas:"auto",
+                          kanbanVazias:true, kanbanQuebra:"quadro",
+                          kanbanDensidade:"compacto", kanbanEscala:100, cssExtra:""}, o||{});
   },
   guardarOpcoes(o){ try{ localStorage.setItem("sm.exportOpc", JSON.stringify(o)); }catch{} },
 
@@ -3208,28 +3211,52 @@ ${aba("Resumo",resumo)}${aba("Itens",dados,larg)}${aba(LANG==="pt"?"Historico":"
   @media screen { body { background:#e9ebef; padding:18px 0; }
     .folha { background:#fff; box-shadow:0 1px 6px rgba(0,0,0,.14); border-radius:4px; } }`;
   },
-  /* ------- folha de estilo so do quadro ------- */
+  /* ------- folha de estilo so do quadro -------
+     Tudo aqui e dimensionado em `em` a partir de --q: mexer numa so variavel
+     encolhe o cartao inteiro, junto com a fonte, o espacamento e a borda. E o
+     que torna possivel caber um quadro grande numa pagina - com 428 itens e
+     cartao completo nao cabe, e nenhuma escala resolve; o que cabe e a
+     etiqueta. */
   cssQuadro(o){
+    const esc0 = Math.min(140, Math.max(60, +o.kanbanEscala || 100)) / 100;
+    const cols = o.kanbanColunas === "auto" ? null : Math.min(10, Math.max(1, +o.kanbanColunas || 4));
+    const densidade = o.kanbanDensidade || "compacto";
     return `
-  .quadro { display:grid; grid-template-columns:repeat(${o.kanbanColunas||4}, minmax(0,1fr)); gap:9px; align-items:start; }
-  .coluna { border:1px solid #dfe2e8; border-radius:7px; overflow:hidden; background:#fbfcfd;
-            break-inside:avoid-column; }
-  .coluna > .topo { padding:6px 9px; border-bottom:1px solid #dfe2e8; background:#f2f4f7;
-            display:flex; align-items:center; gap:7px; }
-  .coluna > .topo i { width:9px; height:9px; border-radius:2px; flex:none; }
-  .coluna > .topo b { font-size:10px; text-transform:uppercase; letter-spacing:.04em; flex:1;
-            overflow-wrap:anywhere; }
-  .coluna > .topo .qtd { font-size:11px; font-variant-numeric:tabular-nums; color:#6b7280; font-weight:700; }
-  .cartoes { padding:7px; display:flex; flex-direction:column; gap:6px; }
-  .cartao { border:1px solid #e3e6eb; border-left:3px solid #999; border-radius:5px; padding:6px 8px;
+  .quadro { --q:${(11*esc0).toFixed(2)}px; display:grid; gap:.8em; align-items:start; font-size:var(--q);
+            grid-template-columns:${cols ? `repeat(${cols}, minmax(0,1fr))`
+                                        : "repeat(auto-fit, minmax(12em, 1fr))"}; }
+  .coluna { border:1px solid #dfe2e8; border-radius:.6em; overflow:hidden; background:#fbfcfd; font-size:1em; }
+  .coluna > .topo { padding:.5em .8em; border-bottom:1px solid #dfe2e8; background:#f2f4f7;
+            display:flex; align-items:center; gap:.6em; }
+  .coluna > .topo i { width:.8em; height:.8em; border-radius:.2em; flex:none; }
+  .coluna > .topo b { font-size:.88em; text-transform:uppercase; letter-spacing:.04em; flex:1;
+            overflow-wrap:anywhere; line-height:1.3; }
+  .coluna > .topo .qtd { font-size:1em; font-variant-numeric:tabular-nums; color:#6b7280; font-weight:700; }
+  .cartoes { padding:.6em; display:flex; flex-direction:column; gap:.5em; }
+  .cartao { border:1px solid #e3e6eb; border-left:.28em solid #999; border-radius:.45em; padding:.5em .7em;
             background:#fff; break-inside:avoid; page-break-inside:avoid; }
-  .cartao .id { font-weight:700; font-size:11.5px; font-variant-numeric:tabular-nums; }
-  .cartao .campo { margin-top:3px; font-size:9.5px; line-height:1.4; overflow-wrap:anywhere; }
-  .cartao .campo b { color:#6b7280; font-weight:600; text-transform:uppercase; font-size:8.5px;
+  .cartao .id { font-weight:700; font-size:1.03em; font-variant-numeric:tabular-nums; line-height:1.25; }
+  .cartao .campo { margin-top:.25em; font-size:.85em; line-height:1.35; overflow-wrap:anywhere; }
+  .cartao .campo b { color:#6b7280; font-weight:600; text-transform:uppercase; font-size:.8em;
             letter-spacing:.04em; display:block; }
-  .coluna.vazia .cartoes { padding:12px 7px; color:#9aa0aa; font-size:10px; text-align:center; }
+  .coluna.vazia .cartoes { padding:1em .6em; color:#9aa0aa; font-size:.9em; text-align:center; }
   .porpagina { break-after:page; page-break-after:always; }
-  .porpagina:last-child { break-after:auto; page-break-after:auto; }`;
+  .porpagina:last-child { break-after:auto; page-break-after:auto; }
+${densidade==="compacto" ? `
+  /* Compacto: o rotulo do campo sai (o cartao ja e curto o bastante para se
+     ler sem ele) e tudo encosta. */
+  .cartao { padding:.35em .55em; }
+  .cartao .campo { margin-top:.15em; font-size:.82em; }
+  .cartao .campo b { display:none; }
+  .cartoes { gap:.35em; padding:.45em; }` : ""}
+${densidade==="etiqueta" ? `
+  /* Etiqueta: so o codigo do item, colorido pelo status. E o unico formato em
+     que uma base inteira cabe em uma pagina - 428 etiquetas cabem, 428 cartoes
+     completos nao cabem em escala nenhuma. */
+  .cartoes { flex-direction:row; flex-wrap:wrap; gap:.3em; padding:.5em; }
+  .cartao { border-left-width:1px; border-radius:.9em; padding:.15em .55em; }
+  .cartao .id { font-size:.95em; }
+  .cartao .campo { display:none; }` : ""}`;
   },
   capaHTML(lista, titulo, o, subtitulo){
     const e = v => esc(limparTexto(v,{quebras:"achatar"}));
@@ -3282,10 +3309,20 @@ ${aba("Resumo",resumo)}${aba("Itens",dados,larg)}${aba(LANG==="pt"?"Historico":"
     <span>database.json · ${LANG==="pt"?"revisão":"revision"} ${esc(rev)}</span>
   </footer>`;
   },
+  /* CSS de quem exporta: entra por ULTIMO, entao vence o nosso sem !important.
+     E a porta para ajustar o relatorio sem mexer no sistema - e o que sai no
+     arquivo HTML, que da para abrir e continuar editando. Vai como texto dentro
+     de <style>: o unico jeito de escapar dali seria fechar a tag, e e isso que
+     a limpeza abaixo impede. */
+  cssDoUsuario(css){
+    return String(css||"").replace(/<\/?(style|script)/gi, "/*$&*/").slice(0, 20000);
+  },
   moldura(titulo, o, paisagem, extraCSS, corpo){
+    const meu = this.cssDoUsuario(o.cssExtra);
     return `<!doctype html><html lang="${LANG==="pt"?"pt-BR":"en"}"><head><meta charset="utf-8">
 <title>${esc(titulo)} — StatusMilestone</title>
 <style>${this.cssRelatorio(o, paisagem)}${extraCSS||""}
+${meu? `\n/* ----- ajustes de quem exportou (Exportar > Aparência do quadro) ----- */\n${meu}` : ""}
 </style></head><body><div class="folha">
 ${corpo}
 ${this.rodapeHTML()}
@@ -3388,6 +3425,39 @@ ${this.rodapeHTML()}
     return o.layout==="kanban"? this.docKanbanHTML(lista, titulo, o)
                               : this.docHTML(lista, titulo, o);
   },
+  /* Quantas paginas isto vai dar? A conta nao e estimada a partir de um modelo
+     de altura de cartao - seria chute, e chute errado e pior que nenhum. O
+     documento e montado de verdade num quadro escondido com a largura util da
+     folha e o que se le e a altura real. O numero e aproximado so porque o
+     Chrome ajusta a escala na hora de imprimir, e isso esta dito na tela. */
+  A4:{paisagem:{l:297,a:210}, retrato:{l:210,a:297}}, MM_PX:96/25.4,
+  async previsaoPaginas(lista, titulo, opc={}){
+    const o = Object.assign(this.opcoes(), opc);
+    const pag = this.A4[o.orientacao==="retrato"?"retrato":"paisagem"];
+    const larguraPx = (pag.l - 20) * this.MM_PX;       /* margens de 10mm dos dois lados */
+    const alturaPx  = (pag.a - 26) * this.MM_PX;       /* 12mm em cima, 14mm embaixo */
+    const html = this.documento(lista, titulo, o);
+    return new Promise(resolve=>{
+      const f = document.createElement("iframe");
+      f.setAttribute("aria-hidden","true");
+      f.style.cssText = `position:fixed;left:-10000px;top:0;border:0;width:${Math.round(larguraPx)}px;height:${Math.round(alturaPx)}px;visibility:hidden`;
+      let respondido = false;
+      const responder = v => { if(respondido) return; respondido = true; f.remove(); resolve(v); };
+      f.onload = ()=>{
+        try{
+          const d = f.contentDocument;
+          const alt = Math.max(d.documentElement.scrollHeight, d.body.scrollHeight);
+          const larg = Math.max(d.documentElement.scrollWidth, d.body.scrollWidth);
+          responder({paginas: Math.max(1, Math.ceil(alt/alturaPx)),
+                     cortaNaLargura: larg > Math.round(larguraPx)+2});
+        }catch{ responder(null); }
+      };
+      f.srcdoc = html;
+      document.body.append(f);
+      setTimeout(()=>responder(null), 8000);          /* nunca deixa a janela pendurada */
+    });
+  },
+
   /* Imprime num quadro escondido: nao depende de o navegador liberar janela
      nova (bloqueador de pop-up e o padrao em muita instalacao corporativa) e
      nao mexe na tela que a pessoa esta usando. */
@@ -3442,9 +3512,13 @@ ${this.rodapeHTML()}
       zebra:  $("#xZebra")?  !!$("#xZebra").checked  : o.zebra,
       layout: $("#xLayout")?.value || o.layout,
       kanbanAgrupar: $("#xAgrupar")?.value || o.kanbanAgrupar,
-      kanbanColunas: Math.min(6, Math.max(1, +($("#xKcols")?.value) || o.kanbanColunas)),
+      kanbanColunas: (!$("#xKcols") || $("#xKcols").value === "auto")
+                     ? (o.kanbanColunas) : Math.min(10, Math.max(1, +$("#xKcols").value || 4)),
       kanbanVazias: $("#xKvazias")? !!$("#xKvazias").checked : o.kanbanVazias,
       kanbanQuebra: $("#xKquebra")?.value || o.kanbanQuebra,
+      kanbanDensidade: $("#xKdens")?.value || o.kanbanDensidade,
+      kanbanEscala: Math.min(140, Math.max(60, +($("#xKescala")?.value) || o.kanbanEscala)),
+      cssExtra: $("#xCss") ? String($("#xCss").value||"") : o.cssExtra,
     });
     const sair = fn => {
       const cols = lerSelecao();
@@ -3513,7 +3587,18 @@ ${this.rodapeHTML()}
             <select id="xAgrupar">${this.AGRUPAR.map(a=>
               `<option value="${esc(a.id)}" ${o.kanbanAgrupar===a.id?"selected":""}>${esc(LANG==="pt"?a.pt:a.en)}</option>`).join("")}</select></label>
           <label class="fld"><span>${LANG==="pt"?"Colunas por página":"Columns per page"}</span>
-            <input type="number" id="xKcols" min="1" max="6" value="${o.kanbanColunas}"></label>
+            <select id="xKcols">
+              <option value="auto" ${o.kanbanColunas==="auto"?"selected":""}>${LANG==="pt"?"Automático (todas lado a lado)":"Automatic (all side by side)"}</option>
+              ${[1,2,3,4,5,6,7,8].map(n=>`<option value="${n}" ${String(o.kanbanColunas)===String(n)?"selected":""}>${n}</option>`).join("")}
+            </select></label>
+          <label class="fld"><span>${LANG==="pt"?"Cartão":"Card"}</span>
+            <select id="xKdens">
+              <option value="completo" ${o.kanbanDensidade==="completo"?"selected":""}>${LANG==="pt"?"Completo — rótulo e valor de cada campo":"Full — label and value per field"}</option>
+              <option value="compacto" ${o.kanbanDensidade==="compacto"?"selected":""}>${LANG==="pt"?"Compacto — sem os rótulos":"Compact — no labels"}</option>
+              <option value="etiqueta" ${o.kanbanDensidade==="etiqueta"?"selected":""}>${LANG==="pt"?"Etiqueta — só o código, colorido":"Chip — code only, coloured"}</option>
+            </select></label>
+          <label class="fld"><span>${LANG==="pt"?"Tamanho do cartão":"Card size"} <span class="muted" id="xKescalaV">${o.kanbanEscala}%</span></span>
+            <input type="range" id="xKescala" min="60" max="140" step="5" value="${o.kanbanEscala}"></label>
           <label class="fld"><span>${LANG==="pt"?"Como quebrar":"How to break"}</span>
             <select id="xKquebra">
               <option value="quadro" ${o.kanbanQuebra!=="pagina"?"selected":""}>${LANG==="pt"?"Um quadro só, colunas lado a lado":"One board, columns side by side"}</option>
@@ -3523,6 +3608,19 @@ ${this.rodapeHTML()}
         <label class="rowflex" style="gap:7px;margin-top:11px"><input type="checkbox" id="xKvazias" ${o.kanbanVazias?"checked":""}>
           <span>${LANG==="pt"?"Mostrar as colunas vazias (um “Bloqueado: 0” diz alguma coisa)"
                               :"Show empty columns (a “Blocking: 0” says something)"}</span></label>
+        <p class="muted" style="font-size:11.5px;margin-top:11px;line-height:1.7" id="xKdica"></p>
+
+        <div class="sep"></div>
+        <label class="fld"><span>${LANG==="pt"
+          ? "CSS próprio — entra por último, então vence o estilo padrão"
+          : "Your own CSS — goes in last, so it wins over the default style"}</span>
+          <textarea id="xCss" rows="3" class="mono" style="font-size:11px"
+            placeholder="${LANG==="pt"
+              ? ".cartao { border-left-width:6px }  .coluna &gt; .topo { background:#eef4ff }"
+              : ".cartao { border-left-width:6px }  .coluna &gt; .topo { background:#eef4ff }"}">${esc(o.cssExtra||"")}</textarea></label>
+        <p class="muted" style="font-size:11.5px;line-height:1.7">${LANG==="pt"
+          ? "Seletores do quadro: <code>.quadro</code> (a grade), <code>.coluna</code>, <code>.coluna &gt; .topo</code> (o cabeçalho da coluna), <code>.cartoes</code>, <code>.cartao</code>, <code>.cartao .id</code> (o código), <code>.cartao .campo</code>, <code>.pill</code> (o status). A variável <code>--q</code> na <code>.quadro</code> é o tamanho base: quase tudo está em <code>em</code>, então mexer nela encolhe o cartão inteiro. Fica guardado e vale para as próximas exportações — e sai dentro do arquivo <b>HTML</b>, que dá para abrir e continuar editando."
+          : "Board selectors: <code>.quadro</code> (the grid), <code>.coluna</code>, <code>.coluna &gt; .topo</code>, <code>.cartoes</code>, <code>.cartao</code>, <code>.cartao .id</code>, <code>.cartao .campo</code>, <code>.pill</code>. The <code>--q</code> variable on <code>.quadro</code> is the base size: almost everything is in <code>em</code>, so changing it shrinks the whole card. It is remembered for next time — and ships inside the <b>HTML</b> file, which you can open and keep editing."}</p>
       </div>
       <div class="rowflex" style="margin-top:11px;gap:16px;flex-wrap:wrap">
         <label class="rowflex" style="gap:7px"><input type="checkbox" id="xResumo" ${o.resumo?"checked":""}>
@@ -3555,6 +3653,40 @@ ${this.rodapeHTML()}
       if(bl) bl.style.display = $("#xLayout")?.value==="kanban" ? "" : "none"; };
     const sl=$("#xLayout"); if(sl) sl.onchange = trocouLayout;
     trocouLayout();
+
+    /* O valor do cursor aparece enquanto se arrasta. */
+    const esc0=$("#xKescala"), escV=$("#xKescalaV");
+    if(esc0 && escV) esc0.oninput = ()=>{ escV.textContent = esc0.value+"%"; };
+
+    /* A previsao e medida, nao estimada - e por isso ela custa um clique em vez
+       de correr a cada toque num cursor. */
+    const dica=$("#xKdica");
+    if(dica){
+      /* O resultado vai num span ao lado, nao no lugar do botao: substituir o
+         innerHTML inteiro apagava o proprio botao e so dava para prever uma vez. */
+      dica.innerHTML = `<button class="btn sm" id="xPrever">${LANG==="pt"?"Quantas páginas vai dar?":"How many pages?"}</button>
+        <span id="xKdicaR" style="margin-left:8px"></span>`;
+      const saida = $("#xKdicaR");
+      $("#xPrever").onclick = async ()=>{
+        const cols = lerSelecao();
+        if(!cols.length) return toast(LANG==="pt"?"Escolha ao menos uma coluna":"Pick at least one column","bad");
+        saida.textContent = LANG==="pt"?"medindo…":"measuring…";
+        const r = await this.previsaoPaginas(lista, titulo, {...lerOpcoes(), cols});
+        if(!r){ saida.textContent = LANG==="pt"?"não consegui medir aqui":"could not measure here"; return; }
+        const cabe = r.paginas===1;
+        saida.innerHTML = `<b style="color:var(--${cabe?"ok":r.paginas<=4?"fg-2":"warn"})">${
+            r.paginas===1 ? (LANG==="pt"?"cabe em 1 página":"fits on 1 page")
+                          : `${r.paginas} ${LANG==="pt"?"páginas":"pages"}`}</b>
+          <span class="muted"> — ${LANG==="pt"
+            ? `medido de verdade, não estimado; o Chrome ainda ajusta a escala na impressão. ${
+                cabe? "" : "Para caber em uma: cartão <b>Etiqueta</b> e tamanho menor."}`
+            : `actually measured, not guessed; Chrome still adjusts the scale when printing. ${
+                cabe? "" : "To fit one page: <b>Chip</b> card and a smaller size."}`}</span>
+          ${r.cortaNaLargura?`<br><b style="color:var(--bad)">${LANG==="pt"
+            ? "corta na largura — reduza as colunas por página ou o tamanho do cartão"
+            : "clipped horizontally — reduce columns per page or card size"}</b>`:""}`;
+      };
+    }
   },
 };
 
