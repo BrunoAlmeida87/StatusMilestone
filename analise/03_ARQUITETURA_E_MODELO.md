@@ -289,15 +289,43 @@ saneamento de texto alimentam cinco saídas.
   toda célula vai entre aspas e fórmula (`=`, `+`, `-`, `@`) é desarmada com apóstrofo. Eram as
   três causas do arquivo que chegava desalinhado ou truncado.
 - **Relatório PDF / HTML**: um documento próprio, montado do zero — capa com o recorte, quem gerou
-  e a revisão da base; resumo com KPIs, Evidence Flow, Shipyard e função vital; tabela paginada em
-  A4 (retrato ou paisagem) com `thead` repetido em toda página e `break-inside: avoid` por linha.
-  A impressão corre num `<iframe>` escondido, que não depende de o navegador liberar janela nova.
-  **Não é mais `window.print()` da tela viva.**
+  e a revisão da base; resumo com KPIs, Evidence Flow, Shipyard e função vital; e o corpo em dois
+  formatos, despachados por `Export.documento`. A impressão corre num `<iframe>` escondido, que não
+  depende de o navegador liberar janela nova. **Não é mais `window.print()` da tela viva.**
+  - **tabela** paginada em A4 (retrato ou paisagem) com `thead` repetido em toda página e
+    `break-inside: avoid` por linha;
+  - **quadro Kanban** (`docKanbanHTML`): o board em papel. `Export.AGRUPAR` define os agrupamentos
+    possíveis das colunas (família do status, status, InspType, OriginalJx, ActualJx, função vital,
+    Insp) e `colunasQuadro` faz a divisão, ordenando pelo domínio onde ele existe e alfabeticamente
+    nos campos de texto livre. **As colunas escolhidas na janela viram os campos do cartão** — não
+    há uma segunda lista de campos para manter em dia. Um quadro grande pode sair com **uma coluna
+    por página**, que é a única forma de o cartão ficar legível em papel.
+
+  Capa, resumo, folha de estilo e rodapé são os mesmos nos dois formatos (`capaHTML`,
+  `resumoDocHTML`, `cssRelatorio`, `moldura`): o que muda é só o corpo.
 - **Excel** (SpreadsheetML, três abas: Resumo, Itens, Histórico) e **JSON** com o recorte, as
   colunas escolhidas e a revisão da base.
 
 O resumo do Excel e a capa do relatório saem da **mesma** função (`Export.resumo`): um número só
 poderia divergir entre os dois se o cálculo fosse duplicado.
+
+### O visualizador
+`docs/visualizador.html` é o mesmo sistema **sem a escrita**, para a pasta de transferência. Não é
+uma cópia mantida à mão — cópia mantida à mão diverge, e em um mês o visualizador estaria contando o
+Shipyard pelo campo errado enquanto o sistema conta pelo certo. Ele é **gerado** de
+`docs/index.html` por `ferramentas/gerar_visualizador.py`, que:
+
+1. troca `Pend`, `Sync` e `Lote` por cascas inertes e remove `NovoItem` e `Arquivamento`;
+2. substitui os métodos de escrita do `Store` (`gravar`, `backup`, `travar`, `arquivarHistorico`…)
+   por uma recusa `SOMENTE_LEITURA` — o caminho de código até um writer deixa de existir, não é só
+   a interface que some — e abre a pasta com `showDirectoryPicker({mode:"read"})`;
+3. tira da interface o que só servia para editar;
+4. troca a abertura pela de `ferramentas/visualizador_shell.js`, que lê o `database.json` ao lado do
+   arquivo (por `fetch` quando servido por http, pela pasta autorizada uma vez quando é `file://`).
+
+**Toda substituição é ancorada num trecho exato do `index.html` e conferida**: se uma âncora sumir
+porque o index mudou, o gerador para com erro em vez de produzir um visualizador quebrado em
+silêncio, e `--conferir` (chamado pelos testes) falha se o arquivo gerado estiver desatualizado.
 
 ### Item novo
 Um item pode nascer à mão (**Itens ▸ + Novo item**), não só pela migração. Formulário com todos os

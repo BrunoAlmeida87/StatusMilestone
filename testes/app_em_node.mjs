@@ -101,20 +101,30 @@ function criarContexto(){
 }
 
 /* Executa os blocos <script> inline da pagina, na ordem, num escopo compartilhado. */
-export function carregarApp({autor="Teste", confirmar=()=>true}={}){
-  const html = fs.readFileSync(APP,"utf8");
+export const VISUALIZADOR = path.join(RAIZ, "docs", "visualizador.html");
+
+/* `arquivo` existe para carregar o VISUALIZADOR com o mesmo aparato: ele e
+   gerado a partir deste index, entao tem de passar pelos mesmos testes. */
+export function carregarApp({autor="Teste", confirmar=()=>true, arquivo=APP}={}){
+  const html = fs.readFileSync(arquivo,"utf8");
   const blocos = [...html.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/g)].map(m=>m[1]);
-  if(!blocos.length) throw new Error("nenhum bloco <script> encontrado em docs/index.html");
+  if(!blocos.length) throw new Error("nenhum bloco <script> encontrado em "+arquivo);
   const ctx = criarContexto();
   ctx.confirm = confirmar;
   ctx.localStorage.setItem("sm.autor", autor);
   vm.createContext(ctx);
-  blocos.forEach((codigo,i)=>vm.runInContext(codigo, ctx, {filename:`docs/index.html <script ${i+1}>`}));
+  blocos.forEach((codigo,i)=>vm.runInContext(codigo, ctx, {filename:`${path.basename(arquivo)} <script ${i+1}>`}));
   /* os modulos sao declarados com const, que no escopo lexico global de um script
      classico nao vira propriedade de globalThis: buscamos as referencias aqui. */
   const nomes = ["IDB","Store","Usuario","S","R","Pend","Sync","M","G","Render","UI","Export","hoje","agora","T","Filtros","FiltroURL","Visita","ROTAS","Arquivamento","Colunas","Lote","TecladoItens","COLUNAS_PADRAO",
                  "NovoItem","Caminho","limparTexto","nomeArquivo","$","$$"];
-  const app = vm.runInContext(`({${nomes.join(",")}})`, ctx);
+  /* NovoItem e Arquivamento nao existem no visualizador, e Visualizador nao
+     existe no index: pedir um nome inexistente derrubaria a extracao inteira. */
+  const presentes = nomes.concat(["Visualizador"]).filter(n=>{
+    try{ vm.runInContext(`typeof ${n}`, ctx); return vm.runInContext(`typeof ${n} !== "undefined"`, ctx); }
+    catch{ return false; }
+  });
+  const app = vm.runInContext(`({${presentes.join(",")}})`, ctx);
   app.ctx = ctx;
   app.avaliar = codigo => vm.runInContext(codigo, ctx);
   app.normalizar = ctx.normalizar;

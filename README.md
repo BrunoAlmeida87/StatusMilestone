@@ -4,6 +4,7 @@ Sistema local de acompanhamento do fluxo de evidências do marco **J08**, substi
 arquivos Excel (`SafetyMilestoneJ08.xlsx` e `Resumo_Fluxo_Evidencia.xlsb`) por **uma única base**.
 
 **▶ Abrir o sistema:** https://brunoalmeida87.github.io/StatusMilestone/
+**▶ Só consultar (somente leitura):** https://brunoalmeida87.github.io/StatusMilestone/visualizador.html
 
 > ⚠️ **Nenhum dado do projeto está neste repositório.** A base vive num `database.json` numa pasta
 > sua (local ou de rede), escolhida na primeira abertura. O `.gitignore` bloqueia csv, xlsx, xlsb
@@ -25,7 +26,7 @@ Também funciona **sem internet**: baixe `docs/index.html` e abra por duplo cliq
 |---|---|
 | **Dashboard** | KPIs, Shipyard Prerequisites (**ActualJx = J08**), B05 Status, Functional Insp. Type, evolução, aging, pendências por tipo e por função vital, e os dois Evidence Flow (B05 / exceto B05) no fim. Todo painel recolhe ao clicar no cabeçalho |
 | **Itens** | Tabela ordenável com busca, filtros combináveis, **botão de item novo** e edição pelo detalhe. **Colunas à escolha de cada um**, **seleção múltipla para aplicar o mesmo status em lote** e navegação por teclado (↑↓ anda, Enter abre, espaço marca). Célula cortada mostra o conteúdo inteiro ao passar o mouse; o botão **Texto completo** desliga o corte. No celular a tabela vira uma pilha de cartões |
-| **Kanban** | 6 colunas por família de status, **horizontal ou vertical**, arrastar e soltar, colunas recolhíveis |
+| **Kanban** | 6 colunas por família de status, **horizontal ou vertical**, arrastar e soltar, colunas recolhíveis, e **exportar o quadro** como relatório |
 | **Evidence Flow** | Os dois diagramas de fluxo (B05 / exceto B05), em tela própria |
 | **Histórico** | Compara **quaisquer duas datas** e reconstrói o estado em cada uma |
 | **Relatórios** | 11 relatórios prontos e a **janela de exportação**: escolha as colunas e saia em CSV, Excel, JSON, HTML ou **relatório PDF** |
@@ -50,10 +51,40 @@ exportar**, que abre a mesma janela:
   fecha toda célula entre aspas e desarma fórmula (`=`, `+`, `-`, `@`) — as três causas do arquivo
   que chegava desalinhado ou truncado;
 - **relatório PDF de verdade** — um documento montado do zero: capa com o recorte, quem gerou e a
-  revisão da base; resumo com KPIs, Evidence Flow, Shipyard e função vital; e a tabela paginada em
-  A4 (retrato ou paisagem), com o cabeçalho repetido em toda página e linha que não parte ao meio.
-  Não é mais a tela impressa. O mesmo documento sai como **HTML** para anexar num e-mail;
+  revisão da base; resumo com KPIs, Evidence Flow, Shipyard e função vital; e o corpo em **dois
+  formatos**. Não é mais a tela impressa. O mesmo documento sai como **HTML** para anexar num e-mail:
+  - **tabela** paginada em A4 (retrato ou paisagem), com o cabeçalho repetido em toda página e linha
+    que não parte ao meio;
+  - **quadro Kanban** — o board em papel. As colunas agrupam por família do status, status, InspType,
+    OriginalJx, ActualJx, função vital ou Insp; as colunas marcadas viram os campos do cartão (o
+    **Item** é o título, o **Actual Status** a pílula colorida); dá para escolher quantas colunas por
+    página, mostrar ou não as colunas vazias, e imprimir tudo num quadro só ou **uma coluna por
+    página** quando o cartão precisa de espaço. O botão **↓ Exportar quadro** no Kanban já abre a
+    janela nesse formato;
 - **Excel** em três abas (Resumo, Itens, Histórico) e **JSON** com o recorte e as colunas escolhidas.
+
+## O visualizador (pasta de transferência)
+
+`docs/visualizador.html` é o **mesmo sistema sem a escrita**, para quem só precisa consultar o
+status. Ponha o arquivo na pasta onde está o `database.json` e mande o caminho para quem precisar:
+
+- **abre a base sozinho**, lendo o `database.json` que estiver na mesma pasta que ele;
+- **não pergunta o nome de ninguém** e não tem item novo, edição em lote, arrastar no Kanban,
+  salvar no detalhe nem tela de Configurações — no lugar dela há **Sobre a base**, que diz de
+  quando é a informação (revisão, quem gravou, quando) e tem um botão de recarregar;
+- **mantém** Dashboard, Itens, Kanban, Evidence Flow, Histórico, Relatórios e **a exportação
+  inteira** — CSV, Excel, JSON, HTML e os dois relatórios, tabela e quadro;
+- **não consegue gravar**: as rotinas de escrita não estão nesse arquivo (chamá-las devolve
+  `SOMENTE_LEITURA`) e a pasta é aberta em modo de leitura. Os testes provam isso medindo que
+  nenhum writer é aberto e que o `database.json` continua byte a byte o que era.
+
+> Sobre o duplo clique: nenhum navegador deixa uma página em `file://` ler o arquivo vizinho — é
+> trava de segurança deles. Na primeira abertura o visualizador pede a pasta **uma vez**; a partir
+> daí ela volta sozinha e a base abre direto. Se a pasta for servida por http (intranet, ou o
+> próprio GitHub Pages), ele lê sem pedir nada.
+
+Ele é **gerado**, nunca editado à mão — `python3 ferramentas/gerar_visualizador.py`. Assim não
+diverge do sistema: se o `index.html` mudar e ninguém regerar, `node testes/unidade.mjs` falha.
 
 ## Acrescentar um item à mão
 
@@ -150,16 +181,21 @@ Rode você mesmo: `python3 migracao/validar.py caminho/para/database.json`
 O comportamento simultâneo tem suíte própria: `SM_DATABASE=... python3 testes/sincronizacao.py`
 (31 verificações). O motor de gravação, a validação da base, o descarte de pendentes, o histórico,
 o arquivamento, os filtros, as colunas, o lote e o teclado têm testes de unidade que rodam sem
-navegador e sem base real: `node testes/unidade.mjs` (381 verificações, das quais 75 são as
+navegador e sem base real: `node testes/unidade.mjs` (460 verificações, das quais 75 são as
 regressões da auditoria em [`analise/04_AUDITORIA.md`](analise/04_AUDITORIA.md)). A exportação, o
-relatório PDF e o item novo têm suíte própria em Chromium: `SM_DATABASE=... python3
-testes/exportacao.py`.
+relatório PDF e o item novo têm suíte própria em Chromium (`SM_DATABASE=... python3
+testes/exportacao.py`), e o visualizador tem a sua, servido de uma pasta com o `database.json` ao
+lado, como vai viver na rede (`SM_DATABASE=... python3 testes/visualizador.py`).
 
 ## Estrutura
 
 ```
 docs/index.html                    o sistema inteiro (publicado no GitHub Pages)
+docs/visualizador.html             o mesmo sistema sem a escrita (GERADO, nao editar a mao)
 docs/.nojekyll                     impede o Jekyll de processar a pasta
+
+ferramentas/gerar_visualizador.py  gera o visualizador a partir do index.html
+ferramentas/visualizador_shell.js  a abertura e as telas proprias do visualizador
 
 migracao/extrair.py                Excel -> CSV
 migracao/migrar.py                 CSV -> database.json

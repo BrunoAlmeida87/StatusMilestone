@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>StatusMilestone</title>
+<title>StatusMilestone — Visualizador</title>
 <style>
 /* Tema: superfícies mais quentes, contraste suave, cantos arredondados e
    respiro maior. O azul só aparece onde há ação. */
@@ -258,7 +258,7 @@ dl.kv dd{margin:0;white-space:pre-wrap;word-break:break-word}
 <body>
 <div id="app">
   <aside id="side">
-    <div class="brand"><b>StatusMilestone</b><span id="brandsub">J08 &middot; Fluxo de Evid&ecirc;ncias</span></div>
+    <div class="brand"><b>StatusMilestone</b><span id="brandsub">J08 &middot; Visualizador (somente leitura)</span></div>
     <nav id="nav"></nav>
     <div class="sidefoot">
       <button class="btn sm" id="btnTheme">◐ <span data-i="tema">Tema</span></button>
@@ -271,8 +271,6 @@ dl.kv dd{margin:0;white-space:pre-wrap;word-break:break-word}
       <h2 id="pageTitle">Dashboard</h2>
       <div id="headerExtra" class="rowflex noprint"></div>
       <div class="rowflex noprint">
-        <span id="pendBadge" class="pill" style="display:none;background:var(--chg);color:#4a3d00;border-color:var(--chg-line)"></span>
-        <button class="btn" id="btnSaveNow" style="display:none" data-i="salvarAgora">Salvar altera&ccedil;&otilde;es agora</button>
         <span id="presenca" class="pill noprint" style="display:none;background:var(--accent-soft);
           color:var(--accent);border-color:var(--accent)"></span>
         <span id="saveState" class="estado" role="status" aria-live="polite" data-e="info"
@@ -295,7 +293,7 @@ dl.kv dd{margin:0;white-space:pre-wrap;word-break:break-word}
 /* ------------------------------- i18n ---------------------------------- */
 const I18N = {
  pt:{dashboard:"Dashboard",itens:"Itens",kanban:"Kanban",historico:"Histórico",relatorios:"Relatórios",
-   config:"Configurações",tema:"Tema",fluxo:"Evidence Flow",salvarAgora:"Salvar alterações agora",
+   sobre:"Sobre a base",tema:"Tema",fluxo:"Evidence Flow",salvarAgora:"Salvar alterações agora",
    total:"Total de itens",emAberto:"Em aberto",validados:"Validados",conclusao:"Conclusão",
    alterados:"Alterados no ciclo",selecionarPasta:"Selecionar pasta da base",
    semBase:"Nenhuma base carregada",semBaseTxt:"Selecione a pasta onde fica o arquivo database.json. Pode ser uma pasta no seu computador ou na rede compartilhada.",
@@ -310,7 +308,7 @@ const I18N = {
    evolucao:"Evolução",distribuicao:"Distribuição",campo:"Campo",anterior:"Anterior",novo:"Novo",
    data:"Data",autor:"Autor",item:"Item",acoes:"Ações",resolver:"Resolver"},
  en:{dashboard:"Dashboard",itens:"Items",kanban:"Kanban",historico:"History",relatorios:"Reports",
-   config:"Settings",tema:"Theme",fluxo:"Evidence Flow",salvarAgora:"Save changes now",
+   sobre:"About",tema:"Theme",fluxo:"Evidence Flow",salvarAgora:"Save changes now",
    total:"Total items",emAberto:"Open",validados:"Validated",conclusao:"Completion",
    alterados:"Changed in cycle",selecionarPasta:"Select database folder",
    semBase:"No database loaded",semBaseTxt:"Select the folder holding database.json. It can be a local folder or a shared network folder.",
@@ -396,17 +394,17 @@ const Store = {
   async restaurarHandle(){
     const h = await IDB.get("dirHandle"); if(!h) return false;
     try{
-      if(await h.queryPermission({mode:"readwrite"}) === "granted"){ this.dirHandle=h; return true; }
+      if(await h.queryPermission({mode:"read"}) === "granted"){ this.dirHandle=h; return true; }
       this.dirHandlePendente = h; return false;
     }catch{ return false; }
   },
   async pedirPermissaoSalva(){
     const h=this.dirHandlePendente; if(!h) return false;
-    if(await h.requestPermission({mode:"readwrite"}) === "granted"){ this.dirHandle=h; return true; }
+    if(await h.requestPermission({mode:"read"}) === "granted"){ this.dirHandle=h; return true; }
     return false;
   },
   async escolherPasta(){
-    this.dirHandle = await showDirectoryPicker({mode:"readwrite", id:"statusmilestone"});
+    this.dirHandle = await showDirectoryPicker({mode:"read", id:"statusmilestone"});
     await IDB.set("dirHandle", this.dirHandle);
     return this.dirHandle;
   },
@@ -450,10 +448,8 @@ const Store = {
      resolucao de conflito podem disparar quase juntos; sem fila, dois writers
      abrem no mesmo arquivo. Uma falha nao trava a fila: a tarefa seguinte roda. */
   _fila:null,
-  enfileirar(tarefa){
-    const atual = (this._fila ?? Promise.resolve()).then(tarefa);
-    this._fila = atual.catch(()=>{});
-    return atual;
+  enfileirar(){
+    return Promise.reject(new Error("SOMENTE_LEITURA"));
   },
   /* ----------------------------- a trava ---------------------------------
      A fila do Store serializa as gravacoes DESTA sessao; entre sessoes nao havia
@@ -477,10 +473,8 @@ const Store = {
     try{ return {lida:true, t:JSON.parse(await this.lerTexto(this.TRAVA))}; }
     catch(e){ return e?.name==="NotFoundError" ? {lida:true, t:null} : {lida:false, t:null}; }
   },
-  async escreverTrava(conteudo){
-    const fh = await this.dirHandle.getFileHandle(this.TRAVA,{create:true});
-    const w = await fh.createWritable();
-    await w.write(JSON.stringify(conteudo)); await w.close();
+  escreverTrava(){
+    return Promise.reject(new Error("SOMENTE_LEITURA"));
   },
   viva(t){
     if(!t?.dono) return false;
@@ -491,93 +485,22 @@ const Store = {
      e uma protecao a mais, nunca um motivo para recusar uma gravacao: se a pasta
      nao deixa le-la ou grava-la, segue sem ela - o que sobra (conferencia de
      revisao antes e de carimbo depois) ainda e mais do que havia antes. */
-  async travar(){
-    const dono = uid();
-    const antes = await this.lerTrava();
-    if(antes.lida && this.viva(antes.t)){
-      const err = new Error("GRAVACAO_OCUPADA"); err.autorTrava = antes.t.autor; throw err;
-    }
-    try{ await this.escreverTrava({dono, autor:Usuario.nome(), em:agora()}); }
-    catch{ return null; }
-    /* rele: se outra sessao escreveu a dela quase junto, as duas leem depois das
-       duas escritas e no maximo uma se ve como dona. */
-    const depois = await this.lerTrava();
-    if(!depois.lida) return null;
-    if(depois.t?.dono !== dono){
-      const err = new Error("GRAVACAO_OCUPADA"); err.autorTrava = depois.t?.autor; throw err;
-    }
-    return dono;
+  travar(){
+    return Promise.reject(new Error("SOMENTE_LEITURA"));
   },
-  async destravar(dono){
-    if(!dono) return;
-    const {lida, t} = await this.lerTrava();
-    if(lida && t?.dono && t.dono !== dono) return;   /* ja e de outra pessoa: nao mexe */
-    try{ await this.escreverTrava({}); }catch{}
+  destravar(){
+    return Promise.reject(new Error("SOMENTE_LEITURA"));
   },
 
   /* Controle de concorrencia: trava a pasta, rele o arquivo e compara a revisao. */
-  gravar(db,{forcar=false}={}){
-    if(!this.dirHandle) return Promise.reject(new Error("sem pasta"));
-    return this.enfileirar(()=>this._gravar(db,{forcar}));
+  gravar(){
+    return Promise.reject(new Error("SOMENTE_LEITURA"));
   },
-  async _gravar(db,{forcar=false}={}){
-    /* Contencao entre sessoes e passageira (a outra solta assim que fecha o
-       arquivo): tenta de novo algumas vezes antes de incomodar quem esta aqui. */
-    let dono = null, ocupada = null;
-    for(let t=0; t<3; t++){
-      if(t) await new Promise(r=>setTimeout(r, 250));
-      try{ dono = await this.travar(); ocupada = null; break; }
-      catch(e){ if(e.message!=="GRAVACAO_OCUPADA") throw e; ocupada = e; }
-    }
-    if(ocupada) throw ocupada;
-    try{ return await this._gravarTravado(db,{forcar}); }
-    finally{ await this.destravar(dono); }
+  _gravar(){
+    return Promise.reject(new Error("SOMENTE_LEITURA"));
   },
-  async _gravarTravado(db,{forcar=false}={}){
-    /* Os metadados novos ficam num snapshot ate o close() terminar. Se a escrita
-       falhar, a revisao em memoria continua igual a ultima efetivamente gravada.
-       O texto e montado ANTES da conferencia de proposito: serializar uma base
-       grande leva tempo, e todo esse tempo era janela de corrida. */
-    const meta = {...(db.meta||{}), revisao:(db.meta?.revisao||0)+1, carimbo:uid(),
-                  atualizadoEm:agora(), ultimoAutor:Usuario.nome()};
-    const texto = JSON.stringify({...db, meta}, null, 1);
-    if(!forcar){
-      let disco = null;
-      try{ disco = await this.lerArquivo(); }
-      catch(e){
-        const tipo = this.tipoErroLeitura(e);
-        /* So seguimos quando o arquivo comprovadamente nao existe. Qualquer outra
-           falha interrompe: gravar por cima do que nao conseguimos ler apagaria
-           trabalho alheio sem nem detectar o conflito. */
-        if(tipo !== "INEXISTENTE"){
-          const err = new Error("LEITURA_"+tipo); err.causa=e; err.detalhe=e?.message||String(e);
-          throw err;
-        }
-      }
-      if(disco){
-        const rd = disco?.meta?.revisao ?? 0;
-        if(rd !== this.revisaoCarregada){
-          const err = new Error("CONFLITO_REVISAO"); err.revisaoDisco = rd;
-          err.autorDisco = disco?.meta?.ultimoAutor; err.disco = disco; throw err;
-        }
-      }
-    }
-    let w = null;
-    try{
-      const fh = await this.dirHandle.getFileHandle("database.json",{create:true});
-      w = await fh.createWritable();
-      await w.write(texto);
-      await w.close();
-    }catch(e){
-      try{ await w?.abort?.(); }catch{}
-      const err = new Error("FALHA_ESCRITA"); err.causa=e; err.detalhe=e?.message||String(e);
-      throw err;
-    }
-    await this.conferirGravacao(meta.carimbo);
-    db.meta = meta;                       /* so agora a base ativa avanca de revisao */
-    this.revisaoCarregada = meta.revisao;
-    await IDB.set("espelho", db);
-    return meta.revisao;
+  _gravarTravado(){
+    return Promise.reject(new Error("SOMENTE_LEITURA"));
   },
   /* A conferencia por revisao e um check-then-use: entre reler o arquivo e fechar
      o writer cabe a gravacao inteira de outra pessoa - a fila do Store serializa
@@ -588,69 +511,24 @@ const Store = {
      gravacao leva um carimbo unico e o arquivo e relido para ver se o carimbo que
      ficou e o nosso. Nao evita a corrida - troca a perda silenciosa por um
      conflito detectado, com o trabalho ainda inteiro em memoria e no diario. */
-  async conferirGravacao(carimbo){
-    let texto;
-    try{ texto = await this.lerTexto(); }
-    catch(e){
-      /* gravou e nao deu para reler: tambem nao da para dizer "salvo" */
-      const err = new Error("GRAVACAO_PERDIDA"); err.causa=e; err.detalhe=e?.message||String(e);
-      throw err;
-    }
-    if(texto.includes('"'+carimbo+'"')) return true;
-    const err = new Error("GRAVACAO_PERDIDA");
-    try{
-      err.disco = JSON.parse(texto);
-      err.autorDisco  = err.disco?.meta?.ultimoAutor;
-      err.revisaoDisco = err.disco?.meta?.revisao ?? 0;
-    }catch{}
-    throw err;
+  conferirGravacao(){
+    return Promise.reject(new Error("SOMENTE_LEITURA"));
   },
   /* O backup so e dado como feito depois de reler e conferir o arquivo gravado:
      quem depende dele (sobrescrita forcada, restauracao) precisa dessa certeza. */
-  backup(db,rotulo="manual"){
-    if(!this.dirHandle) return Promise.reject(new Error("sem pasta"));
-    return this.enfileirar(()=>this._backup(db,rotulo));
+  backup(){
+    return Promise.reject(new Error("SOMENTE_LEITURA"));
   },
-  async _backup(db,rotulo="manual"){
-    const bdir = await this.dirHandle.getDirectoryHandle("backups",{create:true});
-    const nome = `database-${agora().replace(/[:.]/g,"-").slice(0,19)}-${rotulo}.json`;
-    const fh = await bdir.getFileHandle(nome,{create:true});
-    const w = await fh.createWritable(); await w.write(JSON.stringify(db,null,1)); await w.close();
-    let lido;
-    try{
-      const conf = await bdir.getFileHandle(nome);
-      lido = JSON.parse(await (await conf.getFile()).text());
-    }catch(e){
-      const err = new Error("BACKUP_NAO_CONFIRMADO"); err.causa=e; err.detalhe=e?.message||String(e);
-      throw err;
-    }
-    if(!lido || typeof lido!=="object" || !Array.isArray(lido.itens))
-      throw new Error("BACKUP_NAO_CONFIRMADO");
-    await this.limparBackupsAntigos(bdir);
-    return nome;
+  _backup(){
+    return Promise.reject(new Error("SOMENTE_LEITURA"));
   },
   /* Historico arquivado: mesma exigencia do backup - so conta como gravado
      depois de reler e conferir, porque a base perde esses eventos em seguida. */
-  arquivarHistorico(nome, dados){
-    if(!this.dirHandle) return Promise.reject(new Error("sem pasta"));
-    return this.enfileirar(()=>this._arquivarHistorico(nome, dados));
+  arquivarHistorico(){
+    return Promise.reject(new Error("SOMENTE_LEITURA"));
   },
-  async _arquivarHistorico(nome, dados){
-    const hdir = await this.dirHandle.getDirectoryHandle("historico",{create:true});
-    let w=null;
-    try{
-      const fh = await hdir.getFileHandle(nome,{create:true});
-      w = await fh.createWritable(); await w.write(JSON.stringify(dados,null,1)); await w.close();
-    }catch(e){
-      try{ await w?.abort?.(); }catch{}
-      const err=new Error("ARQUIVO_NAO_CONFIRMADO"); err.causa=e; err.detalhe=e?.message; throw err;
-    }
-    let lido;
-    try{ lido = JSON.parse(await (await (await hdir.getFileHandle(nome)).getFile()).text()); }
-    catch(e){ const err=new Error("ARQUIVO_NAO_CONFIRMADO"); err.causa=e; err.detalhe=e?.message; throw err; }
-    if(!Array.isArray(lido?.eventos) || lido.eventos.length !== dados.eventos.length)
-      throw new Error("ARQUIVO_NAO_CONFIRMADO");
-    return nome;
+  _arquivarHistorico(){
+    return Promise.reject(new Error("SOMENTE_LEITURA"));
   },
   async listarBackups(){
     try{
@@ -661,27 +539,21 @@ const Store = {
       return out.sort((a,b)=>b.nome.localeCompare(a.nome));
     }catch{ return []; }
   },
-  async limparBackupsAntigos(bdir,manter=30){
-    const lista=[]; for await (const [nome,h] of bdir.entries()) if(nome.endsWith(".json")) lista.push(nome);
-    lista.sort().reverse().slice(manter).forEach(n=>bdir.removeEntry(n).catch(()=>{}));
+  limparBackupsAntigos(){
+    return Promise.reject(new Error("SOMENTE_LEITURA"));
   },
-  async restaurarBackup(nome){
-    const bdir = await this.dirHandle.getDirectoryHandle("backups");
-    const fh = await bdir.getFileHandle(nome);
-    return JSON.parse(await (await fh.getFile()).text());
+  restaurarBackup(){
+    return Promise.reject(new Error("SOMENTE_LEITURA"));
   },
 };
 
 /* ------------------------------ usuario -------------------------------- */
 const Usuario = {
   nome(){ return localStorage.getItem("sm.autor") || ""; },
-  garantir(){
-    let n = this.nome();
-    while(!n){ n = (prompt(LANG==="pt"
-      ? "Identifique-se (seu nome aparecerá no histórico das alterações):"
-      : "Please identify yourself (your name is recorded in the change history):")||"").trim(); }
-    localStorage.setItem("sm.autor", n); return n;
-  },
+  /* O visualizador nao grava nada em nome de ninguem: nao pergunta o nome.
+     O que a pessoa tiver posto no sistema continua valendo para o rodape dos
+     relatorios que ela gerar daqui. */
+  garantir(){ return this.nome(); },
 };
 </script>
 <script>
@@ -863,205 +735,15 @@ function ordenar(lista){
    Fluxo:  edição -> autosave (3s) -> pending change -> janela de
    consolidação (config, padrão 10 min) -> histórico definitivo.
    Agrupa várias mudanças no mesmo campo e descarta ida-e-volta.        */
+/* Casca inerte: o visualizador nao altera a base, entao nao ha pendencia,
+   consolidacao nem autosave. Os metodos ficam porque as telas os chamam. */
 const Pend = {
-  timerAuto:null, timerCons:null,
-  /* Tudo o que foi feito aqui e ainda nao chegou ao disco. Serve para reaplicar
-     as nossas alteracoes por cima da versao que outra pessoa gravou. */
-  diario:[],
-  registrar(e){ this.diario.push(e); },
-
-  campoEditavel:["status","updatedStatusObs","generalObs","ncr","tests"],
-
-  alterar(itemId, campo, valorNovo, {dataEfetiva=null, motivo="", silencioso=false}={}){
-    if(!this.campoEditavel.includes(campo)) return toast("Campo somente leitura","bad");
-    const it = S.db.itens.find(i=>i.item===itemId); if(!it) return;
-    const atual = it[campo] ?? "";
-    if(String(atual) === String(valorNovo)) return;
-
-    let p = S.db.pendentes.find(x=>x.item===itemId && x.campo===campo);
-    if(!p){
-      p = {id:uid(), item:itemId, campo, valorOriginal:atual, valorAtual:valorNovo,
-           /* Estado dos campos derivados antes da PRIMEIRA alteracao: e o que o
-              descarte precisa devolver. Em A -> B -> C o snapshot continua sendo
-              o de antes de A, porque so e gravado na criacao da pendencia. */
-           origUltimaAlteracaoStatus: it.ultimaAlteracaoStatus ?? null,
-           origAtualizadoEm: it.atualizadoEm ?? null,
-           primeiraAlteracaoEm:agora(), ultimaAlteracaoEm:agora(),
-           dataEfetiva:dataEfetiva||hoje(), autor:Usuario.garantir(), motivo};
-      S.db.pendentes.push(p);
-    }else{
-      p.valorAtual=valorNovo; p.ultimaAlteracaoEm=agora();
-      if(dataEfetiva) p.dataEfetiva=dataEfetiva; if(motivo) p.motivo=motivo;
-    }
-    it[campo]=valorNovo;
-    if(campo==="status") it.ultimaAlteracaoStatus = p.dataEfetiva;
-    it.atualizadoEm = agora();
-    if(!silencioso) this.registrar({t:"campo", item:itemId, campo, de:atual, para:valorNovo,
-                                    dataEfetiva:p.dataEfetiva, motivo:p.motivo||""});
-    S.sujo = true;
-    this.agendarAutosave();
-    Render.badgePendentes();
-  },
-
-  agendarAutosave(){
-    clearTimeout(this.timerAuto);
-    marcarEstado(LANG==="pt"?"alterado...":"changed...", "alterado");
-    this.timerAuto = setTimeout(()=>this.autosave(), 3000);
-  },
-  /* Store.gravar ja serializa as escritas; aqui o cuidado e com o que acontece
-     ENQUANTO uma escrita corre: o que entrar no diario depois da marca nao pode
-     ser dado como salvo, senao a alteracao some do diario sem estar no disco. */
-  async autosave(){
-    if(!S.db) return;
-    /* O espelho vem PRIMEIRO e nao depende da pasta: em modo manual (navegador
-       sem a API, base aberta a mao ou copia local recuperada) era aqui que o
-       trabalho se perdia calado - nada ia para o disco nem para o IndexedDB. */
-    await IDB.set("espelho", S.db);              // rede técnica: recuperação após queda
-    if(!Store.dirHandle){
-      marcarEstado(LANG==="pt" ? "sem pasta — só cópia local" : "no folder — local copy only", "falha");
-      return;
-    }
-    S.salvando = true;
-    marcarEstado(LANG==="pt"?"salvando...":"saving...", "salvando");
-    try{
-      for(let tentativa=0; ; tentativa++){
-        /* guarda a identidade dos registros, nao o tamanho: durante a escrita o
-           diario pode crescer (edicao) ou encolher (descarte de pendencia). */
-        const enviados = new Set(this.diario);
-        try{
-          await Store.gravar(S.db);
-          this.diario = this.diario.filter(e=>!enviados.has(e));
-          S.sujo = this.diario.length > 0;       /* so limpa se nada entrou no meio */
-          marcarEstado(LANG==="pt"?"salvo "+new Date().toLocaleTimeString().slice(0,5)
-                                  :"saved "+new Date().toLocaleTimeString().slice(0,5), "salvo");
-          Sync.ultimoMtime = await Store.mtime();
-          Visita.marcar();                       /* estamos aqui: ja vimos isto */
-          if(S.sujo) this.agendarAutosave();
-          return;
-        }catch(e){
-          /* GRAVACAO_PERDIDA com a versao do disco na mao e o mesmo caso do
-             CONFLITO_REVISAO, so que descoberto depois do close: junta e grava
-             de novo em vez de dar por salvo o que foi por cima de alguem. */
-          const conflito = e.message==="CONFLITO_REVISAO"
-                        || (e.message==="GRAVACAO_PERDIDA" && e.disco);
-          if(!conflito){
-            /* S.sujo continua como estava: o que esta em memoria nao chegou ao disco. */
-            marcarEstado(LANG==="pt"?"falha ao salvar":"save failed", "falha");
-            /* Trava de outra sessao e espera, nao falha: nada foi gravado e a
-               vez chega. Insistir sozinho vale mais que um aviso a cada 3s. */
-            if(e.message==="GRAVACAO_OCUPADA"){
-              marcarEstado(LANG==="pt"?"esperando a vez...":"waiting for the folder...", "salvando");
-              this.agendarAutosave();
-              return;
-            }
-            toast(mensagemArmazenamento(e),"bad");
-            return;
-          }
-          /* Outra pessoa gravou antes. Se as alteracoes nao se cruzam, junta as duas
-             versoes e grava de novo; se cruzam, quem decide e o usuario. */
-          if(tentativa<2){
-            /* A tela de decisao do Sync ja cobre este caso e e mais util (junta
-               campo a campo). Abrir a de gravacao por cima dela fechava-a antes
-               de o usuario escolher - e Sync.ligado ficava falso para sempre. */
-            if(Sync.receber(e.disco,{aoSalvar:true})!=="decidir") continue;
-            return;
-          }
-          return UI.conflitoGravacao(e);
-        }
-      }
-    }finally{ S.salvando=false; }
-  },
-
-  /* Desfaz no item tudo o que as pendencias alteraram - inclusive os derivados.
-     Sem isso, "descartar" devolvia o campo principal e deixava ultimaAlteracaoStatus
-     e atualizadoEm com a data da alteracao desfeita, mexendo no aging e nos filtros. */
-  desfazer(pends){
-    const porItem = new Map();
-    for(const p of pends){ if(!porItem.has(p.item)) porItem.set(p.item,[]); porItem.get(p.item).push(p); }
-    for(const [itemId, lista] of porItem){
-      const it = S.db.itens.find(i=>i.item===itemId); if(!it) continue;
-      for(const p of lista) it[p.campo] = p.valorOriginal;
-      const st = lista.find(p=>p.campo==="status");
-      if(st && st.origUltimaAlteracaoStatus != null) it.ultimaAlteracaoStatus = st.origUltimaAlteracaoStatus;
-      /* atualizadoEm so volta quando nao resta nenhuma outra pendencia do item:
-         uma pendencia que continua de pe alterou a data legitimamente. */
-      if(S.db.pendentes.some(x=>x.item===itemId && !lista.includes(x))) continue;
-      const orig = lista.map(p=>p.origAtualizadoEm).filter(v=>v!=null).sort()[0];
-      if(orig != null) it.atualizadoEm = orig;
-      else if(lista.every(p=>"origAtualizadoEm" in p)) delete it.atualizadoEm;
-    }
-  },
-  /* consolida um pendente no histórico definitivo (ou descarta se voltou ao original) */
-  consolidar(p, {forcado=false}={}){
-    const idx = S.db.pendentes.indexOf(p); if(idx<0) return;
-    S.db.pendentes.splice(idx,1);
-    if(String(p.valorOriginal) === String(p.valorAtual)){   // ida-e-volta: A -> B -> A
-      this.desfazer([p]);                                   // aging volta ao que era
-      return "descartado";
-    }
-    R.invalidarHist();                       /* o evento novo vale a partir de agora */
-    S.db.historico.push({
-      id:uid(), item:p.item, campo:p.campo,
-      valorAnterior:p.valorOriginal, valorNovo:p.valorAtual,
-      dataEfetiva:p.dataEfetiva, primeiraAlteracaoEm:p.primeiraAlteracaoEm,
-      consolidadoEm:agora(), autor:p.autor, origem: forcado?"manual":"automatico",
-      tipo:p.campo==="status"?"status":"campo", observacao:p.motivo||"",
-    });
-    return "consolidado";
-  },
-  varrer(){
-    if(!S.db) return;
-    const limite = (S.db.config.minutosConsolidacao ?? 10)*60000;
-    const t = Date.now(); let n=0;
-    for(const p of [...S.db.pendentes])
-      if(t - new Date(p.ultimaAlteracaoEm).getTime() >= limite){ this.consolidar(p); n++; }
-    if(n){ this.agendarAutosave(); Render.badgePendentes(); Render.atual(); }
-  },
-  consolidarTudo(){
-    const n = S.db.pendentes.length; if(!n) return toast(LANG==="pt"?"Nada pendente":"Nothing pending");
-    let c=0,d=0;
-    for(const p of [...S.db.pendentes]) (this.consolidar(p,{forcado:true})==="consolidado"?c++:d++);
-    const gravacao = this.autosave(); Render.badgePendentes(); Render.atual();
-    toast(LANG==="pt" ? `${c} consolidada(s), ${d} descartada(s) por retorno ao valor original`
-                      : `${c} consolidated, ${d} discarded (returned to original)`, "ok");
-    return gravacao;                       /* quem chama pode aguardar a gravacao */
-  },
-  /* Descarta UMA pendencia. Ate aqui so existia o tudo-ou-nada do descartarTudo,
-     entao desfazer um toque errado num item obrigava a perder o trabalho dos outros. */
-  descartarUma(p, {perguntar=true}={}){
-    const idx = S.db.pendentes.indexOf(p); if(idx<0) return false;
-    if(perguntar && !confirmar(LANG==="pt"
-      ? `Descartar a alteração de ${p.item} / ${p.campo}?\n\n"${p.valorOriginal}" → "${p.valorAtual}"`
-      : `Discard the change to ${p.item} / ${p.campo}?\n\n"${p.valorOriginal}" → "${p.valorAtual}"`)) return false;
-    (S.db.logDescartes ??= []).push({em:agora(), autor:Usuario.garantir(), itens:structuredClone([p])});
-    S.db.pendentes.splice(idx,1);
-    this.desfazer([p]);
-    this.esquecerNoDiario([p]);
-    this.autosave(); Render.badgePendentes(); Render.atual();
-    toast(LANG==="pt"?"Alteração descartada. Recuperável em Configurações > Log técnico."
-                     :"Change discarded. Recoverable in Settings > Technical log.","ok");
-    return true;
-  },
-  /* O diario existe para reaplicar o nosso trabalho sobre a versao de outra
-     pessoa. O que foi descartado nao e mais nosso trabalho: sai do diario. */
-  esquecerNoDiario(pends){
-    const chaves = new Set(pends.map(p=>p.item+"\u0000"+p.campo));
-    this.diario = this.diario.filter(e=>!(e.t==="campo" && chaves.has(e.item+"\u0000"+e.campo)));
-  },
-  descartarTudo(){
-    const n=S.db.pendentes.length; if(!n) return;
-    const lista = S.db.pendentes.map(p=>`  ${p.item} / ${p.campo}: "${p.valorOriginal}" -> "${p.valorAtual}"`).join("\n");
-    if(!confirmar((LANG==="pt"?`Descartar ${n} alteração(ões) pendente(s)?\n\n`:`Discard ${n} pending change(s)?\n\n`)+lista)) return;
-    (S.db.logDescartes ??= []).push({em:agora(),autor:Usuario.garantir(),itens:structuredClone(S.db.pendentes)});
-    const descartadas = [...S.db.pendentes];
-    S.db.pendentes=[];
-    this.desfazer(descartadas);
-    this.esquecerNoDiario(descartadas);
-    this.autosave(); Render.badgePendentes(); Render.atual();
-    toast(LANG==="pt"?"Descartado. Recuperável em Configurações > Log técnico.":"Discarded. Recoverable in Settings > Technical log.","ok");
-  },
-  iniciar(){ clearInterval(this.timerCons); this.timerCons=setInterval(()=>this.varrer(), 20000);
-    Sync.iniciar(); },
+  diario:[], campoEditavel:[],
+  alterar(){ toast(LANG==="pt"?"Esta é a tela de consulta — nada aqui altera a base"
+                              :"This is the read-only viewer — nothing here changes the database","warn"); },
+  registrar(){}, agendarAutosave(){}, async autosave(){}, varrer(){},
+  consolidar(){}, consolidarTudo(){}, descartarUma(){ return false; },
+  descartarTudo(){}, esquecerNoDiario(){}, desfazer(){}, iniciar(){},
 };
 
 
@@ -1072,55 +754,7 @@ const Pend = {
    com o ultimo status conhecido antes do corte. A reconstrucao a partir dai
    continua exata; o que e anterior ao corte passa a viver no arquivo gravado
    em historico/, que nunca e apagado.                                     */
-const Arquivamento = {
-  antigos(corte){ return (S.db?.historico ?? []).filter(h=>String(h.dataEfetiva||"") < corte); },
-  previa(corte){
-    const a = this.antigos(corte);
-    return {eventos:a.length, itens:new Set(a.filter(h=>h.campo==="status").map(h=>h.item)).size,
-            restam:(S.db?.historico?.length ?? 0) - a.length};
-  },
-  /* Um evento-marco por item: o ultimo status que ele tinha entre os que saem. */
-  marcos(antigos, corte){
-    const porItem = {};
-    for(const h of antigos) if(h.campo==="status") (porItem[h.item] ??= []).push(h);
-    return Object.keys(porItem).map(item=>{
-      const ultimo = porItem[item].slice().sort(R.cmpEventos).pop();
-      return {id:uid(), item, campo:"status", valorAnterior:"", valorNovo:ultimo.valorNovo,
-        dataEfetiva:ultimo.dataEfetiva, primeiraAlteracaoEm:ultimo.primeiraAlteracaoEm ?? ultimo.dataEfetiva,
-        consolidadoEm:agora(), autor:"sistema", origem:"arquivamento", tipo:"status",
-        observacao:(LANG==="pt"?"Estado consolidado no arquivamento de ":"State consolidated when archiving on ")+corte};
-    });
-  },
-  /* Grava o arquivo PRIMEIRO e so depois tira os eventos da base.
-     Entre as duas coisas ha um await, e ai mora um risco real: se o polling
-     trouxer a versao de outra pessoa nesse intervalo, os eventos antigos DELA
-     - que nao estavam no arquivo recem-gravado - sairiam da base pelo filtro do
-     corte e seriam destruidos, nem na base nem em historico/. Duas defesas:
-     a sessao se declara ocupada (Sync.tick ja respeita isso) e, como garantia,
-     a base e conferida por identidade antes de perder qualquer evento. */
-  async executar(corte){
-    const base = S.db;
-    const antigos = this.antigos(corte);
-    if(!antigos.length) return {arquivados:0};
-    const nome = `historico-ate-${corte}-${agora().replace(/[:.]/g,"-").slice(0,19)}.json`;
-    const marcos = this.marcos(antigos, corte);
-    S.salvando = true;
-    try{
-      await Store.arquivarHistorico(nome, {corte, criadoEm:agora(), autor:Usuario.garantir(),
-        revisao:base.meta?.revisao ?? 0, eventos:antigos});
-      /* O arquivo em historico/ ja esta gravado e conferido; ele nunca atrapalha.
-         O que nao pode acontecer e tirar da base eventos que ele nao contem. */
-      if(S.db !== base) throw new Error("BASE_MUDOU");
-      S.db.historico = S.db.historico.filter(h=>!(String(h.dataEfetiva||"") < corte)).concat(marcos);
-      (S.db.logArquivamentos ??= []).push({em:agora(), autor:Usuario.garantir(), corte,
-        arquivados:antigos.length, marcos:marcos.length, arquivo:nome});
-      R.invalidarHist();
-      Pend.registrar({t:"outro", o:"arquivamento"});
-    }finally{ S.salvando = false; }
-    await Pend.autosave();
-    return {arquivados:antigos.length, marcos:marcos.length, arquivo:nome};
-  },
-};
+/* arquivamento: grava na pasta, nao existe aqui */
 
 /* ==================== sincronizacao entre duas ou mais pessoas ==========
    A base continua sendo um unico database.json numa pasta compartilhada.
@@ -1133,246 +767,14 @@ const Arquivamento = {
      - anuncia sua presenca em presenca/<nome>.json (um arquivo por pessoa,
        portanto sem disputa de escrita) para todos verem quem esta na base.
    ====================================================================== */
+/* Casca inerte: sem gravacao nao ha o que conciliar, e anunciar presenca
+   exigiria escrever na pasta. O visualizador so le. */
 const Sync = {
-  timer:null, timerPres:null, ultimoMtime:0, presentes:[], ligado:true,
-
-  segundos(){ return Math.min(120, Math.max(3, S.db?.config?.segundosSync ?? 7)); },
-
-  iniciar(){
-    this.parar();
-    if(!Store.dirHandle || !S.db) return;
-    Store.mtime().then(m=>this.ultimoMtime=m);
-    this.timer     = setInterval(()=>this.tick(),     this.segundos()*1000);
-    this.timerPres = setInterval(()=>this.presenca(), 20000);
-    this.presenca();
-  },
-  parar(){ clearInterval(this.timer); clearInterval(this.timerPres); this.timer=this.timerPres=null; },
-
-  async tick(){
-    if(!this.ligado || !S.db || !Store.dirHandle) return;
-    if(S.salvando || $("#ov")) return;          /* gravando ou com janela aberta: espera */
-    const m = await Store.mtime();
-    if(!m || m===this.ultimoMtime) return;
-    this.ultimoMtime = m;
-    let disco; try{ disco = await Store.lerArquivo(); }catch{ return; }
-    const rd = disco?.meta?.revisao ?? 0;
-    if(rd <= Store.revisaoCarregada) return;    /* e o nosso proprio save voltando */
-    this.receber(disco);
-  },
-
-  /* Junta a versao do disco com o que ainda nao foi gravado daqui.
-     Devolve "adotado" | "juntado" | "decidir". */
-  receber(disco, {aoSalvar=false}={}){
-    /* Versao de outra pessoa tambem passa pela porta: se nao for uma base
-       valida, nada e adotado e quem esta aqui decide. */
-    if(!validarBase(disco).valido) return "decidir";
-    normalizar(disco);
-    const autor = disco?.meta?.ultimoAutor || (LANG==="pt"?"outra pessoa":"someone else");
-
-    /* compacta o diario: um registro por item+campo, do primeiro "de" ao ultimo "para" */
-    const meus = new Map();
-    let naoRebasavel = null;
-    for(const e of Pend.diario){
-      if(e.t==="campo"){
-        const k = e.item+"\u0000"+e.campo;
-        if(meus.has(k)) meus.get(k).para = e.para;
-        else meus.set(k, {...e});
-      }else if(e.t==="obs"){ meus.set("obs:"+e.obj.id, {...e});
-      }else if(e.t==="item-novo"){ meus.set("novo:"+e.obj.item, {...e});
-      }else naoRebasavel = e;
-    }
-
-    const adotar = ()=>{
-      const modal = !!$("#ov");
-      S.db = disco; Store.revisaoCarregada = disco.meta.revisao ?? 0;
-      Pend.diario = []; S.sujo = false;
-      R.invalidarHist(); Visita.marcar();
-      IDB.set("espelho", disco);
-      if(!modal) Render.atual(); else Render.badgePendentes();
-      marcarEstado(LANG==="pt"?"atualizado do disco":"updated from disk", "info");
-    };
-
-    if(!meus.size && !naoRebasavel){
-      adotar();
-      toast(LANG==="pt"? `Base atualizada por ${autor}` : `Database updated by ${autor}`);
-      return "adotado";
-    }
-    if(naoRebasavel){ this.decidir(disco, [...meus.values()], [], autor); return "decidir"; }
-
-    /* separa o que pode ser reaplicado do que colide de verdade */
-    const ok=[], colide=[];
-    for(const e of meus.values()){
-      if(e.t==="obs"){ ok.push(e); continue; }
-      /* Item criado aqui: so e disputa se a outra pessoa criou um com o mesmo
-         codigo. Caso contrario e so acrescentar de volta. */
-      if(e.t==="item-novo"){
-        const ja = disco.itens.find(i=>i.item===e.obj.item);
-        if(!ja) ok.push(e);
-        else colide.push({...e, item:e.obj.item, campo:LANG==="pt"?"(item novo)":"(new item)",
-                          para:e.obj.status, remoto:ja.status});
-        continue;
-      }
-      const it = disco.itens.find(i=>i.item===e.item);
-      if(!it){ colide.push({...e, remoto:null}); continue; }
-      const rv = it[e.campo] ?? "";
-      if(String(rv)===String(e.de) || String(rv)===String(e.para)) ok.push(e);
-      else colide.push({...e, remoto:rv});
-    }
-    if(colide.length){ this.decidir(disco, ok, colide, autor); return "decidir"; }
-
-    adotar();
-    this.reaplicar(ok);
-    Render.atual();
-    toast(LANG==="pt"
-      ? `${autor} atualizou a base; suas ${ok.length} alteração(ões) foram mantidas`
-      : `${autor} updated the database; your ${ok.length} change(s) were kept`, "ok");
-    return "juntado";
-  },
-
-  reaplicar(lista){
-    for(const e of lista){
-      if(e.t==="obs"){
-        if(!S.db.observacoes.some(o=>o.id===e.obj.id)) S.db.observacoes.push(e.obj);
-        Pend.registrar(e);
-      }else if(e.t==="item-novo"){
-        /* Nunca por cima do item de mesmo codigo que ja veio do disco: o que a
-           outra pessoa gravou fica, e a decisao ja foi tomada la em cima. */
-        if(!S.db.itens.some(i=>i.item===e.obj.item)){
-          S.db.itens.push(structuredClone(e.obj));
-          if(!S.db.historico.some(h=>h.item===e.obj.item))
-            S.db.historico.push({id:uid(), item:e.obj.item, campo:"status", valorAnterior:"",
-              valorNovo:e.obj.status, dataEfetiva:e.obj.criadoEm, primeiraAlteracaoEm:agora(),
-              consolidadoEm:agora(), autor:Usuario.nome(), origem:"manual", tipo:"status",
-              observacao: LANG==="pt"?"item criado manualmente":"item created manually"});
-          R.invalidarHist();
-        }
-        Pend.registrar(e);
-      }else{
-        Pend.alterar(e.item, e.campo, e.para, {dataEfetiva:e.dataEfetiva, motivo:e.motivo});
-      }
-    }
-    if(lista.length) Pend.agendarAutosave();
-  },
-
-  /* Colisao real no mesmo campo: nada e escolhido por conta propria. */
-  decidir(disco, seguras, colide, autor){
-    this.ligado = false;
-    const lin = colide.map((c,k)=>`<tr>
-      <td class="num"><b>${esc(c.item)}</b></td><td>${esc(c.campo)}</td>
-      <td><label class="rowflex" style="gap:6px;align-items:flex-start">
-        <input type="radio" name="cf${k}" value="meu" checked>
-        <span style="white-space:pre-wrap">${esc(c.para)||"—"}</span></label></td>
-      <td><label class="rowflex" style="gap:6px;align-items:flex-start">
-        <input type="radio" name="cf${k}" value="deles">
-        <span style="white-space:pre-wrap">${esc(c.remoto??"")||"—"}</span></label></td></tr>`).join("");
-    UI.modal(LANG==="pt"?"A base mudou enquanto você editava":"The database changed while you were editing",
-     `<p>${LANG==="pt"
-        ? `<b>${esc(autor)}</b> gravou uma versão nova da base. O que não se cruza já foi juntado automaticamente.`
-        : `<b>${esc(autor)}</b> saved a new version. Everything that does not overlap was merged automatically.`}</p>
-      ${colide.length? `<p class="muted">${LANG==="pt"
-        ? "Estes campos foram alterados dos dois lados. Escolha, para cada um, qual valor vale:"
-        : "These fields were changed on both sides. Pick which value wins for each:"}</p>
-      <table><thead><tr><th>${T("item")}</th><th>${T("campo")}</th>
-        <th>${LANG==="pt"?"Seu valor":"Your value"}</th>
-        <th>${esc(autor)}</th></tr></thead><tbody>${lin}</tbody></table>`
-      : `<p class="muted">${LANG==="pt"
-        ? "Há alterações aqui (configuração, conflito de migração ou restauração) que não podem ser reaplicadas sozinhas sobre a versão nova."
-        : "There are local changes (settings, migration conflict or restore) that cannot be replayed on the new version."}</p>`}
-      <div class="sep"></div>
-      <p class="muted" style="font-size:11.5px">${LANG==="pt"
-        ? "Nada foi apagado: sua versão continua em memória até você escolher, e o valor descartado fica registrado no histórico."
-        : "Nothing was deleted: your version stays in memory until you choose, and the discarded value is logged in the history."}</p>`,
-     [{txt:LANG==="pt"?"Baixar minha versão":"Download my version",cls:"btn",
-       fn:()=>dl(`minha-versao-${hoje()}.json`,JSON.stringify(S.db,null,1),"application/json")},
-      {txt:LANG==="pt"?"Manter tudo meu":"Keep all mine",cls:"btn",fn:()=>{
-        const meus = colide.map(c=>({...c}));
-        UI.fechar(); this.ligado=true;
-        S.db=disco; Store.revisaoCarregada=disco.meta.revisao??0; Pend.diario=[]; R.invalidarHist();
-        this.reaplicar([...seguras,...meus]); Render.atual();
-        toast(LANG==="pt"?"Sua versão prevaleceu nos campos em disputa":"Your values won the disputed fields","ok");}},
-      {txt:LANG==="pt"?"Aplicar escolhas":"Apply choices",cls:"btn pri",fn:()=>{
-        const fica=[];
-        colide.forEach((c,k)=>{ const r=$(`input[name="cf${k}"]:checked`);
-          if(r && r.value==="meu") fica.push(c); });
-        UI.fechar(); this.ligado=true;
-        S.db=disco; Store.revisaoCarregada=disco.meta.revisao??0; Pend.diario=[]; R.invalidarHist();
-        this.reaplicar([...seguras,...fica]); Render.atual();
-        toast(LANG==="pt"?"Versões conciliadas":"Versions reconciled","ok");}}],
-     /* Fechar sem escolher nao pode deixar o polling desligado para sempre. */
-     {aoFechar:()=>{ this.ligado = true; }});
-  },
-
-  /* O que ESTA pessoa esta mexendo agora: o que ainda nao foi gravado (diario)
-     mais o item aberto no detalhe. Anunciar isso deixa a colisao visivel antes
-     de acontecer, em vez de so resolve-la depois na tela de decisao. */
-  editando:new Map(),
-  meusItens(){
-    const s=new Set();
-    for(const e of Pend.diario) if(e?.item) s.add(e.item);
-    for(const p of (S.db?.pendentes||[])) if(p.autor===Usuario.nome()) s.add(p.item);
-    if($("#ov") && S.selecionado) s.add(S.selecionado);
-    return [...s].slice(0,200);
-  },
-  quemEdita(item){ return this.editando.get(item) || []; },
-  /* Atualiza as marcas sem redesenhar a tela (redesenhar perderia a rolagem). */
-  pintarEdicao(){
-    $$("[data-ed]").forEach(el=>{
-      const quem=this.quemEdita(el.dataset.ed);
-      el.innerHTML = quem.length? `<span class="tag" style="color:var(--warn);border-color:var(--warn)"
-        title="${esc(quem.join(", "))} ${LANG==="pt"?"está com este item aberto":"has this item open"}">✎</span>` : "";
-    });
-  },
-
-  /* ---- presenca: um arquivo por pessoa, sem disputa de escrita ---- */
-  /* Um arquivo por pessoa exige que nomes diferentes deem nomes de arquivo
-     diferentes. So transliterar nao basta: "José Silva"/"Jose Silva" caiam no
-     mesmo arquivo e qualquer nome fora do alfabeto latino virava "anonimo" -
-     duas pessoas se apagavam uma a outra. O sufixo vem do nome inteiro. */
-  slug(n){
-    const nome = String(n ?? "");
-    const base = nome.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"")
-                  .replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"").slice(0,40) || "pessoa";
-    let h=0; for(let k=0;k<nome.length;k++) h=(Math.imul(h,31)+nome.charCodeAt(k))|0;
-    return base+"-"+(h>>>0).toString(36);
-  },
-  async presenca(){
-    if(!Store.dirHandle) return;
-    const eu = Usuario.nome(); if(!eu) return;
-    try{
-      const d = await Store.dirHandle.getDirectoryHandle("presenca",{create:true});
-      const fh = await d.getFileHandle(this.slug(eu)+".json",{create:true});
-      const w = await fh.createWritable();
-      await w.write(JSON.stringify({nome:eu, em:agora(), itens:this.meusItens()})); await w.close();
-      const vivos=[], limite=Date.now()-90000, editando=new Map();
-      for await (const [n,h] of d.entries()){
-        if(h.kind!=="file" || !n.endsWith(".json")) continue;
-        try{ const j=JSON.parse(await (await h.getFile()).text());
-          if(!j?.nome || new Date(j.em).getTime()<limite) continue;
-          vivos.push(j.nome);
-          if(j.nome!==eu) for(const it of (Array.isArray(j.itens)? j.itens : []).slice(0,200)){
-            if(!editando.has(it)) editando.set(it, []);
-            if(!editando.get(it).includes(j.nome)) editando.get(it).push(j.nome);
-          }
-        }catch{}
-      }
-      this.presentes=[...new Set(vivos)];
-      this.editando=editando;
-    }catch{ this.presentes=[]; this.editando=new Map(); }
-    this.pintar();
-  },
-  async sair(){
-    try{ const d=await Store.dirHandle?.getDirectoryHandle("presenca");
-      await d?.removeEntry(this.slug(Usuario.nome())+".json"); }catch{}
-  },
-  pintar(){
-    this.pintarEdicao();
-    const el=$("#presenca"); if(!el) return;
-    const outros=this.presentes.filter(n=>n!==Usuario.nome());
-    if(!outros.length){ el.style.display="none"; return; }
-    el.style.display="inline-flex";
-    el.textContent = `\u25cf ${outros.length+1} ${LANG==="pt"?"na base":"online"}`;
-    el.title = (LANG==="pt"?"Também com a base aberta: ":"Also working on this database: ")+outros.join(", ");
-  },
+  ligado:false, presentes:[], editando:new Map(),
+  segundos(){ return 0; }, iniciar(){}, parar(){}, async tick(){},
+  receber(){ return "adotado"; }, reaplicar(){}, decidir(){},
+  quemEdita(){ return []; }, meusItens(){ return []; },
+  pintarEdicao(){}, async presenca(){}, sair(){}, slug(n){ return String(n||""); },
 };
 
 /* tipo: info | alterado | salvando | salvo | falha | conflito - vira a cor do ponto */
@@ -1850,7 +1252,7 @@ const ROTAS = [
   {id:"fluxo",     ic:"⇉", t:"fluxo"},
   {id:"historico", ic:"◴", t:"historico"},
   {id:"relatorios",ic:"◰", t:"relatorios"},
-  {id:"config",    ic:"⚙", t:"config"},
+  {id:"sobre",     ic:"ℹ", t:"sobre"},
 ];
 
 const Render = {
@@ -2339,38 +1741,8 @@ const Colunas = {
 /* Selecao para edicao em lote: o gesto mais repetido numa reuniao de status e
    "estes oito vao para o mesmo status". Usa o mesmo Pend.alterar da edicao
    normal - nenhuma logica paralela, entao agrupa e consolida igual. */
-const Lote = {
-  barra(lista){
-    const n = S.selecao.size; if(!n) return "";
-    const ativos = R.statusAtivos();
-    return `<div class="panel pad rowflex noprint" style="margin-bottom:12px;border-left:3px solid var(--accent)">
-      <b>${n} ${LANG==="pt"?"selecionado(s)":"selected"}</b>
-      <select id="loteStatus" style="min-width:210px">${ativos.map(st=>`<option>${esc(st)}</option>`).join("")}</select>
-      <input type="date" id="loteData" value="${hoje()}" max="${hoje()}" title="${LANG==="pt"?"Data efetiva":"Effective date"}">
-      <input type="text" id="loteMotivo" placeholder="${LANG==="pt"?"motivo (opcional)":"reason (optional)"}" style="flex:1;min-width:140px">
-      <button class="btn pri" id="loteAplicar">${LANG==="pt"?"Aplicar status":"Apply status"}</button>
-      <button class="btn" id="loteLimpar">${LANG==="pt"?"Limpar":"Clear"}</button></div>`;
-  },
-  ligar(lista){
-    const la=$("#loteAplicar"); if(!la) return;
-    la.onclick=()=>{
-      const st=$("#loteStatus").value, dt=$("#loteData").value||hoje(), mot=$("#loteMotivo").value.trim();
-      const alvos=[...S.selecao];
-      if(!confirmar(LANG==="pt"
-        ? `Aplicar "${st}" em ${alvos.length} item(ns)?\n\nCada um vira uma alteração pendente, como na edição normal.`
-        : `Apply "${st}" to ${alvos.length} item(s)?\n\nEach becomes a pending change, just like a normal edit.`)) return;
-      let n=0;
-      for(const id of alvos){
-        const it=S.db.itens.find(x=>x.item===id);
-        if(it && String(it.status)!==String(st)){ Pend.alterar(id,"status",st,{dataEfetiva:dt,motivo:mot}); n++; }
-      }
-      S.selecao.clear(); Render.atual();
-      toast(LANG==="pt"?`${n} item(ns) alterado(s) — ${alvos.length-n} já estavam nesse status`
-                       :`${n} item(s) changed — ${alvos.length-n} were already in that status`, n?"ok":"warn");
-    };
-    $("#loteLimpar").onclick=()=>{ S.selecao.clear(); Render.atual(); };
-  },
-};
+/* Casca inerte: a edicao em lote e edicao. */
+const Lote = { barra(){ return ""; }, ligar(){} };
 
 /* ========================= item novo, à mão =========================
    Ate aqui a base so crescia pela migracao: um item que aparecesse depois
@@ -2378,159 +1750,7 @@ const Lote = {
    nao tinha por onde entrar. O item nasce aqui com o mesmo caminho de gravacao
    de qualquer edicao - pendente, autosave, historico - e entra no diario como
    uma criacao, para sobreviver a uma gravacao de outra pessoa no meio.   */
-const NovoItem = {
-  /* Os campos que fazem sentido preencher na criacao. O resto (aging, criadoEm,
-     ultimaAlteracaoStatus) e derivado e nao se digita. */
-  CAMPOS:[
-    {id:"inspType",            pt:"InspType",              en:"InspType", lista:"inspType"},
-    {id:"insp",                pt:"Insp",                  en:"Insp", lista:"insp"},
-    {id:"originalJx",          pt:"OriginalJx",            en:"OriginalJx", lista:"originalJx"},
-    {id:"actualJx",            pt:"ActualJx",              en:"ActualJx", lista:"actualJx"},
-    {id:"actualJxDescription", pt:"ActualJxDescription",   en:"ActualJxDescription"},
-    {id:"numAndDescription",   pt:"Nº and Description",    en:"Nº and Description", lista:"numAndDescription"},
-    {id:"evidence",            pt:"Evidence",              en:"Evidence"},
-    {id:"description",         pt:"Description",           en:"Description", area:2},
-    {id:"hullPassageParts",    pt:"HullPassageParts",      en:"HullPassageParts"},
-    {id:"performance",         pt:"Performance",           en:"Performance", lista:"performance"},
-    {id:"mode",                pt:"Mode",                  en:"Mode", lista:"mode"},
-    {id:"positionAC",          pt:"Position AC",           en:"Position AC"},
-    {id:"sbr",                 pt:"SBR",                   en:"SBR"},
-    {id:"ncr",                 pt:"NCR's",                 en:"NCR's"},
-    {id:"updatedStatusObs",    pt:"Updated Status Obs",    en:"Updated Status Obs", area:2},
-    {id:"generalObs",          pt:"General Obs",           en:"General Obs", area:2},
-    {id:"tests",               pt:"Tests",                 en:"Tests", area:3},
-  ],
-  rotulo(c){ return LANG==="pt"? c.pt : c.en; },
-
-  /* Ja existe alguem com este codigo? A comparacao ignora caixa e espaco: um
-     "SM-014" e um "sm-014 " sao a mesma coisa para quem le a planilha, e dois
-     itens com codigo quase igual e o comeco de uma base que ninguem confere. */
-  existente(codigo){
-    const chave = String(codigo||"").trim().toLowerCase();
-    return (S.db?.itens||[]).find(i=>String(i.item).trim().toLowerCase()===chave) || null;
-  },
-
-  painel(){
-    if(!S.db) return;
-    const ativos = R.statusAtivos();
-    /* Um item que acaba de nascer esta em aberto por definicao. statusAtivos()
-       ja vem ordenado do mais pendente para o mais resolvido, mas fixar a regra
-       aqui impede que reordenar as familias nas Configuracoes faca um item novo
-       nascer "Validated by ICN". */
-    const inicial = ativos.find(st=>R.aberto(st)) ?? ativos[0] ?? "";
-    const campo = c => {
-      const lista = c.lista? R.valoresDe(c.lista) : null;
-      const dl = lista?.length? ` list="nl-${c.id}"` : "";
-      const corpo = c.area
-        ? `<textarea id="n-${c.id}" rows="${c.area}"></textarea>`
-        : `<input type="text" id="n-${c.id}"${dl}>`;
-      return `<label class="fld"><span>${esc(this.rotulo(c))}</span>${corpo}${
-        lista?.length? `<datalist id="nl-${c.id}">${lista.slice(0,400).map(v=>`<option value="${esc(v)}"></option>`).join("")}</datalist>`:""
-      }</label>`;
-    };
-    const largos = new Set(["description","updatedStatusObs","generalObs","tests","actualJxDescription","numAndDescription"]);
-
-    UI.modal(LANG==="pt"?"Novo item":"New item", `
-      <p class="muted" style="margin-bottom:13px">${LANG==="pt"
-        ? "O item entra na base como qualquer edição: vira alteração pendente, é gravado pelo autosave e ganha um evento no histórico com o seu nome. Só o <b>código do item</b> é obrigatório."
-        : "The item enters the database like any edit: it becomes a pending change, is written by autosave, and gets a history event under your name. Only the <b>item code</b> is required."}</p>
-
-      <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(min(230px,100%),1fr));gap:11px">
-        <label class="fld"><span>${LANG==="pt"?"Código do item":"Item code"} *</span>
-          <input type="text" id="n-item" placeholder="${LANG==="pt"?"ex.: SM-0472":"e.g. SM-0472"}" autocomplete="off"></label>
-        <label class="fld"><span>${T("status")}</span>
-          <select id="n-status">${ativos.map(st=>`<option${st===inicial?" selected":""}>${esc(st)}</option>`).join("")}</select></label>
-        <label class="fld"><span>${LANG==="pt"?"Data de criação":"Creation date"}</span>
-          <input type="date" id="n-criadoEm" value="${hoje()}" max="${hoje()}"></label>
-        <label class="fld"><span>Bigram <span class="muted">(${LANG==="pt"?"separe por ; ou ,":"separate with ; or ,"})</span></span>
-          <input type="text" id="n-bigram" autocomplete="off"></label>
-      </div>
-      <div class="rowflex" style="margin:11px 0 4px">
-        <label class="rowflex" style="gap:7px"><input type="checkbox" id="n-isB05">
-          <span>${LANG==="pt"?"Conta como B05 nos painéis (marcado sozinho quando InspType = B05)":"Counts as B05 in the panels (ticks itself when InspType = B05)"}</span></label>
-      </div>
-      <div id="n-aviso" style="margin:6px 0"></div>
-      <div class="sep"></div>
-      <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(min(230px,100%),1fr));gap:11px">
-        ${this.CAMPOS.filter(c=>!largos.has(c.id)).map(c=>campo(c)).join("")}
-      </div>
-      <div class="sep"></div>
-      <div style="display:grid;gap:11px">
-        ${this.CAMPOS.filter(c=>largos.has(c.id)).map(c=>campo(c)).join("")}
-      </div>`,
-      [{txt:T("fechar"), cls:"btn", fn:()=>UI.fechar()},
-       {txt:LANG==="pt"?"Criar e abrir":"Create and open", cls:"btn", fn:()=>this.criar({abrir:true})},
-       {txt:LANG==="pt"?"Criar":"Create", cls:"btn pri", fn:()=>this.criar({})}]);
-
-    /* Aviso enquanto se digita: descobrir que o codigo ja existe so na hora de
-       salvar custa o formulario inteiro preenchido de novo. */
-    const cod = $("#n-item");
-    if(cod) cod.oninput = ()=>{
-      const av = $("#n-aviso"); if(!av) return;
-      const j = this.existente(cod.value);
-      av.innerHTML = j
-        ? `<div class="panel pad" style="border-left:3px solid var(--bad);padding:8px 11px">
-             <b style="color:var(--bad)">${LANG==="pt"?"Já existe":"Already exists"}</b>
-             <span class="muted"> — ${esc(j.item)} · ${esc(j.status)}</span></div>`
-        : "";
-    };
-    const it = $("#n-inspType");
-    if(it) it.oninput = ()=>{ const b=$("#n-isB05");
-      if(b && String(it.value).trim().toUpperCase()==="B05") b.checked = true; };
-    cod?.focus?.();
-  },
-
-  ler(){
-    const v = id => String($("#n-"+id)?.value ?? "").trim();
-    const item = v("item");
-    if(!item) return {erro: LANG==="pt"?"O código do item é obrigatório.":"The item code is required."};
-    if(item.length>60) return {erro: LANG==="pt"?"Código do item longo demais (máx. 60).":"Item code too long (max 60)."};
-    const j = this.existente(item);
-    if(j) return {erro: (LANG==="pt"?`Já existe o item ${j.item} na base.`:`Item ${j.item} already exists.`)};
-    const criadoEm = v("criadoEm") || hoje();
-    const novo = {
-      item, status: v("status"),
-      bigram: v("bigram").split(/[;,]/).map(x=>x.trim()).filter(Boolean),
-      isB05: !!$("#n-isB05")?.checked,
-      criadoEm, ultimaAlteracaoStatus: criadoEm, atualizadoEm: agora(),
-      presenteEm: LANG==="pt"?"criado no sistema":"created in the app",
-    };
-    for(const c of this.CAMPOS) novo[c.id] = v(c.id);
-    /* Os campos que a normalizacao espera encontrar como texto, mesmo vazios. */
-    for(const k of ["updatedStatusObs","generalObs","ncr","tests","description","evidence",
-                    "inspType","insp","originalJx","actualJx","actualJxDescription",
-                    "numAndDescription","performance","mode","positionAC","hullPassageParts","sbr"])
-      novo[k] ??= "";
-    return {novo};
-  },
-
-  criar({abrir=false}={}){
-    const {novo, erro} = this.ler();
-    if(erro) return toast(erro,"bad");
-    const autor = Usuario.garantir();
-    S.db.itens.push(novo);
-    /* O nascimento vira evento na hora: ele nao passa pela consolidacao porque
-       nao e a mudanca de um valor anterior - e a existencia do item. Sem isso, a
-       reconstrucao historica nao sabe desde quando ele conta. */
-    S.db.historico.push({
-      id:uid(), item:novo.item, campo:"status",
-      valorAnterior:"", valorNovo:novo.status,
-      dataEfetiva:novo.criadoEm, primeiraAlteracaoEm:agora(), consolidadoEm:agora(),
-      autor, origem:"manual", tipo:"status",
-      observacao: LANG==="pt"?"item criado manualmente":"item created manually",
-    });
-    R.invalidarHist();
-    /* Entra no diario como criacao: se outra pessoa gravar antes do nosso
-       autosave, o item e reposto por cima da versao dela em vez de sumir. */
-    Pend.registrar({t:"item-novo", item:novo.item, obj:structuredClone(novo)});
-    S.sujo = true;
-    Pend.agendarAutosave();
-    UI.fechar();
-    Render.atual();
-    toast(LANG==="pt"?`Item ${novo.item} criado`:`Item ${novo.item} created`,"ok");
-    if(abrir) UI.detalhe(novo.item);
-  },
-};
+/* item novo: nao existe no visualizador */
 
 Render.itens = function(){
   $("#pageTitle").textContent=T("itens");
@@ -2541,7 +1761,6 @@ Render.itens = function(){
        : "Switch between one line per item (full text on hover) and the whole text in the table"}">${
        S.textoCompleto? (LANG==="pt"?"⇕ Texto completo":"⇕ Full text")
                       : (LANG==="pt"?"⇔ Uma linha":"⇔ Single line")}</button>`+
-    `<button class="btn" id="btnNovo" title="${LANG==="pt"?"Acrescentar um item à base":"Add an item to the database"}">+ ${LANG==="pt"?"Novo item":"New item"}</button>`+
     `<button class="btn" id="btnExpTab">↓ ${LANG==="pt"?"Exportar":"Export"}</button>`;
   const lista = ordenar(itensFiltrados());
   const visiveis = new Set(lista.map(i=>i.item));
@@ -2561,21 +1780,18 @@ Render.itens = function(){
   $("#view").innerHTML = `${Lote.barra(lista)}<div class="panel">
     <h3>${lista.length} ${LANG==="pt"?"itens":"items"}${lista.length!==S.db.itens.length?` <span class="sub">${LANG==="pt"?"de":"of"} ${S.db.itens.length}</span>`:""}</h3>
     <div class="tblwrap"><table id="itensTbl" class="${S.textoCompleto?"livre":""}" style="table-layout:fixed">
-    <colgroup><col style="width:34px">${cols.map(c=>`<col style="width:${(c.peso/soma*100).toFixed(1)}%">`).join("")}</colgroup>
+    <colgroup>${cols.map(c=>`<col style="width:${(c.peso/soma*100).toFixed(1)}%">`).join("")}</colgroup>
     <thead><tr>
-      <th class="selcol"><input type="checkbox" id="selTodos" ${todosMarcados?"checked":""}
-        title="${LANG==="pt"?"Selecionar tudo que está filtrado":"Select everything filtered"}"></th>
       ${cols.map(c=>`<th data-s="${c.id}" title="${LANG==="pt"?"Ordenar por":"Sort by"} ${esc(Colunas.rotulo(c))}"${
         S.ordenacao.campo===c.id?' style="color:var(--accent)"':""}>${esc(Colunas.rotulo(c))} <span style="opacity:${
         S.ordenacao.campo===c.id?1:.25}">${S.ordenacao.campo===c.id&&S.ordenacao.dir<0?"▼":"▲"}</span></th>`).join("")}
     </tr></thead><tbody>
       ${lista.length? lista.map(i=>`<tr data-i="${esc(i.item)}" class="${S.selecao.has(i.item)?"sel":""}${
           S.cursor===i.item?" cursor":""}">
-        <td class="selcol" data-r=""><input type="checkbox" data-sel="${esc(i.item)}" ${S.selecao.has(i.item)?"checked":""}></td>
         ${cols.map(c=>`<td class="${c.cls||""} ${c.marca?c.marca(i):""}" data-r="${esc(Colunas.rotulo(c))}">${
           c.cel? c.cel(i) : cel(i[c.id], Colunas.rotulo(c))}</td>`).join("")}
       </tr>`).join("")
-      : `<tr><td colspan="${cols.length+1}"><div class="empty">${T("nenhumItem")}</div></td></tr>`}
+      : `<tr><td colspan="${cols.length}"><div class="empty">${T("nenhumItem")}</div></td></tr>`}
     </tbody></table></div></div>`;
   $$("thead th[data-s]").forEach(th=>th.onclick=()=>{
     const c=th.dataset.s;
@@ -2595,7 +1811,6 @@ Render.itens = function(){
   Sync.pintarEdicao();                    /* quem mais está com cada item aberto */
   $("#btnCols").onclick=()=>Colunas.painel();
   $("#btnExpTab").onclick=()=>Export.painel(lista, LANG==="pt"?"Itens":"Items");
-  $("#btnNovo").onclick=()=>NovoItem.painel();
   $("#btnTxt").onclick=()=>{ S.textoCompleto=!S.textoCompleto;
     localStorage.setItem("sm.textoCompleto", S.textoCompleto?"1":"0"); Render.atual(); };
   Filtros.ligar();
@@ -4448,8 +3663,6 @@ $("#btnTheme").onclick=()=>{
   aplicarTema();};
 $("#btnLang").onclick=()=>{ LANG = LANG==="pt"?"en":"pt"; localStorage.setItem("sm.lang",LANG);
   document.documentElement.lang = LANG==="pt"?"pt-BR":"en"; Render.atual(); };
-$("#btnSaveNow").onclick=()=>Pend.consolidarTudo();
-$("#pendBadge").onclick=()=>UI.painelPendentes();
 /* Balao com o conteudo inteiro da celula cortada. */
 (function balao(){
   let alvo=null;
@@ -4474,10 +3687,8 @@ $("#pendBadge").onclick=()=>UI.painelPendentes();
   addEventListener("keydown",e=>{ if(e.key==="Escape") esconder(); });
 })();
 
-addEventListener("beforeunload",e=>{ Sync.sair(); if(S.sujo){ e.preventDefault(); e.returnValue=""; } });
 addEventListener("keydown",e=>{
   if(e.key==="Escape") UI.fechar();
-  if((e.ctrlKey||e.metaKey)&&e.key==="s"){ e.preventDefault(); if(S.db) Pend.consolidarTudo(); }
   if(!S.db) return;
   /* no detalhe: Alt+setas pula de item, Ctrl+Enter salva e avanca */
   if($("#ov") && S.selecionado){
@@ -4496,7 +3707,8 @@ addEventListener("hashchange", ()=>{
   Filtros.aplicarTexto(location.hash);
 });
 
-(async function iniciar(){
+/* <<< abertura do visualizador >>> */
+(async function iniciarOriginal(){
   aplicarTema();
   document.documentElement.lang = LANG==="pt"?"pt-BR":"en";
   Filtros.restaurar();
@@ -4508,4 +3720,271 @@ addEventListener("hashchange", ()=>{
   }
 })();
 </script>
+<script>
+"use strict";
+/* ===================== o visualizador: so leitura =====================
+   Este bloco substitui a abertura do sistema. Ele e injetado por
+   ferramentas/gerar_visualizador.py no fim do arquivo gerado - nunca edite
+   docs/visualizador.html a mao: ele e reescrito a cada geracao.            */
+
+/* ------------------------- detalhe somente leitura -------------------- */
+/* A janela do item perde os campos editaveis e os botoes de salvar. Continua
+   com historico e observacoes, que e o que interessa a quem consulta. */
+UI.salvarDetalhe = function(){};
+UI.detalhe = function(itemId){
+  const i = S.db?.itens.find(x=>x.item===itemId); if(!i) return;
+  S.selecionado = itemId; S.cursor = itemId;
+  const vizinhos = ordenar(itensFiltrados()).map(x=>x.item);
+  const pos = vizinhos.indexOf(itemId);
+  const hist = (S.db.historico||[]).filter(h=>h.item===itemId)
+                .sort((a,b)=>b.dataEfetiva.localeCompare(a.dataEfetiva));
+  const obs = (S.db.observacoes||[]).filter(o=>o.item===itemId)
+                .sort((a,b)=>b.criadoEm.localeCompare(a.criadoEm));
+  const cor = R.corDe(i.status);
+  const aba = (id,txt)=>`<button data-t="${id}">${esc(txt)}</button>`;
+  const linha = (k,v)=>`<dt>${esc(k)}</dt><dd>${v}</dd>`;
+
+  UI.modal(`${LANG==="pt"?"Item":"Item"} ${itemId}`
+    + (pos>=0 && vizinhos.length>1? `  (${pos+1}/${vizinhos.length})` : ""), `
+    <div class="tabs">${aba("d",T("detalhes"))}${aba("h",T("historico"))}${aba("o",T("observacoes"))}</div>
+    <div id="tp-d">
+      <div class="rowflex" style="gap:10px;margin-bottom:12px">
+        <span class="pill" style="background:${cor}18;color:${cor};border-color:${cor}55;font-size:13px">
+          <i class="dot" style="background:${cor}"></i>${esc(i.status)}</span>
+        <span class="muted">${LANG==="pt"?"há":"for"} ${R.diasSemAtualizacao(i)} ${LANG==="pt"?"dias":"days"}</span>
+      </div>
+      <dl class="kv">
+        ${[["Evidence",esc(i.evidence)],["InspType",esc(i.inspType)],["Insp",esc(i.insp)],
+           ["OriginalJx",esc(i.originalJx)],["ActualJx",esc(i.actualJx)],
+           ["ActualJxDescription",esc(i.actualJxDescription)],
+           ["Nº and Description",esc(i.numAndDescription)],["Description",esc(i.description)],
+           ["Updated Status Obs",esc(i.updatedStatusObs)],["General Obs",esc(i.generalObs)],
+           ["NCR's",esc(i.ncr)],["Tests",esc(i.tests)],["Performance",esc(i.performance)],
+           ["Mode",esc(i.mode)],["Position AC",esc(i.positionAC)],
+           ["HullPassageParts",esc(i.hullPassageParts)],
+           ["Bigram",(i.bigram||[]).map(b=>`<span class="tag">${esc(b)}</span>`).join(" ")],
+           ["SBR",esc(i.sbr)],
+           [LANG==="pt"?"Criado em":"Created",esc(fmtD(i.criadoEm))],
+           [LANG==="pt"?"Última mudança de status":"Last status change",esc(fmtD(i.ultimaAlteracaoStatus))],
+        ].filter(([,v])=>v!=="" && v!=null).map(([k,v])=>linha(k,v)).join("")}
+      </dl>
+    </div>
+    <div id="tp-h" hidden>${hist.length? `<table><thead><tr><th>${T("data")}</th><th>${T("campo")}</th>
+      <th>${T("anterior")}</th><th>${T("novo")}</th><th>${T("autor")}</th></tr></thead><tbody>
+      ${hist.map(h=>`<tr><td class="num">${fmtD(h.dataEfetiva)}</td><td>${esc(h.campo)}</td>
+        <td>${h.valorAnterior?esc(h.valorAnterior):"—"}</td><td><b>${esc(h.valorNovo)}</b></td>
+        <td>${esc(h.autor||"")}</td></tr>`).join("")}</tbody></table>`
+      :`<div class="empty">${LANG==="pt"?"Sem histórico":"No history"}</div>`}</div>
+    <div id="tp-o" hidden>${obs.map(o=>`<div class="panel pad" style="margin-bottom:8px">
+        <div class="rowflex" style="justify-content:space-between;font-size:11px;color:var(--fg-3)">
+          <b>${esc(o.autor||"")}</b><span>${fmtDT(o.criadoEm)}</span></div>
+        <div style="margin-top:5px;white-space:pre-wrap">${esc(o.texto)}</div></div>`).join("")
+        ||`<div class="empty">${LANG==="pt"?"Nenhuma observação":"No notes"}</div>`}</div>`,
+    [...(vizinhos.length>1? [
+      {txt:"‹ "+(LANG==="pt"?"Anterior":"Previous"),cls:"btn",fn:()=>UI.irrItem(-1)},
+      {txt:(LANG==="pt"?"Próximo":"Next")+" ›",cls:"btn",fn:()=>UI.irrItem(1)}] : []),
+     {txt:T("fechar"),cls:"btn pri",fn:()=>UI.fechar()}]);
+
+  $$(".tabs button").forEach((b,k)=>{ if(!k) b.classList.add("on");
+    b.onclick=()=>{ $$(".tabs button").forEach(x=>x.classList.remove("on")); b.classList.add("on");
+      ["d","h","o"].forEach(t=>{ const el=$("#tp-"+t); if(el) el.hidden = t!==b.dataset.t; }); };});
+};
+/* Mover card no kanban e edicao. */
+UI.moverPara = function(){ Pend.alterar(); };
+UI.escolherStatus = function(){ Pend.alterar(); };
+
+/* ------------------------- "Sobre a base" ----------------------------- */
+/* No lugar de Configuracoes: o que a pessoa que consulta precisa saber e de
+   quando e a informacao que esta vendo, e nada aqui muda a base. */
+Render.sobre = function(){
+  $("#pageTitle").textContent = T("sobre");
+  $("#headerExtra").innerHTML = "";
+  const m = S.db.meta || {}, c = S.db.config || {};
+  const mb = R.tamanhoBase()/1048576;
+  const ultimo = (S.db.historico||[]).map(h=>h.dataEfetiva).sort().pop();
+  $("#view").innerHTML = `
+  <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(min(340px,100%),1fr))">
+    <div class="panel"><h3>${LANG==="pt"?"Esta base":"This database"}</h3><div class="pad">
+      <dl class="kv">
+        <dt>${LANG==="pt"?"Itens":"Items"}</dt><dd class="mono">${S.db.itens.length}</dd>
+        <dt>${LANG==="pt"?"Em aberto":"Open"}</dt><dd class="mono">${
+          S.db.itens.filter(i=>R.aberto(i.status)).length}</dd>
+        <dt>${LANG==="pt"?"Revisão":"Revision"}</dt><dd class="mono">${esc(String(m.revisao ?? "—"))}</dd>
+        <dt>${LANG==="pt"?"Gravada em":"Saved at"}</dt><dd>${esc(fmtDT(m.atualizadoEm))}</dd>
+        <dt>${LANG==="pt"?"Por":"By"}</dt><dd>${esc(m.ultimoAutor||"—")}</dd>
+        <dt>${LANG==="pt"?"Última mudança de status":"Last status change"}</dt>
+          <dd>${ultimo? esc(fmtD(ultimo)) : "—"}</dd>
+        <dt>${LANG==="pt"?"Eventos no histórico":"History events"}</dt><dd class="mono">${S.db.historico.length}</dd>
+        <dt>${LANG==="pt"?"Tamanho":"Size"}</dt><dd class="mono">${mb.toFixed(2)} MB</dd>
+        <dt>${LANG==="pt"?"Arquivo":"File"}</dt><dd class="mono" style="overflow-wrap:anywhere">${esc(Visualizador.origem||"—")}</dd>
+      </dl>
+      <div class="rowflex" style="margin-top:12px">
+        <button class="btn pri" id="vRecarregar">${LANG==="pt"?"Recarregar a base":"Reload the database"}</button>
+      </div>
+    </div></div>
+
+    <div class="panel"><h3>${LANG==="pt"?"O que esta tela é":"What this page is"}</h3><div class="pad">
+      <p class="muted" style="line-height:1.8">${LANG==="pt"
+        ? `Esta é a versão <b>somente leitura</b> do StatusMilestone. Ela abre o <b>database.json</b> que
+           estiver na mesma pasta que este arquivo e mostra o estado atual: painéis, itens, quadro,
+           fluxo de evidências, histórico e relatórios — tudo pode ser exportado.
+           <b>Nada do que se faça aqui altera a base</b>: os comandos de gravação não existem neste
+           arquivo, e a pasta é aberta em modo de leitura.<br><br>
+           Para <b>registrar</b> uma mudança de status, use o sistema completo.`
+        : `This is the <b>read-only</b> build of StatusMilestone. It opens the <b>database.json</b> sitting
+           in the same folder as this file and shows the current state: panels, items, board, evidence
+           flow, history and reports — all exportable.
+           <b>Nothing done here changes the database</b>: the write routines are not in this file, and the
+           folder is opened in read mode.<br><br>
+           To <b>record</b> a status change, use the full system.`}</p>
+    </div></div>
+
+    <div class="panel"><h3>${LANG==="pt"?"Status e regra de “em aberto”":"Statuses and the “open” rule"}</h3>
+      <div class="pad" style="max-height:340px;overflow:auto">
+      ${(c.status||[]).map(st=>`<div class="rowflex" style="gap:8px;padding:3px 0;border-bottom:1px solid var(--line-2)">
+        <i class="dot" style="background:${R.corDe(st.codigo)}"></i>
+        <span style="flex:1;font-size:12px">${esc(st.codigo)}</span>
+        <span class="tag">${R.aberto(st.codigo)? (LANG==="pt"?"em aberto":"open") : (LANG==="pt"?"fechado":"closed")}</span>
+        <span class="muted mono" style="font-size:10.5px">${S.db.itens.filter(i=>i.status===st.codigo).length}</span>
+      </div>`).join("")}</div></div>
+  </div>`;
+  const b=$("#vRecarregar"); if(b) b.onclick=()=>Visualizador.recarregar();
+};
+Render.config = Render.sobre;
+
+/* ------------------------- a abertura ---------------------------------- */
+const Visualizador = {
+  origem:"",
+
+  /* Caminho 1: buscar o database.json ao lado do arquivo. Funciona quando a
+     pagina e servida por http(s) - intranet, GitHub Pages, um "python3 -m
+     http.server" na pasta. Em file:// o proprio navegador recusa a leitura de
+     um arquivo vizinho (e regra de seguranca dele, nao limitacao daqui), e ai
+     vale o caminho 2. */
+  async pelaURL(){
+    if(!location.protocol.startsWith("http")) return null;
+    const url = new URL("database.json", location.href).href;
+    const r = await fetch(url, {cache:"no-store"});
+    if(!r.ok) throw new Error("HTTP "+r.status);
+    const db = await r.json();
+    this.origem = url;
+    return db;
+  },
+
+  /* Caminho 2: a pasta autorizada uma vez fica guardada no navegador e volta
+     sozinha nas proximas aberturas - e o que faz o duplo-clique funcionar sem
+     perguntar nada a partir da segunda vez. */
+  async pelaPasta({pedir=false}={}){
+    if(!Store.suportado) return null;
+    let ok = !!Store.dirHandle;
+    if(!ok) ok = await Store.restaurarHandle();
+    if(!ok && Store.dirHandlePendente) ok = await Store.pedirPermissaoSalva();
+    if(!ok && pedir){ await Store.escolherPasta(); ok = !!Store.dirHandle; }
+    if(!ok) return null;
+    const db = await Store.lerArquivo();
+    this.origem = (Store.dirHandle?.name || "") + "/database.json";
+    return db;
+  },
+
+  aceitar(db){
+    const val = validarBase(db);
+    if(!val.valido){ UI.baseRecusada("database.json", val, JSON.stringify(db,null,1)); return false; }
+    S.db = db;
+    normalizar(S.db);
+    Caminho.sincronizarDaBase();
+    S.novidades = null;
+    marcarEstado(LANG==="pt"?"base carregada (somente leitura)":"database loaded (read-only)","info");
+    return true;
+  },
+
+  async abrir({pedir=false, silencioso=false}={}){
+    let db=null, erro=null;
+    try{ db = await this.pelaURL(); }catch(e){ erro = e; }
+    if(!db){ try{ db = await this.pelaPasta({pedir}); }catch(e){ erro = erro||e; } }
+    if(!db) return this.telaAbertura(erro);
+    if(!this.aceitar(db)) return;
+    irPara(S.rotaInicial || "dashboard"); S.rotaInicial = null;
+    if(!silencioso) toast(`${S.db.itens.length} ${LANG==="pt"?"itens carregados":"items loaded"}`,"ok");
+  },
+
+  async recarregar(){
+    try{
+      const db = await this.pelaURL().catch(()=>null) || await this.pelaPasta();
+      if(!db) return toast(LANG==="pt"?"Não consegui reler a base":"Could not re-read the database","bad");
+      if(!this.aceitar(db)) return;
+      R.invalidarHist(); Render.atual();
+      toast(LANG==="pt"?"Base recarregada":"Database reloaded","ok");
+    }catch(e){ toast(mensagemArmazenamento(e),"bad"); }
+  },
+
+  /* So aparece quando o carregamento automatico nao deu - e diz por que. */
+  telaAbertura(erro){
+    $("#pageTitle").textContent = "StatusMilestone";
+    $("#headerExtra").innerHTML = "";
+    const arquivo = location.protocol === "file:";
+    $("#view").innerHTML = `<div class="panel pad" style="max-width:660px;margin:36px auto">
+      <h3 style="border:0;padding:0;text-transform:none;font-size:17px;letter-spacing:-.02em;color:var(--fg)">
+        ${LANG==="pt"?"Escolha a pasta da base, uma vez":"Pick the database folder, once"}</h3>
+      <p class="muted" style="margin:10px 0 16px;line-height:1.8">${LANG==="pt"
+        ? `Este visualizador lê o <b>database.json</b> que estiver na <b>mesma pasta</b> que ele.
+           ${arquivo? `Como o arquivo foi aberto por duplo clique (<code>file://</code>), o navegador não
+           deixa a página ler o arquivo vizinho sozinha — é uma trava de segurança dele. Autorize a pasta
+           uma vez no botão abaixo: <b>da próxima vez ela volta sozinha</b> e a base abre direto.`
+           : `Não encontrei o arquivo ao lado desta página. Autorize a pasta onde ele está:`}`
+        : `This viewer reads the <b>database.json</b> in its <b>own folder</b>.
+           ${arquivo? `Because the file was opened by double-click (<code>file://</code>), the browser will
+           not let the page read its neighbour on its own — that is their security rule. Authorize the
+           folder once with the button below: <b>next time it comes back on its own</b>.`
+           : `I could not find the file next to this page. Authorize the folder it is in:`}`}</p>
+      ${Store.suportado
+        ? `<button class="btn pri" id="vPasta">📁 ${LANG==="pt"?"Selecionar pasta da base":"Select database folder"}</button>
+           <button class="btn" id="vArquivo">${LANG==="pt"?"Abrir database.json":"Open database.json"}</button>`
+        : `<div class="panel pad" style="background:var(--panel-2);border-color:var(--warn)">
+             <b style="color:var(--warn)">${LANG==="pt"?"Navegador sem seleção de pasta":"Browser without folder picking"}</b>
+             <p class="muted" style="margin:8px 0 0">${LANG==="pt"
+               ? "Neste navegador só dá para abrir o arquivo à mão. No Chrome ou no Edge, a pasta é lembrada e a base abre sozinha."
+               : "In this browser you can only open the file by hand. In Chrome or Edge the folder is remembered and the database opens on its own."}</p></div>
+           <div class="rowflex" style="margin-top:12px">
+             <button class="btn pri" id="vArquivo">${LANG==="pt"?"Abrir database.json":"Open database.json"}</button></div>`}
+      ${erro?`<p class="muted" style="font-size:11px;margin-top:14px">${LANG==="pt"?"Detalhe":"Detail"}: ${esc(String(erro.message||erro))}</p>`:""}
+      <div class="sep"></div>
+      <p class="muted" style="font-size:11.5px;line-height:1.7">${LANG==="pt"
+        ? "Esta tela <b>só lê</b>. Para registrar alterações, use o sistema completo."
+        : "This page is <b>read-only</b>. To record changes, use the full system."}</p>
+    </div>`;
+    const bp=$("#vPasta"); if(bp) bp.onclick=()=>this.abrir({pedir:true});
+    const ba=$("#vArquivo"); if(ba) ba.onclick=()=>this.abrirArquivo();
+  },
+
+  abrirArquivo(){
+    const inp=document.createElement("input"); inp.type="file"; inp.accept=".json";
+    inp.onchange=async()=>{
+      const f=inp.files[0]; if(!f) return;
+      let db;
+      try{ db = JSON.parse(await f.text()); }
+      catch(e){ return toast((LANG==="pt"?"JSON inválido: ":"Invalid JSON: ")+e.message,"bad"); }
+      this.origem = f.name;
+      if(!this.aceitar(db)) return;
+      irPara("dashboard");
+      toast(`${S.db.itens.length} ${LANG==="pt"?"itens carregados":"items loaded"}`,"ok");
+    };
+    inp.click();
+  },
+};
+/* O cracha de pendentes e o botao de salvar sairam do cabecalho: a versao
+   original mexeria em elementos que nao existem mais neste arquivo. */
+Render.badgePendentes = function(){};
+
+/* Sem base carregada, a tela "sem base" do sistema falaria em gravar. */
+Render.semBase = function(motivo){ Visualizador.telaAbertura(motivo? new Error(motivo) : null); };
+
+(async function iniciarVisualizador(){
+  aplicarTema();
+  document.documentElement.lang = LANG==="pt"?"pt-BR":"en";
+  Filtros.restaurar();
+  Render.nav();
+  await Visualizador.abrir();
+})();
+</script>
+
 </body></html>

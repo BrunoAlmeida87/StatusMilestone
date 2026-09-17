@@ -120,7 +120,9 @@ with sync_playwright() as pw:
     pg2.close()
 
     print("--- a impressao usa um quadro proprio, nao a tela")
-    pg.evaluate("window.__imprimiu=0; window.print=()=>{window.__imprimiu='JANELA'};")
+    # Forma de funcao: pg.evaluate com uma string solta de statements chega a
+    # executar duas vezes, o que falsearia qualquer contador instalado assim.
+    pg.evaluate("() => { window.__imprimiu = 0; window.print = () => { window.__imprimiu = 'JANELA'; }; }")
     pg.evaluate("Export.pdf(itensFiltrados().slice(0,5),'Teste',{...Export.opcoes(),cols:['item']})")
     pg.wait_for_timeout(700)
     chk("o quadro de impressao foi criado", pg.locator("#quadroImpressao").count() == 1)
