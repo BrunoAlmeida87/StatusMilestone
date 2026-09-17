@@ -72,6 +72,24 @@ exportar**, que abre a mesma janela:
     testes o número bate com a contagem real do PDF;
 - **Excel** em três abas (Resumo, Itens, Histórico) e **JSON** com o recorte e as colunas escolhidas.
 
+### Os pendentes numa folha só
+
+Duas coisas, que funcionam em qualquer formato:
+
+- **Somente os em aberto** — uma caixa na janela tira os validados do recorte. Usa `R.aberto`, a
+  mesma regra dos painéis lida da config: não há uma segunda definição de "pendente" para divergir.
+  Vale igual no CSV, no Excel, no JSON e no relatório, e o resumo acompanha.
+- **Ajustar para caber em 1 página** — desce uma escada do cartão mais legível ao mais apertado
+  (Completo 100→80%, Compacto 100→70%, Etiqueta 100→60%; e, se nada couber, tudo de novo sem o
+  resumo) e **mede cada degrau**. Para no primeiro que couber, então entrega o cartão **mais
+  legível que ainda cabe**, não o menor — e devolve a escolha aos controles, para você continuar
+  dali. Se nem o último degrau couber, diz isso em vez de entregar um quadro cortado.
+
+Com uma base de 428 itens e **71 em aberto**, o ajuste encontra **Etiqueta 100%, sem o resumo — 1
+página**, confirmado contra a contagem real do PDF. É o limite honesto: 71 cartões numa A4 dão
+~25×26 mm cada, e nesse espaço cabe o código colorido pelo status, não um cartão com quatro campos.
+Cartão legível com 71 pendentes pede 2 ou 3 páginas.
+
 **Mudar o desenho do relatório** sem mexer no sistema: a janela tem uma caixa de **CSS próprio** que
 entra por último na folha de estilo, então vence o padrão sem precisar de `!important`. Os seletores
 do quadro são `.quadro` (a grade), `.coluna`, `.coluna > .topo`, `.cartoes`, `.cartao`,
@@ -197,7 +215,7 @@ Rode você mesmo: `python3 migracao/validar.py caminho/para/database.json`
 O comportamento simultâneo tem suíte própria: `SM_DATABASE=... python3 testes/sincronizacao.py`
 (31 verificações). O motor de gravação, a validação da base, o descarte de pendentes, o histórico,
 o arquivamento, os filtros, as colunas, o lote e o teclado têm testes de unidade que rodam sem
-navegador e sem base real: `node testes/unidade.mjs` (503 verificações, das quais 75 são as
+navegador e sem base real: `node testes/unidade.mjs` (532 verificações, das quais 75 são as
 regressões da auditoria em [`analise/04_AUDITORIA.md`](analise/04_AUDITORIA.md)). A exportação, o
 relatório PDF e o item novo têm suíte própria em Chromium (`SM_DATABASE=... python3
 testes/exportacao.py`), e o visualizador tem a sua, servido de uma pasta com o `database.json` ao

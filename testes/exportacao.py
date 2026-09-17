@@ -113,9 +113,12 @@ with sync_playwright() as pw:
     pg2.on("pageerror", lambda e: erros2.append(str(e)))
     pg2.set_content(doc); pg2.wait_for_timeout(300)
     chk("o relatorio abre sem erro de script", not erros2, str(erros2))
-    chk("e a tabela esta la, com as 4 colunas", pg2.locator("thead th").count() == 4,
-        str(pg2.locator("thead th").count()))
-    chk("com uma linha por item", pg2.locator("tbody tr").count() >= 1)
+    # Ancorado na tabela de ITENS: o resumo tem tabela propria, com thead proprio,
+    # e contar "thead th" solto passava a medir as duas juntas.
+    chk("e a tabela de itens esta la, com as 4 colunas",
+        pg2.locator("table.itens thead th").count() == 4,
+        str(pg2.locator("table.itens thead th").count()))
+    chk("com uma linha por item", pg2.locator("table.itens tbody tr").count() >= 1)
     pg2.screenshot(path="/tmp/relatorio.png", full_page=True)
     pg2.close()
 
@@ -127,6 +130,38 @@ with sync_playwright() as pw:
     pg.wait_for_timeout(700)
     chk("o quadro de impressao foi criado", pg.locator("#quadroImpressao").count() == 1)
     chk("e a tela viva nao foi impressa", pg.evaluate("window.__imprimiu") == 0)
+
+    print("--- somente em aberto, e o ajuste para caber em uma pagina")
+    abertos = pg.evaluate("S.db.itens.filter(i=>R.aberto(i.status)).length")
+    chk("a base tem itens em aberto", abertos > 0, str(abertos))
+    doc = pg.evaluate("""() => Export.documento(S.db.itens,'P',
+      {...Export.opcoes(), layout:'kanban', somenteAberto:true, cols:['item','status']})""")
+    validados = pg.evaluate("S.db.itens.filter(i=>!R.aberto(i.status)).map(i=>i.item).slice(0,25)")
+    chk("nenhum item validado entra no recorte",
+        not any(f">{it}<" in doc for it in validados))
+    chk("e a capa diz que o recorte e esse", "somente em aberto" in doc)
+
+    # A escada e medida: o numero que ela devolve tem de bater com o PDF real.
+    r = pg.evaluate("""async () => {
+      const o={...Export.opcoes(), layout:'kanban', somenteAberto:true,
+               cols:['item','status','inspType']};
+      const a = await Export.ajustarParaCaber(S.db.itens,'Pendentes',o);
+      return a.naoCoube ? {coube:false, melhor:a.melhor.paginas}
+                        : {coube:true, cartao:Export.rotuloDegrau(a.degrau),
+                           semResumo:!!a.semResumo, doc:Export.documento(S.db.itens,'Pendentes',a.o)};
+    }""")
+    if r["coube"]:
+        chk(f"o ajuste encontrou um arranjo de 1 pagina ({r['cartao']})", True)
+        pg3 = b.new_page()
+        pg3.set_content(r["doc"]); pg3.wait_for_timeout(400)
+        pg3.pdf(path="/tmp/pendentes.pdf", format="A4", landscape=True, print_background=True)
+        pg3.close()
+        dados = open("/tmp/pendentes.pdf", "rb").read()
+        reais = dados.count(b"/Type /Page") - dados.count(b"/Type /Pages")
+        chk("e o PDF de verdade tem mesmo 1 pagina", reais == 1, f"{reais} pagina(s)")
+    else:
+        chk("nao coube em 1 pagina, e isso foi dito em vez de fingir",
+            r["melhor"] > 1, f"melhor caso: {r['melhor']} paginas")
 
     print("=== 3. ITEM NOVO A MAO ===")
     pg.evaluate("irPara('itens')"); pg.wait_for_timeout(300)

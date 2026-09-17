@@ -1842,5 +1842,112 @@ secao("21. APARENCIA DO QUADRO: DENSIDADE, ESCALA E CSS PROPRIO");
 
 }
 
+secao("22. SOMENTE EM ABERTO E O AJUSTE PARA CABER");
+{
+  /* O recorte e da EXPORTACAO: tem de valer igual nos cinco formatos, senao o
+     CSV e o relatorio contam coisas diferentes. */
+  const c = cenario({semPasta:true});
+  const {app} = c;
+  const abertos = app.S.db.itens.filter(i=>app.R.aberto(i.status)).map(i=>i.item).sort();
+  const fechados = app.S.db.itens.filter(i=>!app.R.aberto(i.status));
+  chk("a base de teste tem dos dois", abertos.length>0 && fechados.length>0,
+      `${abertos.length} abertos, ${fechados.length} fechados`);
+
+  igual("recorte() usa a mesma regra dos paineis",
+        app.Export.recorte(app.S.db.itens,{somenteAberto:true}).map(i=>i.item).sort(), abertos);
+  igual("e desligado nao mexe na lista",
+        app.Export.recorte(app.S.db.itens,{somenteAberto:false}).length, app.S.db.itens.length);
+
+  const saidas = [];
+  app.ctx.URL = {createObjectURL:()=>"blob:x", revokeObjectURL(){}};
+  app.ctx.Blob = class { constructor(p){ saidas.push(p.join("")); } };
+  const o = {cols:["item","status"], somenteAberto:true};
+
+  app.Export.csv(app.S.db.itens, o);
+  const linhasCSV = saidas.at(-1).trim().split("\r\n").length - 1;
+  igual("o CSV traz so os em aberto", linhasCSV, abertos.length);
+
+  app.Export.json(app.S.db.itens, o);
+  igual("o JSON tambem", JSON.parse(saidas.at(-1)).total, abertos.length);
+
+  app.Export.excel(app.S.db.itens, "x", o);
+  for(const i of fechados)
+    chk(`o Excel nao traz o validado ${i.item}`, !saidas.at(-1).includes(">"+i.item+"<"));
+
+  const doc = app.Export.documento(app.S.db.itens, "P", {...app.Export.opcoes(), ...o, layout:"kanban"});
+  for(const i of fechados)
+    chk(`o quadro nao traz o validado ${i.item}`, !doc.includes(">"+i.item+"<"));
+  for(const it of abertos) chk(`o quadro traz o pendente ${it}`, doc.includes(it));
+  chk("e a capa diz que o recorte e so o que esta em aberto", /somente em aberto/.test(doc));
+
+  /* O resumo e calculado DENTRO de cada formato: tem de enxergar o recorte. */
+  chk("o resumo conta o recorte, nao a base inteira",
+      doc.includes(`(${abertos.length})`) || doc.includes(`\u00b7 ${abertos.length} `),
+      `esperava ${abertos.length} itens`);
+}
+{
+  /* A escada de ajuste: para no PRIMEIRO degrau que couber, entao entrega o
+     cartao mais legivel possivel, nao o menor. A medicao de verdade exige
+     navegador (iframe), entao aqui ela e trocada por uma regua de mentira e o
+     que se testa e a DECISAO. */
+  const c = cenario({semPasta:true});
+  const {app} = c;
+  const pedidos = [];
+  /* regua: completo=4 paginas, compacto=2, etiqueta=1, e a escala reduz junto */
+  app.Export.previsaoPaginas = async (lista, titulo, o)=>{
+    pedidos.push({d:o.kanbanDensidade, e:o.kanbanEscala, resumo:o.resumo});
+    const base = {completo:4, compacto:2, etiqueta:1}[o.kanbanDensidade];
+    const paginas = Math.max(1, Math.ceil(base * (o.kanbanEscala/100) + (o.resumo?1:0)));
+    return {paginas, cortaNaLargura:false};
+  };
+  const r = await app.Export.ajustarParaCaber(app.S.db.itens, "P",
+    {cols:["item","status"], resumo:true});
+  chk("encontrou um arranjo que cabe", !r.naoCoube, JSON.stringify(r.melhor||{}));
+  igual("e cabe mesmo em uma pagina", r.paginas, 1);
+  igual("com o resumo desligado, porque com ele nao cabia", r.semResumo, true);
+  chk("tentou os mais legiveis antes", pedidos[0].d==="completo" && pedidos[0].e===100);
+  chk("e so desligou o resumo depois de esgotar a escada com ele",
+      pedidos.filter(p=>p.resumo).length === app.Export.ESCADA.length,
+      `${pedidos.filter(p=>p.resumo).length} com resumo`);
+  chk("o rotulo do degrau e legivel para quem le a tela",
+      /^(Completo|Compacto|Etiqueta) \d+%$/.test(app.Export.rotuloDegrau(r.degrau)),
+      app.Export.rotuloDegrau(r.degrau));
+
+  /* Quando o cartao completo ja cabe, e ele que deve sair - nao a etiqueta. */
+  app.Export.previsaoPaginas = async ()=>({paginas:1, cortaNaLargura:false});
+  const facil = await app.Export.ajustarParaCaber(app.S.db.itens, "P", {cols:["item"], resumo:true});
+  igual("cabendo de primeira, fica o cartao completo", facil.degrau.kanbanDensidade, "completo");
+  igual("no tamanho cheio", facil.degrau.kanbanEscala, 100);
+  igual("e sem precisar tirar o resumo", facil.semResumo, false);
+
+  /* Nada cabe: dizer isso, e nao entregar um quadro cortado como se coubesse. */
+  app.Export.previsaoPaginas = async ()=>({paginas:9, cortaNaLargura:false});
+  const nao = await app.Export.ajustarParaCaber(app.S.db.itens, "P", {cols:["item"]});
+  chk("quando nada cabe, avisa em vez de fingir", nao.naoCoube===true);
+  igual("e diz quantas paginas o melhor caso daria", nao.melhor.paginas, 9);
+
+  /* Um arranjo que corta na largura nao conta como "coube". */
+  app.Export.previsaoPaginas = async ()=>({paginas:1, cortaNaLargura:true});
+  const corta = await app.Export.ajustarParaCaber(app.S.db.itens, "P", {cols:["item"]});
+  chk("cortar na largura nao vale como caber", corta.naoCoube===true);
+}
+{
+  /* Os controles novos existem e estao ligados. */
+  const app = carregarApp();
+  app.ctx.toast = ()=>{}; app.ctx.marcarEstado = ()=>{};
+  app.S.db = baseDeTeste(); app.normalizar(app.S.db);
+  app.Store.dirHandle = pastaFalsa({database:JSON.stringify(app.S.db)});
+  app.Sync.parar();
+  app.ctx.localStorage.removeItem("sm.exportOpc");
+  igual("por padrao a exportacao leva a base inteira",
+        app.Export.opcoes().somenteAberto, false);
+  app.Export.painel(app.S.db.itens, "Itens");
+  chk("a caixa de 'somente em aberto' esta na janela", !!app.$("#xAberto")?.id);
+  chk("e o botao de ajustar para caber", typeof app.$("#xCaber")?.onclick === "function");
+  app.$("#xAberto").checked = true;
+  app.$("#mb2").onclick();                       /* JSON, que nao depende do iframe */
+  igual("marcar a caixa fica guardado", app.Export.opcoes().somenteAberto, true);
+}
+
 console.log(falhas.length ? `\n${falhas.length} FALHA(S):\n  `+falhas.join("\n  ") : "\nTudo certo.");
 process.exit(falhas.length ? 1 : 0);
