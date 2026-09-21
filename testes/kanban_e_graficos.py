@@ -139,6 +139,9 @@ with sync_playwright() as pw:
     pg.wait_for_timeout(700)
 
     print("=== H3) funcao vital: largura cheia e rotulos inteiros ===")
+    # O painel vive no DASHBOARD, nao no Evidence Flow - procura-lo aqui sem
+    # trocar de tela fazia as cinco verificacoes falharem sempre.
+    pg.evaluate("() => irPara('dashboard')"); pg.wait_for_timeout(700)
     fv=pg.evaluate("""(()=>{const p=[...document.querySelectorAll('#view .panel')]
         .find(p=>/FUN\u00c7\u00c3O VITAL/i.test(p.innerText));
       if(!p) return null;

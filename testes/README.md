@@ -6,7 +6,7 @@ comportamento em Chromium real, via Playwright.
 ## Unidade (Node, sem navegador e sem base real)
 
 ```bash
-node testes/unidade.mjs        # 532 verificações: persistência (arquivo inexistente,
+node testes/unidade.mjs        # 637 verificações: persistência (arquivo inexistente,
                                # conflito de revisão, JSON corrompido, permissão negada,
                                # falha em createWritable/write/close), fila de gravação,
                                # edição durante a escrita, descarte de pendentes (tudo e
@@ -28,7 +28,14 @@ node testes/unidade.mjs        # 532 verificações: persistência (arquivo inex
                                # "somente em aberto" nos cinco formatos e a escada
                                # do "ajustar para caber" (a medição de verdade
                                # exige navegador, então aqui a régua é trocada por
-                               # uma de mentira e o que se testa é a decisão)
+                               # uma de mentira e o que se testa é a decisão), o
+                               # waiver inteiro (numeração, gravação, o status
+                               # aplicado pelo mesmo motor de qualquer edição, o
+                               # passivo que NÃO mexe no status, o documento, o
+                               # rebase de waiver quando outra pessoa grava no
+                               # meio e o visualizador, que lê e imprime mas não
+                               # pede nem altera) e a janela que fechava sozinha
+                               # quando o mouse era solto fora dela
 ```
 
 Não precisa instalar nada e não usa dado nenhum do projeto: `testes/app_em_node.mjs`
@@ -74,7 +81,12 @@ python3 testes/exportacao.py           # 53: janela de exportação, CSV conferi
                                        # de CSV de verdade, relatório PDF aberto num navegador
                                        # limpo, formulário de item novo, Shipyard por ActualJx
                                        # e caminho padrão
-python3 testes/sincronizacao.py        # 31: duas pessoas na mesma base — junção automática,
+python3 testes/waiver.py               # 52: o waiver do começo ao fim — pedir pela tela, gravar,
+                                       # mover os itens, registrar o passivo feito à mão e o
+                                       # documento MEDIDO em folhas A4 de verdade; e a janela
+                                       # que fechava sozinha quando o mouse era solto fora
+                                       # dela, reproduzida com arraste de mouse real
+python3 testes/sincronizacao.py        # 32: duas pessoas na mesma base — junção automática,
                                        # decisão campo a campo, gravação concorrente, presença
 python3 testes/visualizador.py         # 35: o visualizador servido de uma pasta com o
                                        # database.json ao lado — abre sozinho, não oferece
@@ -82,7 +94,7 @@ python3 testes/visualizador.py         # 35: o visualizador servido de uma pasta
                                        # da pasta byte a byte como estava
 ```
 
-Os cinco scripts leem o caminho da base em `SM_DATABASE` e, se quiser apontar um
+Os seis scripts leem o caminho da base em `SM_DATABASE` e, se quiser apontar um
 executável específico, `SM_CHROMIUM` — nenhum caminho absoluto fica no repositório.
 Sem `SM_DATABASE` o script para com uma mensagem explicando o que falta.
 

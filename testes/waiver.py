@@ -1,0 +1,245 @@
+"""Waiver e janelas que nao fogem — em Chromium real.
+
+Duas coisas que so um navegador de verdade prova:
+
+  1. o waiver do comeco ao fim: pedir pela tela, gravar na base, mover os itens,
+     registrar o passivo feito a mao e imprimir o documento (que e medido em
+     paginas de A4 de verdade, nao estimado);
+  2. a janela que fechava sozinha: arrastar para selecionar o texto de um campo
+     e soltar o botao FORA da janela dava um clique no fundo, e o que estava
+     escrito ia junto. Isso precisa de mouse de verdade para ser reproduzido.
+
+    export SM_DATABASE=~/caminho/para/database.json
+    python3 testes/waiver.py
+"""
+from playwright.sync_api import sync_playwright
+import pathlib, json, os, tempfile
+
+RAIZ = pathlib.Path(__file__).resolve().parent.parent
+APP  = (RAIZ/"docs"/"index.html").as_uri()
+VIZ  = (RAIZ/"docs"/"visualizador.html").as_uri()
+_DBP = os.environ.get("SM_DATABASE")
+if not _DBP:
+    raise SystemExit("Defina SM_DATABASE com o caminho do seu database.json "
+                     "(ex.: SM_DATABASE=~/base/database.json python3 %s)" % __file__)
+DB = json.load(open(os.path.expanduser(_DBP), encoding="utf-8"))
+CHROMIUM = os.environ.get("SM_CHROMIUM")          # opcional
+LAUNCH = {"args": ["--no-sandbox"]} | ({"executable_path": CHROMIUM} if CHROMIUM else {})
+SAIDA = pathlib.Path(os.environ.get("SM_SAIDA", tempfile.gettempdir()))
+
+falhas, erros = [], []
+def chk(n, c, e=""):
+    print(("  OK  " if c else "  XXX ") + n + (f"  {e}" if e else ""))
+    if not c:
+        falhas.append(n)
+
+INJETAR = """(db)=>{
+  localStorage.setItem('sm.autor','Bruno Almeida');
+  Store.gravar = async (d)=>{ d.meta.revisao=(d.meta.revisao||0)+1; return d.meta.revisao; };
+  Store.backup = async ()=> 'fake.json';
+  Store.dirHandle = {fake:true};
+  S.db = db; normalizar(S.db); S.recolhidas=new Set(); Pend.iniciar(); irPara('dashboard');
+}"""
+
+with sync_playwright() as pw:
+    b = pw.chromium.launch(**LAUNCH)
+    pg = b.new_page(viewport={"width":1500,"height":950})
+    pg.on("console", lambda m: erros.append(m.text) if m.type=="error" else None)
+    pg.on("pageerror", lambda e: erros.append("PAGEERROR: "+str(e)))
+    # confirm() responde "sim" por padrao; alguns testes trocam isto.
+    resposta = {"sim": True, "vistas": []}
+    pg.on("dialog", lambda d: (resposta["vistas"].append(d.message),
+                               d.accept() if resposta["sim"] else d.dismiss()))
+    pg.goto(APP); pg.wait_for_timeout(600)
+    pg.evaluate(INJETAR, DB)
+    pg.wait_for_timeout(500)
+
+    print("=== 1. A TELA DE WAIVERS EXISTE E COMECA VAZIA")
+    pg.evaluate("() => irPara('waivers')"); pg.wait_for_timeout(400)
+    chk("o menu tem a entrada", "Waivers" in pg.inner_text("#nav"))
+    chk("a tela abre sem nenhum waiver", pg.locator("#view .empty").count() == 1)
+    chk("com o botão de pedir um novo", pg.locator("#wvNovo").count() == 1)
+
+    print("=== 2. PEDIR UM WAIVER PARA VARIOS ITENS, PELA TELA")
+    alvos = pg.evaluate("""() => S.db.itens.filter(i=>R.aberto(i.status)).slice(0,3).map(i=>i.item)""")
+    antes = pg.evaluate("(a)=>a.map(x=>S.db.itens.find(i=>i.item===x).status)", alvos)
+    pg.click("#wvNovo"); pg.wait_for_timeout(300)
+    chk("a janela do waiver abre", pg.locator("#ov").count() == 1)
+    for it in alvos:
+        pg.fill("#wItemAdd", it)
+        pg.click("#wItemBtn")
+    chk("os três itens entraram como fichas", pg.locator("#wItens [data-wi]").count() == 3,
+        str(pg.locator("#wItens [data-wi]").count()))
+    pg.click("#wModelo")
+    chk("o modelo de texto entra no campo",
+        "Situação encontrada" in pg.input_value("#wTexto"))
+    pg.fill("#wTexto", "Solicitamos waiver: a montagem está concluída e o teste de vácuo "
+                       "não pode ser executado antes do docking, sem impacto em segurança.")
+    pg.fill("#wAssunto", "Dispensa de teste de vácuo antes do docking")
+    pg.fill("#wPara", "ICN / Classificadora")
+    pg.fill("#wRef", "CARTA-GTO-2026-0042")
+    pg.fill("#wCondicao", "Executar o teste na primeira janela de docking e reportar em 5 dias.")
+    pg.select_option("#wSituacao", "enviado")
+    pg.select_option("#wDestino", "4 - Under Analysis")
+    pg.select_option("#wFinal", "1 - Validated by ICN")
+    pg.check("#wAplicar")
+    pg.click("#mb1"); pg.wait_for_timeout(600)
+
+    w = pg.evaluate("() => S.db.waivers[0]")
+    chk("o waiver foi gravado na base", pg.evaluate("() => S.db.waivers.length") == 1)
+    chk("com número da série do ano", bool(w and w["numero"].startswith("W-")), w and w["numero"])
+    chk("com os três itens", w and w["itens"] == alvos, str(w and w["itens"]))
+    chk("com o status de tramitação", w and w["statusDestino"] == "4 - Under Analysis")
+    chk("com o status final desejado", w and w["statusFinal"] == "1 - Validated by ICN")
+    chk("com a referência do documento", w and w["referencia"] == "CARTA-GTO-2026-0042")
+    chk("e assinado por quem pediu", w and w["autor"] == "Bruno Almeida")
+
+    depois = pg.evaluate("(a)=>a.map(x=>S.db.itens.find(i=>i.item===x).status)", alvos)
+    movidos = sum(1 for a, d in zip(antes, depois) if a != d and d == "4 - Under Analysis")
+    chk("os itens foram movidos para o status de tramitação",
+        all(d == "4 - Under Analysis" for d in depois), f"{movidos} mudaram de fato")
+    chk("como alteração pendente, igual a qualquer edição",
+        pg.evaluate("() => S.db.pendentes.length") == movidos, str(movidos))
+    chk("e o motivo no pendente diz de qual waiver veio",
+        pg.evaluate("() => S.db.pendentes.every(p=>/^Waiver W-/.test(p.motivo||''))"))
+
+    print("=== 3. O WAIVER APARECE ONDE O ITEM ESTA")
+    pg.evaluate("(x)=>UI.detalhe(x)", alvos[0]); pg.wait_for_timeout(400)
+    chk("a janela do item mostra o waiver", w["numero"] in pg.inner_text("#ov"))
+    chk("e oferece pedir outro", pg.locator("#wvNovoDoItem").count() == 1)
+    pg.evaluate("() => UI.fechar()")
+    pg.evaluate("() => irPara('waivers')"); pg.wait_for_timeout(400)
+    chk("a lista traz o waiver", w["numero"] in pg.inner_text("#view"))
+    pg.click(f'tr[data-wv="{w["id"]}"]'); pg.wait_for_timeout(300)
+    chk("clicar na linha abre o waiver", "Dispensa de teste de vácuo" in pg.inner_text("#ov"))
+    chk("com o texto inteiro", "não pode ser executado antes do docking" in pg.inner_text("#ov"))
+    pg.evaluate("() => UI.fechar()")
+
+    print("=== 4. O PASSIVO: WAIVER QUE JA TINHA SIDO FEITO A MAO")
+    velho = pg.evaluate("""() => S.db.itens.filter(i=>R.aberto(i.status)).slice(5,6)[0].item""")
+    st0 = pg.evaluate("(x)=>S.db.itens.find(i=>i.item===x).status", velho)
+    pend0 = pg.evaluate("() => S.db.pendentes.length")
+    pg.click("#wvNovo"); pg.wait_for_timeout(300)
+    pg.fill("#wItemAdd", velho); pg.click("#wItemBtn")
+    pg.fill("#wTexto", "Waiver emitido em papel em 12/03/2026, assinado pelo gerente da obra.")
+    pg.fill("#wAssunto", "Regularização de waiver em papel")
+    pg.select_option("#wOrigem", "passivo")
+    pg.fill("#wData", "2026-03-12")
+    pg.fill("#wRef", "Ata 07/2026")
+    pg.select_option("#wSituacao", "aprovado")
+    pg.select_option("#wDestino", "2 - Not Blocking")
+    pg.click("#mb1"); pg.wait_for_timeout(500)
+    p = pg.evaluate("() => S.db.waivers.find(w=>w.origem==='passivo')")
+    chk("o passivo entra na base", bool(p))
+    chk("com a data do papel, não a de hoje", p and p["dataDocumento"] == "2026-03-12",
+        p and p["dataDocumento"])
+    chk("marcado como aprovado", p and p["situacao"] == "aprovado")
+    chk("e NÃO mexe no status por conta própria",
+        pg.evaluate("(x)=>S.db.itens.find(i=>i.item===x).status", velho) == st0, st0)
+    chk("nem cria pendente nenhum",
+        pg.evaluate("() => S.db.pendentes.length") == pend0)
+    chk("a lista marca o passivo como tal", "passivo" in pg.inner_text("#view"))
+
+    print("=== 5. O DOCUMENTO QUE VAI PARA O PAPEL")
+    html = pg.evaluate("() => Waiver.documento([S.db.waivers[0]])")
+    arq = SAIDA/"waiver.html"
+    arq.write_text(html, encoding="utf-8")
+    pg2 = b.new_page()
+    pg2.goto(arq.as_uri()); pg2.wait_for_timeout(500)
+    chk("o documento abre limpo", pg2.locator(".waiver").count() == 1)
+    chk("com o número no alto", w["numero"] in pg2.inner_text(".wtopo"))
+    chk("a ficha traz solicitante, destinatário e referência",
+        all(x in pg2.inner_text(".wficha") for x in ["Bruno Almeida", "ICN", "CARTA-GTO-2026-0042"]))
+    chk("a faixa da tramitação mostra os dois status",
+        "4 - Under Analysis" in pg2.inner_text(".wtram") and
+        "1 - Validated by ICN" in pg2.inner_text(".wtram"))
+    chk("a tabela traz uma linha por item",
+        pg2.locator(".witens tbody tr").count() == 3,
+        str(pg2.locator(".witens tbody tr").count()))
+    chk("o texto do waiver está lá", "docking" in pg2.inner_text(".wtexto"))
+    chk("as condições também", "primeira janela de docking" in pg2.inner_text(".waiver"))
+    chk("e as três assinaturas", pg2.locator(".wassin .lin").count() == 3)
+    pdf = SAIDA/"waiver.pdf"
+    pg2.pdf(path=str(pdf), format="A4", print_background=True)
+    dados = pdf.read_bytes()
+    paginas = dados.count(b"/Type /Page") - dados.count(b"/Type /Pages")
+    chk("um waiver cabe em uma folha A4", paginas == 1, f"{paginas} página(s)")
+    pg2.screenshot(path=str(SAIDA/"waiver.png"), full_page=True)
+
+    dois = pg.evaluate("() => Waiver.documento(S.db.waivers)")
+    (SAIDA/"waivers.html").write_text(dois, encoding="utf-8")
+    pg2.goto((SAIDA/"waivers.html").as_uri()); pg2.wait_for_timeout(400)
+    pg2.pdf(path=str(SAIDA/"waivers.pdf"), format="A4", print_background=True)
+    d2 = (SAIDA/"waivers.pdf").read_bytes()
+    chk("dois waivers saem em duas folhas, um por página",
+        d2.count(b"/Type /Page") - d2.count(b"/Type /Pages") == 2)
+    pg2.close()
+
+    print("=== 6. A JANELA NAO FOGE COM O MOUSE FORA DELA")
+    pg.evaluate("() => irPara('itens')"); pg.wait_for_timeout(400)
+    alvo = pg.evaluate("() => ordenar(itensFiltrados())[0].item")
+    pg.evaluate("(x)=>UI.detalhe(x)", alvo); pg.wait_for_timeout(400)
+    chk("a janela do item está aberta", pg.locator("#ov").count() == 1)
+    pg.fill("#dObs", "texto que eu não quero perder")
+    cx = pg.locator("#dObs").bounding_box()
+    ov = pg.locator("#ov").bounding_box()
+    # arrasta de dentro do campo ate fora da janela, como quem seleciona texto
+    pg.mouse.move(cx["x"]+20, cx["y"]+cx["height"]/2)
+    pg.mouse.down()
+    pg.mouse.move(ov["x"]+6, ov["y"]+ov["height"]-6, steps=12)
+    pg.mouse.up()
+    pg.wait_for_timeout(300)
+    chk("arrastar para fora e soltar NÃO fecha a janela", pg.locator("#ov").count() == 1)
+    chk("e o que estava escrito continua lá",
+        pg.input_value("#dObs") == "texto que eu não quero perder")
+
+    # clicar de verdade no fundo, comecando e terminando nele, ainda fecha -
+    # mas como ha coisa escrita, pergunta antes. Respondendo nao, fica aberta.
+    resposta["sim"] = False; resposta["vistas"].clear()
+    pg.mouse.click(ov["x"]+6, ov["y"]+ov["height"]-6)
+    pg.wait_for_timeout(300)
+    chk("clique no fundo com coisa escrita pergunta antes",
+        any("salvas" in m or "unsaved" in m for m in resposta["vistas"]),
+        str(resposta["vistas"]))
+    chk("e respondendo não, a janela continua aberta", pg.locator("#ov").count() == 1)
+    chk("com o texto intacto", pg.input_value("#dObs") == "texto que eu não quero perder")
+
+    resposta["sim"] = True
+    pg.keyboard.press("Escape"); pg.wait_for_timeout(300)
+    chk("respondendo sim, o Esc fecha", pg.locator("#ov").count() == 0)
+
+    # janela sem nada escrito: fecha no primeiro clique, sem perguntar nada
+    resposta["vistas"].clear()
+    pg.evaluate("(x)=>UI.detalhe(x)", alvo); pg.wait_for_timeout(300)
+    ov = pg.locator("#ov").bounding_box()
+    pg.mouse.click(ov["x"]+6, ov["y"]+ov["height"]-6)
+    pg.wait_for_timeout(300)
+    chk("sem nada escrito, o clique fora fecha direto", pg.locator("#ov").count() == 0)
+    chk("e não pergunta nada", not resposta["vistas"], str(resposta["vistas"]))
+
+    print("=== 7. O VISUALIZADOR LE O WAIVER E NAO O ALTERA")
+    base_com_waivers = pg.evaluate("() => S.db")
+    pv = b.new_page(viewport={"width":1400,"height":900})
+    pv.on("pageerror", lambda e: erros.append("VIZ: "+str(e)))
+    pv.goto(VIZ); pv.wait_for_timeout(500)
+    pv.evaluate("""(db)=>{ S.db=db; normalizar(S.db); S.recolhidas=new Set(); irPara('waivers'); }""",
+                base_com_waivers)
+    pv.wait_for_timeout(400)
+    chk("o visualizador lista os waivers", w["numero"] in pv.inner_text("#view"))
+    chk("sem o botão de pedir um novo", pv.locator("#wvNovo").count() == 0)
+    chk("mas com o de imprimir", pv.locator("#wvImp").count() == 1)
+    pv.evaluate("() => Waiver.painel({itens:['x']})"); pv.wait_for_timeout(200)
+    chk("pedir waiver ali não abre janela nenhuma", pv.locator("#ov").count() == 0)
+    n0 = pv.evaluate("() => S.db.waivers.length")
+    pv.evaluate("() => Waiver.guardar({id:'zz',numero:'W-9999-999',itens:['x'],texto:'t'})")
+    chk("e guardar não guarda", pv.evaluate("() => S.db.waivers.length") == n0)
+    chk("o documento, esse continua saindo",
+        w["numero"] in pv.evaluate("() => Waiver.documento([S.db.waivers[0]])"))
+    pv.close()
+    b.close()
+
+reais = [e for e in erros if "favicon" not in e]
+print("\nerros:", reais or "nenhum")
+print("falhas:", falhas or "nenhuma")
+print(f"\nArquivos em {SAIDA}: waiver.html, waiver.pdf, waiver.png, waivers.pdf")
+raise SystemExit(1 if (falhas or reais) else 0)

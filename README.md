@@ -30,6 +30,7 @@ Também funciona **sem internet**: baixe `docs/index.html` e abra por duplo cliq
 | **Evidence Flow** | Os dois diagramas de fluxo (B05 / exceto B05), em tela própria |
 | **Histórico** | Compara **quaisquer duas datas** e reconstrói o estado em cada uma |
 | **Relatórios** | 11 relatórios prontos e a **janela de exportação**: escolha as colunas e saia em CSV, Excel, JSON, HTML ou **relatório PDF** |
+| **Waivers** | Pedidos de dispensa: um ou mais itens, o texto, para qual status vão **agora** e qual é o **status final desejado**. Ficam salvos na base e saem em **documento A4 pronto para assinar**. Também recebe o **passivo** — o waiver que já tinha sido feito à mão |
 | **Configurações** | Parâmetros, status ativos, **regra de "em aberto"**, backup/restauração, **tamanho da base e arquivamento de histórico**, integridade, log técnico (descartes e sobrescritas ficam 30 dias, configurável; o índice dos arquivamentos fica para sempre) |
 
 Os filtros são o endereço da tela: aparecem como pílulas com **✕** ao lado da busca, sobrevivem
@@ -106,8 +107,9 @@ status. Ponha o arquivo na pasta onde está o `database.json` e mande o caminho 
 - **não pergunta o nome de ninguém** e não tem item novo, edição em lote, arrastar no Kanban,
   salvar no detalhe nem tela de Configurações — no lugar dela há **Sobre a base**, que diz de
   quando é a informação (revisão, quem gravou, quando) e tem um botão de recarregar;
-- **mantém** Dashboard, Itens, Kanban, Evidence Flow, Histórico, Relatórios e **a exportação
-  inteira** — CSV, Excel, JSON, HTML e os dois relatórios, tabela e quadro;
+- **mantém** Dashboard, Itens, Kanban, Evidence Flow, Histórico, Relatórios, **os waivers** (ler
+  e imprimir; pedir e alterar, não) e **a exportação inteira** — CSV, Excel, JSON, HTML e os dois
+  relatórios, tabela e quadro;
 - **não consegue gravar**: as rotinas de escrita não estão nesse arquivo (chamá-las devolve
   `SOMENTE_LEITURA`) e a pasta é aberta em modo de leitura. Os testes provam isso medindo que
   nenhum writer é aberto e que o `database.json` continua byte a byte o que era.
@@ -128,6 +130,51 @@ com a caixa trocada. O item nasce com um evento no histórico com o seu nome e e
 caminho de qualquer edição: pendente, autosave, e sobrevive à gravação de outra pessoa no meio.
 Se os dois criarem o mesmo código, a tela de decisão aparece em vez de alguém perder o item.
 
+## Waiver (pedido de dispensa)
+
+Um waiver é o pedido formal de aceitar um item como está: *"este item não vai atender o requisito
+como está escrito; peço que seja aceito assim, por estas razões"*. Até aqui isso vivia em e-mail e
+em papel, e o sistema só via o resultado — o status mudava e ninguém sabia por quê.
+
+**Waivers ▸ + Novo waiver**, ou **Pedir waiver** dentro de um item, ou ainda com vários itens
+marcados na tabela (a barra de seleção tem o botão). O pedido cobre **um ou mais itens** e guarda:
+
+| Campo | Para que serve |
+|---|---|
+| Itens abrangidos | os itens que o waiver cobre — um só ou uma lista |
+| Assunto e destinatário | de quem para quem |
+| **Status de tramitação (agora)** | para onde os itens vão **neste momento** |
+| **Status final desejado** | onde eles devem parar se o waiver for aceito |
+| Texto do waiver | o que você escreveu (há um **modelo** com as quatro seções de praxe) |
+| Condições / medidas compensatórias | o que fica combinado em troca |
+| Situação | rascunho · enviado · aprovado · recusado · cancelado |
+| Referência e data do documento | número da carta, e-mail ou ata |
+| Parecer | quem decidiu e o que disse |
+
+Tudo isso **fica salvo no `database.json`**, junto dos itens. O waiver aparece dentro da janela de
+cada item que ele cobre, e o movimento de status vai pelo caminho de sempre: vira alteração
+pendente, entra no histórico do item com o motivo `Waiver W-2026-001` e é gravado pelo autosave.
+Não há uma segunda porta de escrita.
+
+Marcando **"já mover os itens"** na criação, o pedido e o movimento saem num gesto só. Depois,
+quando o waiver voltar aprovado, o botão **Aplicar status final** leva os itens ao destino.
+
+### O passivo — waiver que já foi feito à mão
+
+Escolhendo **Origem ▸ Passivo — feito à mão**, o waiver entra com a **data e a referência do papel
+original** e **não mexe no status por conta própria**: o item já está onde o documento o deixou.
+É assim que o que foi decidido antes de existir esta tela passa a constar da base. Na lista ele
+aparece marcado como `passivo`.
+
+### O documento
+
+**Imprimir** monta uma folha A4 retrato, pronta para assinar: cabeçalho com número e situação,
+ficha com data/destinatário/solicitante/referência, a faixa *status de tramitação → status final*,
+a tabela dos itens com o status atual de cada um, o texto do waiver, as condições, o espaço do
+parecer e as três assinaturas (solicitante · análise técnica · aprovação). Um waiver cabe numa
+folha; vários saem um por página. O botão **↓ HTML** salva o mesmo documento como arquivo, para
+anexar num e-mail sem passar pela caixa de impressão.
+
 ## Onde a base fica
 
 O caminho padrão é **`G:\DOP\GTO\3_INTERNO\01_SAFE_TO_DIVE\11_STATUS MILESTONE J08`** e pode
@@ -140,6 +187,18 @@ segurança deles, não limitação daqui). Então o caminho aparece na tela de a
 Da segunda vez em diante a pasta volta sozinha, sem perguntar nada. Se a pasta escolhida não
 terminar com o nome do caminho padrão, o sistema avisa — abrir a base errada é o engano que só
 aparece semanas depois.
+
+## Janelas que não fogem
+
+Toda janela do sistema fecha clicando fora dela — mas **só quando o clique começa e termina no
+fundo**. O navegador entrega o clique ao ancestral comum do `mousedown` e do `mouseup`: arrastar
+para selecionar o texto de um campo e soltar o botão um pouco fora da janela dava, portanto, um
+clique no fundo, e a janela fechava levando junto o que estava escrito. Era exatamente o que
+acontecia ao mexer num item.
+
+Além disso, nas janelas onde se escreve — **detalhe do item, item novo e waiver** — sair pelo
+fundo, pelo **✕** ou pelo **Esc** com algo digitado **pergunta antes de descartar**. As outras
+(filtros, colunas, exportação) fecham direto, como sempre.
 
 ## Como as alterações são salvas
 
@@ -236,7 +295,7 @@ migracao/migrar.py                 CSV -> database.json
 migracao/validar.py                reconciliacao contra os numeros das planilhas
 
 testes/unidade.mjs                 testes de unidade do motor (Node puro, base sintetica)
-testes/*.py                        testes de comportamento em Chromium real
+testes/*.py                        testes de comportamento em Chromium real (seis suites)
 analise/01_ANALISE_DOS_ARQUIVOS.md engenharia reversa e qualidade dos dados
 analise/02_DECISOES.md             decisoes de negocio tomadas
 analise/03_ARQUITETURA_E_MODELO.md arquitetura, modelo de dados e telas

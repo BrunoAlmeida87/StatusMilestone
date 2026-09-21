@@ -1949,5 +1949,408 @@ secao("22. SOMENTE EM ABERTO E O AJUSTE PARA CABER");
   igual("marcar a caixa fica guardado", app.Export.opcoes().somenteAberto, true);
 }
 
+/* ==================== 23. WAIVER: PEDIDO DE DISPENSA ===================== */
+secao("23. WAIVER");
+{
+  /* Numeracao: uma serie por ano, e apagar um rascunho nao devolve o numero
+     ao estoque - ele ja circulou por e-mail. */
+  const c = cenario();
+  const {app} = c;
+  const ano = app.hoje().slice(0,4);
+  igual("o primeiro waiver do ano é o 001", app.Waiver.proximoNumero(), `W-${ano}-001`);
+  app.S.db.waivers = [{id:"x1", numero:`W-${ano}-001`}, {id:"x2", numero:`W-${ano}-007`}];
+  igual("o próximo continua do maior já usado", app.Waiver.proximoNumero(), `W-${ano}-008`);
+  app.S.db.waivers = [{id:"x1", numero:"W-1999-050"}];
+  igual("série de outro ano não contamina a deste", app.Waiver.proximoNumero(), `W-${ano}-001`);
+}
+{
+  /* Gravar: entra na base, entra no diário e vai para o disco pelo autosave. */
+  const c = cenario();
+  const {app} = c;
+  const w = {id:app.uid(), numero:"W-2026-001", itens:["A-001"], texto:"porque sim",
+             situacao:"enviado", statusDestino:"4 - Under Analysis",
+             statusFinal:"1 - Validated by ICN", criadoEm:app.agora(), autor:"Teste"};
+  app.Waiver.guardar(w);
+  igual("o waiver entra na base", app.S.db.waivers.length, 1);
+  chk("com a hora da última alteração", !!app.S.db.waivers[0].atualizadoEm);
+  chk("e entra no diário, para sobreviver a uma gravação alheia",
+      app.Pend.diario.some(e=>e.t==="waiver" && e.obj.id===w.id));
+  chk("a base fica suja", app.S.sujo===true);
+  await new Promise(r=>setTimeout(r,120));
+  igual("e o autosave levou o waiver ao disco", c.disco().waivers?.length, 1);
+
+  /* Editar o mesmo waiver substitui, não duplica. */
+  w.texto = "texto revisto";
+  app.Waiver.guardar(w, {base:w.atualizadoEm});
+  igual("editar não duplica", app.S.db.waivers.length, 1);
+  igual("e o texto é o novo", app.S.db.waivers[0].texto, "texto revisto");
+}
+{
+  /* Aplicar o status: pelo mesmo caminho de qualquer edição, com o número do
+     waiver como motivo - é isso que faz a mudança aparecer no histórico
+     dizendo de onde veio. */
+  const c = cenario();
+  const {app} = c;
+  app.Pend.autosave = async ()=>{};
+  const w = {id:app.uid(), numero:"W-2026-009", itens:["A-001","A-003","A-002"],
+             texto:"t", situacao:"enviado", statusDestino:"2 - Not Blocking",
+             statusFinal:"1 - Validated by ICN", criadoEm:app.agora(), autor:"Teste"};
+  app.Waiver.guardar(w);
+  app.Waiver.aplicar(w, "destino");
+  const pend = app.S.db.pendentes;
+  igual("um pendente por item que realmente mudou", pend.length, 3);
+  chk("todos foram para o status de tramitação",
+      w.itens.every(id=>app.S.db.itens.find(i=>i.item===id).status==="2 - Not Blocking"));
+  chk("e o motivo diz qual waiver mandou",
+      pend.every(p=>p.motivo==="Waiver W-2026-009"), pend[0]?.motivo);
+  chk("o waiver guarda que já foi aplicado", app.S.db.waivers[0].aplicado?.quantos===3);
+
+  /* Item que já estava no status não vira pendente novo. */
+  const antes = app.S.db.pendentes.length;
+  app.Waiver.aplicar(w, "destino");
+  igual("aplicar de novo não cria pendente à toa", app.S.db.pendentes.length, antes);
+
+  app.Waiver.aplicar(w, "final");
+  chk("o status final vai pelo mesmo caminho",
+      w.itens.every(id=>app.S.db.itens.find(i=>i.item===id).status==="1 - Validated by ICN"));
+}
+{
+  /* Apagar, e apagar só depois de confirmar. */
+  const app = carregarApp({confirmar:()=>false});
+  app.ctx.toast=()=>{}; app.ctx.marcarEstado=()=>{}; app.Render.atual=()=>{};
+  app.S.db = baseDeTeste(); app.normalizar(app.S.db); app.Sync.parar();
+  app.Pend.autosave = async ()=>{};
+  const w = {id:"wz", numero:"W-2026-002", itens:["A-001"], texto:"t"};
+  app.Waiver.guardar(w);
+  igual("responder não à confirmação não apaga", app.Waiver.excluir(w), false);
+  igual("e o waiver continua lá", app.S.db.waivers.length, 1);
+  app.ctx.confirm = ()=>true;
+  igual("confirmando, apaga", app.Waiver.excluir(w), true);
+  igual("a lista fica vazia", app.S.db.waivers.length, 0);
+  chk("e o diário registra a remoção",
+      app.Pend.diario.some(e=>e.t==="waiver-del" && e.id==="wz"));
+}
+{
+  /* O documento. É o que vai para o papel: tem de trazer tudo e não pode
+     deixar passar HTML de dentro do texto. */
+  const c = cenario();
+  const {app} = c;
+  const w = {id:"w1", numero:"W-2026-003", itens:["A-001","A-003"],
+             assunto:"<img src=x onerror=alert(1)>", texto:"linha 1\nlinha 2",
+             condicao:"manter sob inspeção", para:"ICN", autor:"Bruno",
+             situacao:"enviado", statusDestino:"4 - Under Analysis",
+             statusFinal:"1 - Validated by ICN", dataDocumento:"2026-03-04",
+             referencia:"CARTA-123", origem:"sistema", criadoEm:app.agora()};
+  app.S.db.waivers = [w];
+  const d = app.Waiver.documento([w]);
+  chk("o documento é uma página inteira", d.startsWith("<!doctype html"));
+  chk("em retrato, que é como se assina", /@page \{ size: A4 portrait/.test(d));
+  chk("traz o número", d.includes("W-2026-003"));
+  chk("traz os dois itens", d.includes("A-001") && d.includes("A-003"));
+  chk("com o status atual de cada um", d.includes("3 - Blocking"));
+  chk("traz o status de tramitação e o final",
+      d.includes("4 - Under Analysis") && d.includes("1 - Validated by ICN"));
+  chk("traz o texto com as quebras de linha", d.includes("linha 1\nlinha 2"));
+  chk("traz as condições", d.includes("manter sob inspe"));
+  chk("traz a referência do documento", d.includes("CARTA-123"));
+  chk("e as três assinaturas", (d.match(/class="lin"/g)||[]).length === 3);
+  chk("o HTML de dentro do texto sai escapado",
+      !d.includes("<img src=x") && d.includes("&lt;img src=x"), "");
+  chk("um item que saiu da base é dito, não omitido em silêncio",
+      app.Waiver.documento([{...w, itens:["A-001","SUMIU"]}]).includes("SUMIU"));
+
+  const dois = app.Waiver.documento([w, {...w, id:"w2", numero:"W-2026-004"}]);
+  chk("dois waivers, um por página",
+      (dois.match(/class="waiver"/g)||[]).length === 2 && /break-after:page/.test(dois));
+  chk("e nenhum sai sem o cabeçalho", (dois.match(/class="wtopo"/g)||[]).length === 2);
+
+  const passivo = app.Waiver.documento([{...w, origem:"passivo"}]);
+  chk("o passivo se identifica como tal no papel", /Passivo/.test(passivo));
+}
+{
+  /* A base antiga não tem waivers, e a base estragada não pode derrubar a tela. */
+  const app = carregarApp();
+  app.ctx.toast=()=>{};
+  const velha = baseDeTeste();
+  delete velha.waivers;
+  app.normalizar(velha);
+  igual("base sem waivers ganha a lista vazia", velha.waivers, []);
+  const suja = baseDeTeste();
+  suja.waivers = [{id:"a", itens:"nao e lista"}];
+  app.normalizar(suja);
+  igual("waiver com itens de mentira vira lista", suja.waivers[0].itens, []);
+  igual("e ganha a situação padrão", suja.waivers[0].situacao, "rascunho");
+  chk("waivers que não é lista é erro estrutural",
+      app.avaliar("validarBase")({...baseDeTeste(), waivers:{}}).valido === false);
+}
+{
+  /* O waiver escrito aqui não pode sumir quando outra pessoa grava no meio. */
+  const c = cenario();
+  const {app} = c;
+  app.Pend.autosave = async ()=>{};
+  const w = {id:"wA", numero:"W-2026-010", itens:["A-001"], texto:"meu waiver",
+             situacao:"enviado", criadoEm:app.agora(), autor:"Bruno"};
+  app.Waiver.guardar(w);
+
+  const deles = JSON.parse(JSON.stringify(c.db));
+  deles.meta.revisao = 30; deles.meta.ultimoAutor = "Ana";
+  deles.waivers = [];
+  deles.itens[0].ncr = "NCR-DA-ANA";
+  igual("junta sozinho, sem pedir decisão", app.Sync.receber(deles), "juntado");
+  chk("o waiver sobrevive à gravação da outra pessoa",
+      app.S.db.waivers.some(x=>x.id==="wA"));
+  chk("e o trabalho dela chega",
+      app.S.db.itens.find(i=>i.item==="A-001")?.ncr === "NCR-DA-ANA");
+}
+{
+  /* Os dois mexeram NO MESMO waiver: isso é decisão, não merge silencioso. */
+  const c = cenario();
+  const {app} = c;
+  app.Pend.autosave = async ()=>{};
+  const base = {id:"wB", numero:"W-2026-011", itens:["A-001"], texto:"original",
+                situacao:"enviado", criadoEm:app.agora(), atualizadoEm:"2026-01-01T00:00:00.000Z",
+                autor:"Bruno"};
+  c.db.waivers = [JSON.parse(JSON.stringify(base))];
+  const meu = {...JSON.parse(JSON.stringify(base)), texto:"minha versão"};
+  app.Waiver.guardar(meu, {base:base.atualizadoEm});
+
+  const deles = JSON.parse(JSON.stringify(c.db));
+  deles.meta.revisao = 30; deles.meta.ultimoAutor = "Ana";
+  deles.waivers = [{...JSON.parse(JSON.stringify(base)), texto:"versão da Ana",
+                    atualizadoEm:"2026-02-02T00:00:00.000Z"}];
+  igual("mesmo waiver dos dois lados: pergunta", app.Sync.receber(deles), "decidir");
+  chk("a tela de decisão mostra os dois textos",
+      app.$("#ov")?.innerHTML.includes("minha vers") && app.$("#ov").innerHTML.includes("Ana"));
+  app.UI.fechar();
+
+  /* Ela mexeu em OUTRO waiver: não há o que decidir. */
+  const c2 = cenario();
+  c2.app.Pend.autosave = async ()=>{};
+  c2.db.waivers = [JSON.parse(JSON.stringify(base))];
+  c2.app.Waiver.guardar({...JSON.parse(JSON.stringify(base)), texto:"minha versão"},
+                        {base:base.atualizadoEm});
+  const outros = JSON.parse(JSON.stringify(c2.db));
+  outros.meta.revisao = 31;
+  outros.waivers = [JSON.parse(JSON.stringify(base)),
+                    {id:"wC", numero:"W-2026-012", itens:["A-003"], texto:"dela", atualizadoEm:"x"}];
+  igual("waiver diferente junta sozinho", c2.app.Sync.receber(outros), "juntado");
+  igual("e os dois ficam", c2.app.S.db.waivers.length, 2);
+  igual("com o meu texto preservado",
+        c2.app.S.db.waivers.find(x=>x.id==="wB").texto, "minha versão");
+}
+{
+  /* O caminho de verdade: abrir a janela, preencher e acionar o botão do
+     rodapé - foi um defeito exatamente aqui (defaults lidos por um lado e
+     escritos por outro) que escapou dos testes uma vez. */
+  const c = cenario();
+  const {app} = c;
+  app.Pend.autosave = async ()=>{};
+  app.Waiver.painel({itens:["A-001","A-003"]});
+  chk("a janela abre", !!app.$("#ov"));
+  chk("e pede confirmação para sair com coisa escrita",
+      app.$("#ov").__confirmarSaida === true);
+  chk("os dois itens já vêm marcados", app.$$("[data-wi]").length === 2,
+      String(app.$$("[data-wi]").length));
+  app.$("#wTexto").value = "  o texto do pedido  ";
+  app.$("#wAssunto").value = "dispensa de vácuo";
+  app.$("#wDestino").value = "4 - Under Analysis";
+  app.$("#wFinal").value = "1 - Validated by ICN";
+  app.$("#wSituacao").value = "enviado";
+  app.$("#mb1").onclick();                      /* "Criar waiver" */
+  igual("o waiver foi criado", app.S.db.waivers.length, 1);
+  const w = app.S.db.waivers[0];
+  igual("com os itens da janela", w.itens, ["A-001","A-003"]);
+  igual("o texto sem o espaço sobrando", w.texto, "o texto do pedido");
+  igual("o assunto", w.assunto, "dispensa de vácuo");
+  igual("o status de tramitação", w.statusDestino, "4 - Under Analysis");
+  igual("o status final desejado", w.statusFinal, "1 - Validated by ICN");
+  igual("a situação escolhida", w.situacao, "enviado");
+  chk("e um número da série do ano", /^W-\d{4}-\d{3}$/.test(w.numero), w.numero);
+  chk("a janela fechou", !app.$("#ov"));
+  chk("sem marcar a caixa, o status dos itens não foi tocado",
+      app.S.db.itens.find(i=>i.item==="A-001").status === "3 - Blocking");
+
+  /* Sem texto não cria: o formulário pela metade não vira documento. */
+  app.Waiver.painel({itens:["A-002"]});
+  app.$("#wTexto").value = "   ";
+  app.$("#mb1").onclick();
+  igual("formulário sem texto não cria nada", app.S.db.waivers.length, 1);
+  chk("e a janela continua aberta para consertar", !!app.$("#ov"));
+  app.UI.fechar();
+
+  /* Sem item, idem. */
+  app.Waiver.painel({});
+  app.$("#wTexto").value = "tem texto mas não tem item";
+  app.$("#mb1").onclick();
+  igual("formulário sem item também não cria", app.S.db.waivers.length, 1);
+  app.UI.fechar();
+}
+{
+  /* Marcar "já mover os itens" faz o pedido e o movimento num gesto só. */
+  const c = cenario();
+  const {app} = c;
+  app.Pend.autosave = async ()=>{};
+  app.Waiver.painel({itens:["A-001"]});
+  app.$("#wTexto").value = "pedido com movimento";
+  app.$("#wDestino").value = "2 - Not Blocking";
+  app.$("#wAplicar").checked = true;
+  app.$("#mb1").onclick();
+  igual("o item foi para o status de tramitação",
+        app.S.db.itens.find(i=>i.item==="A-001").status, "2 - Not Blocking");
+  igual("como alteração pendente, como qualquer edição", app.S.db.pendentes.length, 1);
+
+  /* O passivo NÃO mexe no status por conta própria. */
+  const c2 = cenario();
+  c2.app.Pend.autosave = async ()=>{};
+  c2.app.Waiver.painel({itens:["A-001"]});
+  c2.app.$("#wTexto").value = "waiver que já existia em papel";
+  c2.app.$("#wDestino").value = "2 - Not Blocking";
+  c2.app.$("#wOrigem").value = "passivo";
+  c2.app.$("#wAplicar").checked = true;
+  c2.app.$("#mb1").onclick();
+  igual("o passivo entra na base", c2.app.S.db.waivers.length, 1);
+  igual("marcado como passivo", c2.app.S.db.waivers[0].origem, "passivo");
+  igual("e não move o item, que já está onde o papel o deixou",
+        c2.app.S.db.itens.find(i=>i.item==="A-001").status, "3 - Blocking");
+  igual("nem cria pendente", c2.app.S.db.pendentes.length, 0);
+}
+{
+  /* O waiver aparece dentro do item e a tela de waivers lista e filtra. */
+  const c = cenario();
+  const {app} = c;
+  app.Pend.autosave = async ()=>{};
+  app.Waiver.guardar({id:"w1", numero:"W-2026-020", itens:["A-001"], texto:"t1",
+                      situacao:"enviado", criadoEm:app.agora(), dataDocumento:"2026-03-01"});
+  app.Waiver.guardar({id:"w2", numero:"W-2026-021", itens:["A-003"], texto:"t2",
+                      situacao:"aprovado", criadoEm:app.agora(), dataDocumento:"2026-03-02"});
+  /* Da barra de selecao sai o caso mais comum: varios itens, um waiver so. */
+  app.S.selecao.add("A-001"); app.S.selecao.add("A-002");
+  app.Render.itens();
+  chk("a barra de seleção oferece pedir waiver", !!app.$("#loteWaiver"));
+  app.$("#loteWaiver").onclick();
+  chk("e abre a janela com os selecionados dentro", app.$$("[data-wi]").length === 2,
+      String(app.$$("[data-wi]").length));
+  app.UI.fechar(); app.S.selecao.clear();
+
+  igual("doItem acha o waiver do item", app.Waiver.doItem("A-001").map(w=>w.id), ["w1"]);
+  igual("e não os dos outros", app.Waiver.doItem("A-002"), []);
+  const bloco = app.Waiver.blocoItemHTML("A-001");
+  chk("o bloco do item mostra o waiver", bloco.includes("W-2026-020"));
+  chk("e oferece pedir um novo", bloco.includes("wvNovoDoItem"));
+
+  app.Render.waivers();
+  const html = app.$("#view").innerHTML;
+  chk("a tela lista os dois", html.includes("W-2026-020") && html.includes("W-2026-021"));
+  chk("com o botão de novo waiver", !!app.$("#wvNovo"));
+  chk("e o de imprimir", typeof app.$("#wvImp")?.onclick === "function");
+  app.Waiver.filtro = "aprovado";
+  app.Render.waivers();
+  const so = app.$("#view").innerHTML;
+  chk("filtrar por situação esconde os outros",
+      so.includes("W-2026-021") && !so.includes("W-2026-020"));
+  app.Waiver.filtro = "";
+}
+{
+  /* No visualizador: o waiver se lê e se imprime, e não se mexe. */
+  const viz = carregarApp({arquivo:VISUALIZADOR});
+  const avisos = [];
+  viz.ctx.toast = (m,k)=>avisos.push([m,k]);
+  viz.ctx.marcarEstado = ()=>{};
+  viz.S.db = baseDeTeste(); viz.normalizar(viz.S.db);
+  viz.S.db.waivers = [{id:"w1", numero:"W-2026-030", itens:["A-001"], texto:"pedido",
+                       situacao:"enviado", criadoEm:"2026-03-01T00:00:00.000Z",
+                       dataDocumento:"2026-03-01", autor:"Bruno"}];
+  igual("o visualizador sabe que não edita", viz.EDITAVEL, false);
+  viz.Waiver.painel({itens:["A-001"]});
+  chk("pedir waiver ali só avisa", avisos.some(([,k])=>k==="warn"));
+  chk("e não abre janela nenhuma", !viz.$("#ov"));
+  viz.Waiver.guardar({id:"zz", numero:"W-2026-031", itens:["A-001"], texto:"t"});
+  igual("guardar não guarda", viz.S.db.waivers.length, 1);
+  viz.Waiver.aplicar(viz.S.db.waivers[0], "destino");
+  igual("aplicar não aplica", viz.S.db.itens.find(i=>i.item==="A-001").status, "3 - Blocking");
+  viz.Waiver.excluir(viz.S.db.waivers[0]);
+  igual("apagar não apaga", viz.S.db.waivers.length, 1);
+
+  viz.Render.waivers();
+  chk("a tela existe e lista", viz.$("#view").innerHTML.includes("W-2026-030"));
+  chk("mas sem o botão de novo waiver", !viz.$("#wvNovo"));
+  chk("e o bloco do item não oferece pedir",
+      !viz.Waiver.blocoItemHTML("A-001").includes("wvNovoDoItem"));
+  chk("o documento continua saindo inteiro",
+      viz.Waiver.documento(viz.S.db.waivers).includes("W-2026-030"));
+}
+
+/* ============ 24. A JANELA NAO FOGE COM O MOUSE FORA DELA ================ */
+secao("24. JANELAS");
+{
+  /* O defeito: o navegador entrega o clique ao ancestral comum do mousedown e
+     do mouseup. Arrastar para selecionar o texto de um campo e soltar o botao
+     fora da janela dava, portanto, um clique no FUNDO - e a janela fechava
+     levando o que estava escrito. A regra agora exige que o clique comece e
+     termine no fundo. */
+  const c = cenario();
+  const {app} = c;
+  app.UI.modal("T","<p>x</p>",[]);
+  const ov = app.$("#ov");
+  chk("soltar no fundo um arraste que começou DENTRO não fecha",
+      app.UI.cliqueFechaFundo(ov, ov) === false);
+  ov.__comecouNoFundo = true;
+  chk("clicar no fundo, e só no fundo, fecha",
+      app.UI.cliqueFechaFundo(ov, ov) === true);
+  chk("clique num filho nunca fecha",
+      app.UI.cliqueFechaFundo(ov, {}) === false);
+  chk("sem janela não há o que fechar", app.UI.cliqueFechaFundo(null, null) === false);
+  app.UI.fechar();
+}
+{
+  /* Com coisa escrita, sair por fora pergunta antes de descartar. */
+  let perguntas = 0;
+  const app = carregarApp({confirmar:()=>{ perguntas++; return false; }});
+  app.ctx.toast=()=>{}; app.ctx.marcarEstado=()=>{}; app.Render.atual=()=>{};
+  app.S.db = baseDeTeste(); app.normalizar(app.S.db); app.Sync.parar();
+
+  app.UI.modal("Sem guarda","<p>x</p>",[]);
+  app.$("#ov").__sujo = true;
+  app.UI.fecharPeloUsuario();
+  igual("janela comum não pergunta nada", perguntas, 0);
+  chk("e fecha", !app.$("#ov"));
+
+  app.UI.modal("Com guarda","<p>x</p>",[],{confirmarSaida:true});
+  app.UI.fecharPeloUsuario();
+  igual("sem nada escrito, também não pergunta", perguntas, 0);
+
+  app.UI.modal("Com guarda","<p>x</p>",[],{confirmarSaida:true});
+  app.$("#ov").__sujo = true;
+  app.UI.fecharPeloUsuario();
+  igual("com coisa escrita, pergunta", perguntas, 1);
+  chk("e respondendo não, a janela continua aberta", !!app.$("#ov"));
+
+  app.ctx.confirm = ()=>true;
+  app.UI.fecharPeloUsuario();
+  chk("respondendo sim, fecha", !app.$("#ov"));
+
+  /* fechar() direto continua sendo do sistema: não pergunta nada. */
+  app.ctx.confirm = ()=>{ perguntas++; return false; };
+  app.UI.modal("Com guarda","<p>x</p>",[],{confirmarSaida:true});
+  app.$("#ov").__sujo = true;
+  app.UI.fechar();
+  igual("abrir a janela seguinte não pergunta", perguntas, 1);
+  chk("e fecha mesmo", !app.$("#ov"));
+}
+{
+  /* As duas janelas onde se perde trabalho pedem confirmação. */
+  const c = cenario();
+  const {app} = c;
+  app.UI.detalhe("A-001");
+  chk("o detalhe do item tem a guarda", app.$("#ov").__confirmarSaida === true);
+  app.UI.fechar();
+  app.NovoItem.painel();
+  chk("o item novo também", app.$("#ov").__confirmarSaida === true);
+  app.UI.fechar();
+  app.Export.painel(app.S.db.itens, "Itens");
+  chk("a janela de exportação não incomoda com isso",
+      app.$("#ov").__confirmarSaida !== true);
+  app.UI.fechar();
+}
 console.log(falhas.length ? `\n${falhas.length} FALHA(S):\n  `+falhas.join("\n  ") : "\nTudo certo.");
 process.exit(falhas.length ? 1 : 0);

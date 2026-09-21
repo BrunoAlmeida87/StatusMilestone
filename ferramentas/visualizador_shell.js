@@ -26,6 +26,7 @@ UI.detalhe = function(itemId){
     + (pos>=0 && vizinhos.length>1? `  (${pos+1}/${vizinhos.length})` : ""), `
     <div class="tabs">${aba("d",T("detalhes"))}${aba("h",T("historico"))}${aba("o",T("observacoes"))}</div>
     <div id="tp-d">
+      ${Waiver.blocoItemHTML(itemId)}
       <div class="rowflex" style="gap:10px;margin-bottom:12px">
         <span class="pill" style="background:${cor}18;color:${cor};border-color:${cor}55;font-size:13px">
           <i class="dot" style="background:${cor}"></i>${esc(i.status)}</span>
@@ -63,6 +64,10 @@ UI.detalhe = function(itemId){
       {txt:(LANG==="pt"?"Próximo":"Next")+" ›",cls:"btn",fn:()=>UI.irrItem(1)}] : []),
      {txt:T("fechar"),cls:"btn pri",fn:()=>UI.fechar()}]);
 
+  /* Os waivers do item aparecem aqui tambem: quem consulta precisa saber que
+     o item esta coberto por um pedido de dispensa - e poder imprimi-lo. O que
+     nao aparece e o botao de pedir um novo (EDITAVEL e false). */
+  Waiver.ligarBloco(itemId);
   $$(".tabs button").forEach((b,k)=>{ if(!k) b.classList.add("on");
     b.onclick=()=>{ $$(".tabs button").forEach(x=>x.classList.remove("on")); b.classList.add("on");
       ["d","h","o"].forEach(t=>{ const el=$("#tp-"+t); if(el) el.hidden = t!==b.dataset.t; }); };});

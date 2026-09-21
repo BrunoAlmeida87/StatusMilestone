@@ -308,7 +308,8 @@ const I18N = {
    b05:"B05",naoB05:"Não B05",tipoInsp:"Tipo de inspeção",funcaoVital:"Função vital",
    origem:"Marco de origem",aging:"Aging",semAtualizacao:"Sem atualização",dias:"dias",
    evolucao:"Evolução",distribuicao:"Distribuição",campo:"Campo",anterior:"Anterior",novo:"Novo",
-   data:"Data",autor:"Autor",item:"Item",acoes:"Ações",resolver:"Resolver"},
+   data:"Data",autor:"Autor",item:"Item",acoes:"Ações",resolver:"Resolver",
+   waivers:"Waivers"},
  en:{dashboard:"Dashboard",itens:"Items",kanban:"Kanban",historico:"History",relatorios:"Reports",
    config:"Settings",tema:"Theme",fluxo:"Evidence Flow",salvarAgora:"Save changes now",
    total:"Total items",emAberto:"Open",validados:"Validated",conclusao:"Completion",
@@ -323,10 +324,17 @@ const I18N = {
    b05:"B05",naoB05:"Non-B05",tipoInsp:"Inspection type",funcaoVital:"Vital function",
    origem:"Origin milestone",aging:"Aging",semAtualizacao:"No update for",dias:"days",
    evolucao:"Trend",distribuicao:"Distribution",campo:"Field",anterior:"Previous",novo:"New",
-   data:"Date",autor:"Author",item:"Item",acoes:"Actions",resolver:"Resolve"}
+   data:"Date",autor:"Author",item:"Item",acoes:"Actions",resolver:"Resolve",
+   waivers:"Waivers"}
 };
 let LANG = localStorage.getItem("sm.lang") || "pt";
 const T = k => (I18N[LANG][k] ?? I18N.pt[k] ?? k);
+
+/* O visualizador da pasta de transferencia e gerado DESTE arquivo com esta
+   constante em false (ferramentas/gerar_visualizador.py). E por ela que cada
+   tela sabe se deve oferecer o que altera a base: uma linha so, num lugar so,
+   em vez de uma tela lembrar e outra esquecer. */
+const EDITAVEL = true;
 
 /* ------------------------------ utilitarios ---------------------------- */
 const $  = (s,r=document)=>r.querySelector(s);
@@ -1179,6 +1187,12 @@ const Sync = {
         else meus.set(k, {...e});
       }else if(e.t==="obs"){ meus.set("obs:"+e.obj.id, {...e});
       }else if(e.t==="item-novo"){ meus.set("novo:"+e.obj.item, {...e});
+      /* Waiver: um registro por waiver, guardando a versao de onde PARTIMOS.
+         E o `base` que depois distingue "a outra pessoa mexeu neste waiver"
+         de "ela mexeu em outra coisa e este so precisa ser reposto". */
+      }else if(e.t==="waiver"){ const a = meus.get("wv:"+e.obj.id);
+        meus.set("wv:"+e.obj.id, {...e, base: a && a.t==="waiver" ? a.base : e.base});
+      }else if(e.t==="waiver-del"){ meus.set("wv:"+e.id, {...e});
       }else naoRebasavel = e;
     }
 
@@ -1212,6 +1226,18 @@ const Sync = {
                           para:e.obj.status, remoto:ja.status});
         continue;
       }
+      if(e.t==="waiver"){
+        const ja = (disco.waivers||[]).find(x=>x.id===e.obj.id);
+        /* So e disputa se a outra pessoa mexeu NO MESMO waiver depois da versao
+           de onde partimos. Waiver novo, ou waiver que ela nao tocou, e so
+           repor por cima. */
+        if(!ja || String(ja.atualizadoEm||"")===String(e.base||"")) ok.push(e);
+        else colide.push({...e, item:`Waiver ${e.obj.numero||""}`,
+                          campo:LANG==="pt"?"(texto do waiver)":"(waiver text)",
+                          para:e.obj.texto||"", remoto:ja.texto||""});
+        continue;
+      }
+      if(e.t==="waiver-del"){ ok.push(e); continue; }
       const it = disco.itens.find(i=>i.item===e.item);
       if(!it){ colide.push({...e, remoto:null}); continue; }
       const rv = it[e.campo] ?? "";
@@ -1246,6 +1272,15 @@ const Sync = {
               observacao: LANG==="pt"?"item criado manualmente":"item created manually"});
           R.invalidarHist();
         }
+        Pend.registrar(e);
+      }else if(e.t==="waiver"){
+        S.db.waivers ??= [];
+        const k = S.db.waivers.findIndex(x=>x.id===e.obj.id);
+        if(k<0) S.db.waivers.push(structuredClone(e.obj));
+        else    S.db.waivers[k] = structuredClone(e.obj);
+        Pend.registrar(e);
+      }else if(e.t==="waiver-del"){
+        S.db.waivers = (S.db.waivers||[]).filter(x=>x.id!==e.id);
         Pend.registrar(e);
       }else{
         Pend.alterar(e.item, e.campo, e.para, {dataEfetiva:e.dataEfetiva, motivo:e.motivo});
@@ -1850,6 +1885,7 @@ const ROTAS = [
   {id:"fluxo",     ic:"⇉", t:"fluxo"},
   {id:"historico", ic:"◴", t:"historico"},
   {id:"relatorios",ic:"◰", t:"relatorios"},
+  {id:"waivers",   ic:"⚖", t:"waivers"},
   {id:"config",    ic:"⚙", t:"config"},
 ];
 
@@ -2349,6 +2385,7 @@ const Lote = {
       <input type="date" id="loteData" value="${hoje()}" max="${hoje()}" title="${LANG==="pt"?"Data efetiva":"Effective date"}">
       <input type="text" id="loteMotivo" placeholder="${LANG==="pt"?"motivo (opcional)":"reason (optional)"}" style="flex:1;min-width:140px">
       <button class="btn pri" id="loteAplicar">${LANG==="pt"?"Aplicar status":"Apply status"}</button>
+      <button class="btn" id="loteWaiver">${LANG==="pt"?"Pedir waiver":"Request waiver"}</button>
       <button class="btn" id="loteLimpar">${LANG==="pt"?"Limpar":"Clear"}</button></div>`;
   },
   ligar(lista){
@@ -2368,6 +2405,10 @@ const Lote = {
       toast(LANG==="pt"?`${n} item(ns) alterado(s) — ${alvos.length-n} já estavam nesse status`
                        :`${n} item(s) changed — ${alvos.length-n} were already in that status`, n?"ok":"warn");
     };
+    /* Um waiver costuma cobrir varios itens de uma vez - e daqui que sai o
+       caso mais comum: seleciona na tabela, pede o waiver para todos. */
+    const lw=$("#loteWaiver");
+    if(lw) lw.onclick=()=>Waiver.painel({itens:[...S.selecao]});
     $("#loteLimpar").onclick=()=>{ S.selecao.clear(); Render.atual(); };
   },
 };
@@ -2460,7 +2501,8 @@ const NovoItem = {
       </div>`,
       [{txt:T("fechar"), cls:"btn", fn:()=>UI.fechar()},
        {txt:LANG==="pt"?"Criar e abrir":"Create and open", cls:"btn", fn:()=>this.criar({abrir:true})},
-       {txt:LANG==="pt"?"Criar":"Create", cls:"btn pri", fn:()=>this.criar({})}]);
+       {txt:LANG==="pt"?"Criar":"Create", cls:"btn pri", fn:()=>this.criar({})}],
+      {confirmarSaida:true});
 
     /* Aviso enquanto se digita: descobrir que o codigo ja existe so na hora de
        salvar custa o formulario inteiro preenchido de novo. */
@@ -2530,6 +2572,575 @@ const NovoItem = {
     toast(LANG==="pt"?`Item ${novo.item} criado`:`Item ${novo.item} created`,"ok");
     if(abrir) UI.detalhe(novo.item);
   },
+};
+
+/* =============================== waivers ==============================
+   Um waiver e um pedido formal de dispensa: "este item nao vai atender o
+   requisito como esta escrito; peco que seja aceito assim mesmo, por estas
+   razoes". Ate aqui isso vivia em e-mail e em papel, e o sistema so via o
+   resultado - o status mudava e ninguem sabia por que. Agora o pedido mora na
+   base, preso aos itens que ele cobre, e sai em documento pronto para assinar.
+
+   Duas portas entram aqui:
+     - o pedido novo, escrito na tela, que ja move os itens para o status de
+       tramitacao escolhido (o "para onde mando agora") e guarda qual e o
+       status que se espera no fim (o "onde isto tem de parar");
+     - o passivo: o waiver que ja foi feito a mao antes de existir esta tela.
+       Entra com a data e a referencia do documento original e NAO mexe no
+       status por conta propria, porque o item ja esta onde o papel o deixou.
+
+   Nada aqui grava por um caminho proprio: o status vai por Pend.alterar, como
+   qualquer edicao, e o waiver em si e gravado pelo autosave.              */
+const Waiver = {
+  SITUACOES:[
+    {id:"rascunho", pt:"Rascunho",  en:"Draft",     cor:"#8a8f98"},
+    {id:"enviado",  pt:"Enviado",   en:"Submitted", cor:"#b8860b"},
+    {id:"aprovado", pt:"Aprovado",  en:"Approved",  cor:"#2f7a4f"},
+    {id:"recusado", pt:"Recusado",  en:"Rejected",  cor:"#b3403a"},
+    {id:"cancelado",pt:"Cancelado", en:"Canceled",  cor:"#5c5f66"},
+  ],
+  situacao(id){ return this.SITUACOES.find(s=>s.id===id) ?? this.SITUACOES[0]; },
+  rotuloSituacao(id){ const s=this.situacao(id); return LANG==="pt"? s.pt : s.en; },
+  corSituacao(id){ return corSegura(this.situacao(id).cor); },
+
+  lista(){ return S.db?.waivers ?? []; },
+  porId(id){ return this.lista().find(w=>w.id===id) || null; },
+  doItem(itemId){ return this.lista().filter(w=>(w.itens||[]).includes(itemId)); },
+
+  /* Numero legivel, uma serie por ano: W-2026-001. A contagem olha o MAIOR
+     numero ja usado, nao o tamanho da lista - apagar um rascunho nao pode
+     fazer o waiver seguinte nascer com um numero que ja circulou por e-mail. */
+  proximoNumero(){
+    const pre = `W-${hoje().slice(0,4)}-`;
+    const maior = this.lista().map(w=>String(w.numero||""))
+      .filter(x=>x.startsWith(pre))
+      .map(x=>parseInt(x.slice(pre.length),10))
+      .filter(Number.isFinite)
+      .reduce((a,b)=>Math.max(a,b), 0);
+    return pre + String(maior+1).padStart(3,"0");
+  },
+
+  MODELO(){ return LANG==="pt"
+    ? "Solicitamos a concessão de waiver para o(s) item(ns) acima, pelas razões a seguir:\n\n"
+    + "1. Situação encontrada:\n   \n\n"
+    + "2. Razão pela qual o requisito não pode ser atendido como previsto:\n   \n\n"
+    + "3. Impacto em segurança, operação e integridade:\n   \n\n"
+    + "4. Evidências e documentos de apoio:\n   \n"
+    : "We request a waiver for the item(s) above, for the following reasons:\n\n"
+    + "1. Condition found:\n   \n\n"
+    + "2. Why the requirement cannot be met as written:\n   \n\n"
+    + "3. Impact on safety, operation and integrity:\n   \n\n"
+    + "4. Supporting evidence and documents:\n   \n"; },
+
+  /* ------------------------------ persistencia ------------------------ */
+  /* Um waiver nao passa pela janela de consolidacao: nao e um valor que possa
+     ir e voltar, e um documento. Grava na hora, como a observacao, e entra no
+     diario para sobreviver a uma gravacao de outra pessoa no meio. O `base`
+     guarda de qual versao partimos: e o que permite ao Sync saber se a outra
+     pessoa mexeu NESTE waiver ou em outro. */
+  guardar(w, {base=null}={}){
+    if(!S.db) return;
+    S.db.waivers ??= [];
+    w.atualizadoEm = agora();
+    const k = S.db.waivers.findIndex(x=>x.id===w.id);
+    if(k<0) S.db.waivers.push(w); else S.db.waivers[k] = w;
+    Pend.registrar({t:"waiver", obj:structuredClone(w), base});
+    S.sujo = true;
+    Pend.autosave();
+  },
+  excluir(w){
+    if(!S.db || !w) return false;
+    if(!confirmar(LANG==="pt"
+      ? `Apagar o waiver ${w.numero}?\n\nOs status que ele já aplicou aos itens continuam como estão.`
+      : `Delete waiver ${w.numero}?\n\nStatuses it already applied to the items stay as they are.`)) return false;
+    S.db.waivers = (S.db.waivers||[]).filter(x=>x.id!==w.id);
+    Pend.registrar({t:"waiver-del", id:w.id});
+    S.sujo = true;
+    Pend.autosave();
+    return true;
+  },
+
+  /* O waiver nao escreve status por um caminho proprio: chama a mesma edicao
+     de qualquer outra tela, com o numero do waiver como motivo. A mudanca
+     entra no historico do item dizendo de onde veio, vira pendente e e gravada
+     como todas as outras. */
+  aplicar(w, qual="destino"){
+    const alvo = qual==="final" ? w.statusFinal : w.statusDestino;
+    if(!alvo) return toast(LANG==="pt"?"Este waiver não tem esse status definido"
+                                      :"This waiver has no such status set","bad");
+    const alvos = (w.itens||[]).filter(id=>S.db.itens.some(i=>i.item===id));
+    if(!confirmar(LANG==="pt"
+      ? `Mover ${alvos.length} item(ns) para "${alvo}"?\n\nCada um vira uma alteração pendente, como na edição normal.`
+      : `Move ${alvos.length} item(s) to "${alvo}"?\n\nEach becomes a pending change, just like a normal edit.`)) return;
+    let n = 0;
+    for(const id of alvos){
+      const it = S.db.itens.find(x=>x.item===id);
+      if(!it || String(it.status)===String(alvo)) continue;
+      Pend.alterar(id, "status", alvo, {dataEfetiva:hoje(), motivo:`Waiver ${w.numero}`});
+      n++;
+    }
+    const base = w.atualizadoEm;
+    w.aplicado = {qual, em:agora(), por:Usuario.garantir(), status:alvo, quantos:n};
+    this.guardar(w, {base});
+    Render.atual();
+    toast(LANG==="pt" ? `${n} item(ns) movido(s) — ${alvos.length-n} já estavam em "${alvo}"`
+                      : `${n} item(s) moved — ${alvos.length-n} were already at "${alvo}"`, n?"ok":"warn");
+  },
+
+  /* ------------------------------- a janela --------------------------- */
+  painel({itens=[], id=null}={}){
+    if(!S.db || !EDITAVEL) return;
+    const w = id ? this.porId(id) : null;
+    const sel = new Set(w ? (w.itens||[]) : itens);
+    const ativos = R.statusAtivos();
+    const opc = (v, marcado) => `<option value="${esc(v)}"${v===marcado?" selected":""}>${esc(v)}</option>`;
+    const todos = (S.db.itens||[]).map(i=>i.item);
+
+    UI.modal(w ? `${LANG==="pt"?"Waiver":"Waiver"} ${w.numero}`
+               : (LANG==="pt"?"Novo waiver":"New waiver"), `
+      <p class="muted" style="margin-bottom:13px">${LANG==="pt"
+        ? "O waiver fica guardado na base junto dos itens que cobre e sai em documento formatado para impressão. O <b>status de tramitação</b> é para onde os itens vão agora; o <b>status final desejado</b> é onde eles devem parar se o waiver for aceito."
+        : "The waiver is stored in the database alongside the items it covers and prints as a formatted document. The <b>routing status</b> is where the items go now; the <b>desired final status</b> is where they should end up if the waiver is granted."}</p>
+
+      <label class="fld" style="margin-bottom:11px"><span>${LANG==="pt"?"Itens abrangidos":"Items covered"} *</span>
+        <div class="rowflex">
+          <input type="text" id="wItemAdd" list="wItemLista" style="flex:1"
+                 placeholder="${LANG==="pt"?"código do item e Enter":"item code, then Enter"}" autocomplete="off">
+          <button class="btn sm" id="wItemBtn">${T("adicionar")}</button>
+          ${S.selecao.size?`<button class="btn sm" id="wItemSel">${LANG==="pt"
+            ? `Usar os ${S.selecao.size} selecionados` : `Use the ${S.selecao.size} selected`}</button>`:""}
+        </div>
+        <datalist id="wItemLista">${todos.slice(0,2000).map(v=>`<option value="${esc(v)}"></option>`).join("")}</datalist>
+      </label>
+      <div class="chips" id="wItens" style="margin-bottom:11px"></div>
+
+      <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(min(230px,100%),1fr));gap:11px">
+        <label class="fld"><span>${LANG==="pt"?"Assunto":"Subject"}</span>
+          <input type="text" id="wAssunto" value="${esc(w?.assunto||"")}"
+                 placeholder="${LANG==="pt"?"ex.: dispensa de teste de vácuo":"e.g. vacuum test waiver"}"></label>
+        <label class="fld"><span>${LANG==="pt"?"Destinatário":"Addressed to"}</span>
+          <input type="text" id="wPara" value="${esc(w?.para||"")}" placeholder="ICN / Class / Shipyard"></label>
+        <label class="fld"><span>${LANG==="pt"?"Situação":"Status of the request"}</span>
+          <select id="wSituacao">${this.SITUACOES.map(x=>
+            `<option value="${x.id}"${x.id===(w?.situacao||"rascunho")?" selected":""}>${esc(LANG==="pt"?x.pt:x.en)}</option>`).join("")}</select></label>
+      </div>
+
+      <div class="sep"></div>
+      <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(min(230px,100%),1fr));gap:11px">
+        <label class="fld"><span>${LANG==="pt"?"Status de tramitação (agora)":"Routing status (now)"}</span>
+          <select id="wDestino"><option value="">${LANG==="pt"?"— não mexer no status —":"— leave status alone —"}</option>
+            ${ativos.map(v=>opc(v, w?.statusDestino)).join("")}</select></label>
+        <label class="fld"><span>${LANG==="pt"?"Status final desejado":"Desired final status"}</span>
+          <select id="wFinal"><option value="">—</option>
+            ${ativos.map(v=>opc(v, w?.statusFinal)).join("")}</select></label>
+      </div>
+      ${w ? "" : `<div class="rowflex" style="margin:9px 0 2px">
+        <label class="rowflex" style="gap:7px"><input type="checkbox" id="wAplicar" checked>
+          <span>${LANG==="pt"?"Já mover os itens para o status de tramitação ao criar"
+                             :"Move the items to the routing status right away"}</span></label></div>`}
+
+      <div class="sep"></div>
+      <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(min(200px,100%),1fr));gap:11px">
+        <label class="fld"><span>${LANG==="pt"?"Origem":"Origin"}</span>
+          <select id="wOrigem">
+            <option value="sistema"${(w?.origem||"sistema")==="sistema"?" selected":""}>${LANG==="pt"?"Escrito aqui":"Written here"}</option>
+            <option value="passivo"${w?.origem==="passivo"?" selected":""}>${LANG==="pt"?"Passivo — feito à mão":"Backlog — written by hand"}</option>
+          </select></label>
+        <label class="fld"><span>${LANG==="pt"?"Data do documento":"Document date"}</span>
+          <input type="date" id="wData" value="${esc(w?.dataDocumento || hoje())}"></label>
+        <label class="fld"><span>${LANG==="pt"?"Referência do documento":"Document reference"}</span>
+          <input type="text" id="wRef" value="${esc(w?.referencia||"")}"
+                 placeholder="${LANG==="pt"?"nº da carta, e-mail, ata...":"letter no., e-mail, minutes..."}"></label>
+      </div>
+      <p class="muted" id="wPassivoDica" style="font-size:11.5px;margin-top:7px"></p>
+
+      <div class="sep"></div>
+      <label class="fld" style="margin-bottom:11px">
+        <span>${LANG==="pt"?"Texto do waiver":"Waiver text"} *
+          <button class="btn sm" id="wModelo" style="margin-left:8px">${LANG==="pt"?"Inserir modelo":"Insert template"}</button></span>
+        <textarea id="wTexto" rows="12" style="line-height:1.55">${esc(w?.texto||"")}</textarea></label>
+      <label class="fld" style="margin-bottom:11px">
+        <span>${LANG==="pt"?"Condições e medidas compensatórias (opcional)":"Conditions and compensating measures (optional)"}</span>
+        <textarea id="wCondicao" rows="3">${esc(w?.condicao||"")}</textarea></label>
+      <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(min(230px,100%),1fr));gap:11px">
+        <label class="fld"><span>${LANG==="pt"?"Parecer / quem decidiu":"Decision / decided by"}</span>
+          <input type="text" id="wDecPor" value="${esc(w?.decisaoPor||"")}"></label>
+        <label class="fld"><span>${LANG==="pt"?"Observação do parecer":"Decision note"}</span>
+          <input type="text" id="wDecObs" value="${esc(w?.decisaoObs||"")}"></label>
+      </div>`,
+      [{txt:T("fechar"), cls:"btn", fn:()=>UI.fechar()},
+       ...(w ? [{txt:T("imprimir"), cls:"btn", fn:()=>{ const n=this.ler(w); if(n.erro) return toast(n.erro,"bad");
+                                                        this.guardar(n.w,{base:w.atualizadoEm}); this.imprimir([n.w]); }}] : []),
+       {txt:w?T("salvar"):(LANG==="pt"?"Criar waiver":"Create waiver"), cls:"btn pri",
+        fn:()=>this.salvarDaJanela(w)}],
+      {confirmarSaida:true});
+
+    /* A lista de itens do waiver e estado da janela, nao do documento: fica
+       aqui e so vira campo do waiver na hora de salvar. */
+    const pintar = ()=>{
+      const cx = $("#wItens"); if(!cx) return;
+      cx.innerHTML = [...sel].map(x=>{
+        const it = S.db.itens.find(i=>i.item===x);
+        const cor = it ? R.corDe(it.status) : "#8a8f98";
+        return `<span class="chip on" data-wi="${esc(x)}" style="background:${cor};border-color:${cor}"
+          title="${esc(it? it.status : (LANG==="pt"?"item não encontrado na base":"item not found"))}">${esc(x)} &times;</span>`;
+      }).join("") || `<span class="muted">${LANG==="pt"?"nenhum item escolhido":"no item chosen"}</span>`;
+      $$("#wItens .chip[data-wi]").forEach(c=>c.onclick=()=>{ sel.delete(c.dataset.wi); pintar(); });
+    };
+    const juntar = txt => {
+      let n = 0;
+      for(const parte of String(txt||"").split(/[;,\n\t]+/)){
+        const v = parte.trim(); if(!v) continue;
+        const it = (S.db.itens||[]).find(i=>String(i.item).trim().toLowerCase()===v.toLowerCase());
+        if(!it){ toast(LANG==="pt"?`Item ${v} não existe na base`:`Item ${v} is not in the database`,"bad"); continue; }
+        sel.add(it.item); n++;
+      }
+      if(n) pintar();
+    };
+    pintar();
+    const cx = $("#wItemAdd");
+    if(cx) cx.onkeydown = e => { if(e.key==="Enter"){ e.preventDefault(); juntar(cx.value); cx.value=""; } };
+    const cb = $("#wItemBtn");
+    if(cb) cb.onclick = ()=>{ juntar($("#wItemAdd").value); $("#wItemAdd").value=""; };
+    const cs = $("#wItemSel");
+    if(cs) cs.onclick = ()=>{ [...S.selecao].forEach(x=>sel.add(x)); pintar(); };
+    const md = $("#wModelo");
+    if(md) md.onclick = ()=>{ const t=$("#wTexto");
+      if(t && (!t.value.trim() || confirmar(LANG==="pt"?"Substituir o texto atual pelo modelo?"
+                                                       :"Replace the current text with the template?")))
+        t.value = this.MODELO(); };
+    const org = $("#wOrigem"), dica = $("#wPassivoDica"), dest = $("#wDestino"), apl = $("#wAplicar");
+    const olharOrigem = ()=>{
+      const passivo = org?.value === "passivo";
+      if(dica) dica.textContent = passivo
+        ? (LANG==="pt" ? "Passivo: o waiver entra com a data e a referência do papel original e NÃO mexe no status por conta própria — o item já está onde o documento o deixou. Se quiser mover mesmo assim, use o botão de aplicar depois de salvar."
+                       : "Backlog: the waiver is recorded with the original document's date and reference and does NOT touch the status by itself.")
+        : "";
+      if(apl){ apl.checked = apl.checked && !passivo; apl.disabled = passivo; }
+      if(dest) dest.title = passivo ? (LANG==="pt"?"registrado, mas não aplicado":"recorded, not applied") : "";
+    };
+    if(org) org.onchange = olharOrigem;
+    olharOrigem();
+    this.__sel = sel;                 /* a leitura da janela precisa alcançar isto */
+    $("#wAssunto")?.focus?.();
+  },
+
+  /* Le a janela. Devolve {w} ou {erro}: nada e gravado com o formulario pela
+     metade, e a mensagem diz o que falta em vez de falhar calado. */
+  ler(w){
+    const v = id => String($("#w"+id)?.value ?? "").trim();
+    const itens = [...(this.__sel || new Set())];
+    if(!itens.length) return {erro: LANG==="pt"?"Escolha pelo menos um item." : "Pick at least one item."};
+    const texto = String($("#wTexto")?.value ?? "").trim();
+    if(!texto) return {erro: LANG==="pt"?"Escreva o texto do waiver." : "Write the waiver text."};
+    const novo = {
+      ...(w || {}),
+      id: w?.id || uid(),
+      numero: w?.numero || this.proximoNumero(),
+      itens, texto,
+      assunto: v("Assunto"), para: v("Para"), situacao: v("Situacao") || "rascunho",
+      statusDestino: v("Destino"), statusFinal: v("Final"),
+      origem: v("Origem") || "sistema",
+      dataDocumento: v("Data") || hoje(),
+      referencia: v("Ref"),
+      condicao: String($("#wCondicao")?.value ?? "").trim(),
+      decisaoPor: v("DecPor"), decisaoObs: v("DecObs"),
+      criadoEm: w?.criadoEm || agora(),
+      autor: w?.autor || Usuario.garantir(),
+    };
+    if(novo.decisaoPor && !novo.decisaoEm) novo.decisaoEm = agora();
+    return {w:novo};
+  },
+
+  salvarDaJanela(w){
+    const r = this.ler(w);
+    if(r.erro) return toast(r.erro,"bad");
+    const novo = r.w;
+    const aplicarAgora = !w && $("#wAplicar")?.checked && novo.statusDestino && novo.origem!=="passivo";
+    this.guardar(novo, {base: w?.atualizadoEm ?? null});
+    UI.fechar();
+    if(aplicarAgora) this.aplicar(novo, "destino");
+    else { Render.atual();
+           toast(LANG==="pt"?`Waiver ${novo.numero} salvo`:`Waiver ${novo.numero} saved`,"ok"); }
+  },
+
+  /* ---------------------------- so olhar ------------------------------ */
+  ver(id){
+    const w = this.porId(id); if(!w) return;
+    const cor = this.corSituacao(w.situacao);
+    const linha = (k,v)=>v?`<dt>${esc(k)}</dt><dd>${v}</dd>`:"";
+    UI.modal(`Waiver ${w.numero}`, `
+      <div class="rowflex" style="margin-bottom:12px">
+        <span class="pill" style="background:${cor}18;color:${cor};border-color:${cor}55;font-size:13px">
+          <i class="dot" style="background:${cor}"></i>${esc(this.rotuloSituacao(w.situacao))}</span>
+        ${w.origem==="passivo"?`<span class="tag">${LANG==="pt"?"passivo (feito à mão)":"backlog (by hand)"}</span>`:""}
+        ${w.aplicado?`<span class="tag" title="${esc(fmtDT(w.aplicado.em))}">${LANG==="pt"?"status aplicado":"status applied"}: ${esc(w.aplicado.status)}</span>`:""}
+      </div>
+      <dl class="kv">
+        ${linha(LANG==="pt"?"Assunto":"Subject", esc(w.assunto))}
+        ${linha(LANG==="pt"?"Destinatário":"Addressed to", esc(w.para))}
+        ${linha(LANG==="pt"?"Data do documento":"Document date", esc(fmtD(w.dataDocumento)))}
+        ${linha(LANG==="pt"?"Referência":"Reference", esc(w.referencia))}
+        ${linha(LANG==="pt"?"Status de tramitação":"Routing status", esc(w.statusDestino))}
+        ${linha(LANG==="pt"?"Status final desejado":"Desired final status", esc(w.statusFinal))}
+        ${linha(LANG==="pt"?"Itens":"Items", (w.itens||[]).map(x=>
+            `<span class="tag" data-wvi="${esc(x)}" style="cursor:pointer">${esc(x)}</span>`).join(" "))}
+        ${linha(LANG==="pt"?"Aberto por":"Opened by", esc(w.autor)+" &middot; "+esc(fmtDT(w.criadoEm)))}
+        ${linha(LANG==="pt"?"Parecer":"Decision", esc(w.decisaoPor)+(w.decisaoObs?" &mdash; "+esc(w.decisaoObs):""))}
+      </dl>
+      <div class="sep"></div>
+      <h3 style="border:0;padding:0;font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--fg-3)">
+        ${LANG==="pt"?"Texto do waiver":"Waiver text"}</h3>
+      <div style="white-space:pre-wrap;margin-top:6px;line-height:1.55">${esc(w.texto)}</div>
+      ${w.condicao?`<div class="sep"></div>
+        <h3 style="border:0;padding:0;font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--fg-3)">
+          ${LANG==="pt"?"Condições":"Conditions"}</h3>
+        <div style="white-space:pre-wrap;margin-top:6px">${esc(w.condicao)}</div>`:""}`,
+      [{txt:T("fechar"), cls:"btn", fn:()=>UI.fechar()},
+       ...(EDITAVEL ? [
+         {txt:LANG==="pt"?"Apagar":"Delete", cls:"btn danger",
+          fn:()=>{ if(this.excluir(w)){ UI.fechar(); Render.atual(); } }},
+         {txt:LANG==="pt"?"Aplicar status final":"Apply final status", cls:"btn",
+          fn:()=>{ UI.fechar(); this.aplicar(w,"final"); }},
+         {txt:LANG==="pt"?"Editar":"Edit", cls:"btn", fn:()=>this.painel({id:w.id})}] : []),
+       {txt:T("imprimir"), cls:"btn pri", fn:()=>this.imprimir([w])}]);
+    $$("[data-wvi]").forEach(t=>t.onclick=()=>UI.detalhe(t.dataset.wvi));
+  },
+
+  /* ------------------- o bloco que aparece dentro do item -------------- */
+  blocoItemHTML(itemId){
+    const l = this.doItem(itemId);
+    if(!l.length && !EDITAVEL) return "";
+    return `<div class="panel pad" style="border-left:3px solid var(--accent);margin-bottom:12px">
+      <div class="rowflex" style="justify-content:space-between">
+        <b>${LANG==="pt"?"Waivers":"Waivers"}</b>
+        ${EDITAVEL?`<button class="btn sm" id="wvNovoDoItem">+ ${LANG==="pt"?"Pedir waiver":"Request waiver"}</button>`:""}
+      </div>
+      ${l.length? l.map(w=>{ const c=this.corSituacao(w.situacao); return `
+        <div class="rowflex" style="font-size:11.5px;margin-top:6px">
+          <span class="pill" style="background:${c}18;color:${c};border-color:${c}55">${esc(this.rotuloSituacao(w.situacao))}</span>
+          <b>${esc(w.numero)}</b>
+          <span class="muted" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(w.assunto||w.texto)}</span>
+          <button class="btn sm" data-wvv="${esc(w.id)}">${LANG==="pt"?"Abrir":"Open"}</button>
+        </div>`; }).join("")
+        : `<div class="muted" style="font-size:11.5px;margin-top:5px">${LANG==="pt"
+             ? "Nenhum waiver para este item." : "No waiver for this item."}</div>`}
+    </div>`;
+  },
+  ligarBloco(itemId){
+    const b = $("#wvNovoDoItem");
+    if(b) b.onclick = ()=>this.painel({itens:[itemId]});
+    $$("[data-wvv]").forEach(x=>x.onclick=()=>this.ver(x.dataset.wvv));
+  },
+
+  /* --------------------------- o documento ---------------------------- */
+  /* Folha de estilo propria: um waiver e um documento formal, nao um relatorio
+     de dados. Herda do relatorio o corpo, a tabela e o rodape (Export.moldura),
+     e acrescenta o cabecalho de oficio, a faixa da tramitacao e as assinaturas.
+     Retrato, sempre: e um documento que se assina. */
+  cssWaiver(){ return `
+  .waiver { break-after:page; page-break-after:always; }
+  .waiver:last-of-type { break-after:auto; page-break-after:auto; }
+  .wtopo { display:flex; justify-content:space-between; align-items:flex-start; gap:16px;
+           border:1.5px solid #2F5FA8; border-radius:4px; padding:9px 12px; margin-bottom:10px; }
+  .wtopo .esq .marca { font-size:9.5px; letter-spacing:.12em; text-transform:uppercase; color:#2F5FA8; font-weight:700; }
+  .wtopo .esq h1 { font-size:17px; margin:2px 0 0; letter-spacing:-.01em; }
+  .wtopo .esq .ass { font-size:11px; color:#3a4150; margin-top:2px; }
+  .wtopo .dir { text-align:right; flex:none; }
+  .wtopo .dir .num { font-size:15px; font-weight:700; font-variant-numeric:tabular-nums; }
+  .wtopo .dir .sit { display:inline-block; margin-top:3px; padding:1px 8px; border-radius:9px;
+                     font-size:9.5px; font-weight:700; text-transform:uppercase; letter-spacing:.05em;
+                     border:1px solid currentColor; }
+  .wficha { display:grid; grid-template-columns:repeat(4,1fr); gap:0; border:1px solid #d6d9e0;
+            border-radius:4px; overflow:hidden; margin-bottom:12px; }
+  .wficha > div { padding:5px 9px; border-right:1px solid #e6e8ec; border-bottom:1px solid #e6e8ec; }
+  .wficha > div:nth-child(4n) { border-right:0; }
+  .wficha dt { font-size:8.5px; text-transform:uppercase; letter-spacing:.06em; color:#6b7280; }
+  .wficha dd { margin:1px 0 0; font-size:11px; font-weight:600; overflow-wrap:anywhere; }
+  .wsec { margin-top:11px; }
+  .wsec > h2 { font-size:10.5px; text-transform:uppercase; letter-spacing:.06em; color:#2F5FA8;
+               border-bottom:1px solid #d6d9e0; padding-bottom:3px; margin:0 0 6px; }
+  .wtexto { white-space:pre-wrap; font-size:11px; line-height:1.55; text-align:justify;
+            border:1px solid #e6e8ec; border-radius:4px; padding:9px 11px; background:#fcfcfd;
+            min-height:34mm; }
+  .wtram { display:flex; align-items:stretch; gap:0; }
+  .wtram .cx { flex:1; border:1px solid #d6d9e0; border-radius:4px; padding:6px 9px; text-align:center; background:#fafbfc; }
+  .wtram .cx .lab { display:block; font-size:8.5px; text-transform:uppercase; letter-spacing:.06em; color:#6b7280; }
+  .wtram .cx b { font-size:11px; overflow-wrap:anywhere; }
+  .wtram .seta { display:flex; align-items:center; padding:0 9px; color:#2F5FA8; font-size:15px; font-weight:700; }
+  .witens th { font-size:8.5px; }
+  /* Quebra na palavra, nao no meio dela: "Shipyard prerequisites" cortado em
+     "prerequisit / es" fica ilegivel numa coluna estreita. */
+  .witens td { font-size:10px; overflow-wrap:break-word; }
+  /* O espaco de assinar fica ACIMA da linha - e ali que se assina. A margem do
+     topo e esse espaco; a linha e a borda de cima de cada bloco. */
+  .wassin { display:grid; grid-template-columns:repeat(3,1fr); gap:14px; margin-top:6px; break-inside:avoid; }
+  .wassin .lin { border-top:1px solid #16181d; padding-top:4px; margin-top:18mm;
+                 font-size:9.5px; color:#3a4150; }
+  .wassin .lin b { display:block; font-size:10px; color:#16181d; }
+  .wassin .lin span { color:#6b7280; }
+  .wnota { font-size:9px; color:#6b7280; margin-top:8px; }`; },
+
+  docWaiverHTML(w){
+    const e = v => esc(limparTexto(v,{quebras:"achatar"}));
+    const p = v => esc(limparTexto(v,{quebras:"manter"}));
+    const sit = this.situacao(w.situacao);
+    const itens = (w.itens||[]).map(id => (S.db?.itens||[]).find(i=>i.item===id) || {item:id});
+    const pt = LANG==="pt";
+    const cx = (lab, v) => `<div class="cx"><span class="lab">${e(lab)}</span><b>${e(v)||"—"}</b></div>`;
+    const ficha = (k,v) => `<div><dt>${e(k)}</dt><dd>${e(v)||"—"}</dd></div>`;
+    return `<section class="waiver">
+    <div class="wtopo">
+      <div class="esq">
+        <div class="marca">StatusMilestone &mdash; J08 &middot; ${e(pt?"Fluxo de Evidências":"Evidence Flow")}</div>
+        <h1>${e(pt?"Solicitação de Waiver":"Waiver Request")}</h1>
+        ${w.assunto?`<div class="ass">${e(w.assunto)}</div>`:""}
+      </div>
+      <div class="dir">
+        <div class="num">${e(w.numero)}</div>
+        <span class="sit" style="color:${sit.cor}">${e(this.rotuloSituacao(w.situacao))}</span>
+      </div>
+    </div>
+
+    <dl class="wficha">
+      ${ficha(pt?"Data do documento":"Document date", fmtD(w.dataDocumento))}
+      ${ficha(pt?"Destinatário":"Addressed to", w.para)}
+      ${ficha(pt?"Solicitante":"Requested by", w.autor)}
+      ${ficha(pt?"Referência":"Reference", w.referencia)}
+      ${ficha(pt?"Itens abrangidos":"Items covered", String(itens.length))}
+      ${ficha(pt?"Origem":"Origin", w.origem==="passivo" ? (pt?"Passivo — documento feito à mão":"Backlog — written by hand")
+                                                         : (pt?"Emitido pelo sistema":"Issued by the app"))}
+      ${ficha(pt?"Revisão da base":"Database revision", String(S.db?.meta?.revisao ?? "—"))}
+      ${ficha(pt?"Emitido em":"Printed", fmtDT(agora()))}
+    </dl>
+
+    <section class="wsec">
+      <h2>1. ${e(pt?"Tramitação solicitada":"Requested routing")}</h2>
+      <div class="wtram">
+        ${cx(pt?"Status de tramitação (agora)":"Routing status (now)", w.statusDestino)}
+        <div class="seta">&rarr;</div>
+        ${cx(pt?"Status final desejado":"Desired final status", w.statusFinal)}
+      </div>
+    </section>
+
+    <section class="wsec">
+      <h2>2. ${e(pt?"Itens abrangidos":"Items covered")} (${itens.length})</h2>
+      <table class="itens witens">
+        <colgroup><col style="width:26px"><col style="width:88px"><col style="width:92px"><col style="width:74px">
+          <col><col style="width:118px"></colgroup>
+        <thead><tr><th class="n">#</th><th>${e(pt?"Item":"Item")}</th><th>InspType</th><th>Evidence</th>
+          <th>${e(pt?"Descrição":"Description")}</th><th>${e(pt?"Status atual":"Current status")}</th></tr></thead>
+        <tbody>${itens.map((i,k)=>`<tr>
+          <td class="n">${k+1}</td><td><b>${e(i.item)}</b></td><td>${e(i.inspType)}</td>
+          <td>${e(i.evidence)}</td><td>${e(i.numAndDescription || i.description)}</td>
+          <td>${e(i.status) || `<span class="vazio">${e(pt?"não encontrado na base":"not in the database")}</span>`}</td>
+        </tr>`).join("") || `<tr><td colspan="6" class="vazio">—</td></tr>`}</tbody>
+      </table>
+    </section>
+
+    <section class="wsec">
+      <h2>3. ${e(pt?"Texto do waiver":"Waiver text")}</h2>
+      <div class="wtexto">${p(w.texto)}</div>
+    </section>
+
+    ${w.condicao?`<section class="wsec">
+      <h2>4. ${e(pt?"Condições e medidas compensatórias":"Conditions and compensating measures")}</h2>
+      <div class="wtexto" style="min-height:0">${p(w.condicao)}</div>
+    </section>`:""}
+
+    <section class="wsec">
+      <h2>${w.condicao?"5":"4"}. ${e(pt?"Parecer e decisão":"Decision")}</h2>
+      <div class="wtexto" style="min-height:22mm">${p(w.decisaoObs)}${
+        w.decisaoPor?`\n\n${e(pt?"Decidido por":"Decided by")}: ${e(w.decisaoPor)}${
+          w.decisaoEm?` (${e(fmtD(w.decisaoEm))})`:""}`:""}</div>
+    </section>
+
+    <div class="wassin">
+      <div class="lin"><b>${e(pt?"Solicitante":"Requested by")}</b><span>${e(w.autor)||"&nbsp;"} &middot; ${e(pt?"data":"date")} ___/___/______</span></div>
+      <div class="lin"><b>${e(pt?"Análise técnica":"Technical review")}</b><span>${e(pt?"nome e visto":"name and initials")} &middot; ___/___/______</span></div>
+      <div class="lin"><b>${e(pt?"Aprovação":"Approval")}</b><span>${e(w.para)||e(pt?"nome e visto":"name and initials")} &middot; ___/___/______</span></div>
+    </div>
+    <p class="wnota">${e(pt
+      ? "Documento gerado pelo StatusMilestone a partir do registro do waiver na base. A situação impressa é a do momento da geração."
+      : "Generated by StatusMilestone from the waiver record in the database. The status printed is the one at generation time.")}</p>
+  </section>`;
+  },
+
+  documento(lista){
+    const l = (lista||[]).filter(Boolean);
+    const o = {...Export.opcoes(), resumo:false, somenteAberto:false};
+    const titulo = l.length===1 ? `Waiver ${l[0].numero}`
+                                : (LANG==="pt"?`Waivers (${l.length})`:`Waivers (${l.length})`);
+    const corpo = l.length ? l.map(w=>this.docWaiverHTML(w)).join("\n")
+      : `<div class="nada">${LANG==="pt"?"Nenhum waiver para imprimir":"No waiver to print"}</div>`;
+    return Export.moldura(titulo, o, false, this.cssWaiver(), corpo);
+  },
+  imprimir(lista){ Export.imprimirHTML(this.documento(lista)); },
+  filtro:"",
+  htmlArquivo(lista){
+    const l = (lista||[]).filter(Boolean);
+    dl(nomeArquivo(l.length===1 ? `waiver-${l[0].numero}` : `waivers-${hoje()}`, "html"),
+       this.documento(l), "text/html;charset=utf-8");
+  },
+};
+
+/* ---------------------------- a tela de waivers ----------------------- */
+Render.waivers = function(){
+  $("#pageTitle").textContent = T("waivers");
+  const todos = Waiver.lista().slice()
+    .sort((a,b)=>String(b.dataDocumento||"").localeCompare(String(a.dataDocumento||""))
+                 || String(b.numero||"").localeCompare(String(a.numero||"")));
+  const filtro = Waiver.filtro || "";
+  const lista = filtro ? todos.filter(w=>w.situacao===filtro) : todos;
+  const conta = id => todos.filter(w=>w.situacao===id).length;
+
+  $("#headerExtra").innerHTML =
+    (EDITAVEL?`<button class="btn pri" id="wvNovo">+ ${LANG==="pt"?"Novo waiver":"New waiver"}</button>`:"")+
+    `<button class="btn" id="wvImp" ${lista.length?"":"disabled"}>⎙ ${LANG==="pt"?"Imprimir":"Print"}</button>`+
+    `<button class="btn" id="wvHtml" ${lista.length?"":"disabled"}>↓ HTML</button>`;
+
+  const cor = w => Waiver.corSituacao(w.situacao);
+  $("#view").innerHTML = `
+    <div class="chips" style="margin-bottom:14px">
+      <span class="chip ${filtro?"":"on"}" data-wf="">${T("todos")} <b>${todos.length}</b></span>
+      ${Waiver.SITUACOES.map(x=>`<span class="chip ${filtro===x.id?"on":""}" data-wf="${x.id}">${
+        esc(LANG==="pt"?x.pt:x.en)} <b>${conta(x.id)}</b></span>`).join("")}
+    </div>
+    ${lista.length? `<div class="panel"><div class="corpo" style="overflow:auto">
+      <table><thead><tr>
+        <th style="width:118px">${LANG==="pt"?"Número":"Number"}</th>
+        <th style="width:84px">${T("data")}</th>
+        <th style="width:96px">${LANG==="pt"?"Situação":"Status"}</th>
+        <th style="width:54px" class="num">${LANG==="pt"?"Itens":"Items"}</th>
+        <th>${LANG==="pt"?"Assunto":"Subject"}</th>
+        <th style="width:270px">${LANG==="pt"?"Tramitação":"Routing"}</th>
+        <th style="width:120px">${T("autor")}</th>
+      </tr></thead><tbody>
+      ${lista.map(w=>`<tr data-wv="${esc(w.id)}" style="cursor:pointer">
+        <td class="num"><b>${esc(w.numero)}</b>${w.origem==="passivo"
+            ? ` <span class="tag" title="${LANG==="pt"?"feito à mão, registrado depois":"written by hand, recorded later"}">${
+                LANG==="pt"?"passivo":"backlog"}</span>` : ""}</td>
+        <td class="num">${esc(fmtD(w.dataDocumento))}</td>
+        <td><span class="pill" style="background:${cor(w)}18;color:${cor(w)};border-color:${cor(w)}55">${
+          esc(Waiver.rotuloSituacao(w.situacao))}</span></td>
+        <td class="num">${(w.itens||[]).length}</td>
+        <td>${esc(w.assunto || limparTexto(w.texto,{quebras:"achatar"}).slice(0,90))}</td>
+        <td class="muted" style="font-size:11px">${esc(w.statusDestino||"—")} → ${esc(w.statusFinal||"—")}</td>
+        <td>${esc(w.autor||"")}</td>
+      </tr>`).join("")}
+      </tbody></table></div></div>`
+    : `<div class="empty"><h3>${LANG==="pt"?"Nenhum waiver":"No waiver"}</h3>
+        <p>${LANG==="pt"
+          ? (EDITAVEL ? "Um waiver pode ser pedido aqui, na janela de um item ou com vários itens selecionados na tabela. Waiver que já foi feito à mão entra pelo mesmo caminho, marcado como <b>passivo</b>."
+                      : "Nenhum waiver registrado nesta base.")
+          : (EDITAVEL ? "A waiver can be requested here, from an item window, or with several items selected in the table."
+                      : "No waiver recorded in this database.")}</p></div>`}`;
+
+  $$("[data-wf]").forEach(c=>c.onclick=()=>{ Waiver.filtro = c.dataset.wf; Render.waivers(); });
+  $$("tr[data-wv]").forEach(r=>r.onclick=()=>Waiver.ver(r.dataset.wv));
+  const bn=$("#wvNovo");  if(bn) bn.onclick=()=>Waiver.painel({});
+  const bi=$("#wvImp");   if(bi) bi.onclick=()=>Waiver.imprimir(lista);
+  const bh=$("#wvHtml");  if(bh) bh.onclick=()=>Waiver.htmlArquivo(lista);
 };
 
 Render.itens = function(){
@@ -3142,7 +3753,7 @@ function validarBase(db){
     E("O arquivo não contém um objeto de base.","The file does not contain a database object.");
     return {valido:false, erros, avisos};
   }
-  for(const k of ["itens","historico","pendentes","observacoes","conflitos","marcos"])
+  for(const k of ["itens","historico","pendentes","observacoes","conflitos","marcos","waivers"])
     if(k in db && !Array.isArray(db[k]))
       E(`"${k}" existe no arquivo mas não é uma lista.`, `"${k}" exists but is not a list.`);
   for(const k of ["config","meta"])
@@ -3228,7 +3839,7 @@ function verificarIntegridade(){
 "use strict";
 /* ================================ UI =================================== */
 const UI = {
-  modal(titulo, corpo, botoes=[], {aoFechar=null}={}){
+  modal(titulo, corpo, botoes=[], {aoFechar=null, confirmarSaida=false}={}){
     this.fechar();
     const ov=document.createElement("div"); ov.className="ov"; ov.id="ov";
     ov.__aoFechar = aoFechar;
@@ -3237,13 +3848,41 @@ const UI = {
       <div class="body">${corpo}</div>
       ${botoes.length?`<footer>${botoes.map((b,k)=>`<button class="${b.cls||"btn"}" data-b="${k}" id="mb${k}">${esc(b.txt)}</button>`).join("")}</footer>`:""}</div>`;
     document.body.append(ov);
-    ov.onclick=e=>{if(e.target===ov) this.fechar();};
-    $("#mX").onclick=()=>this.fechar();
+    ov.__confirmarSaida = confirmarSaida;
+    /* Fechar clicando fora so vale quando o clique COMECA e TERMINA no fundo.
+       Antes bastava terminar nele - e o navegador entrega o clique ao ancestral
+       comum do mousedown e do mouseup. Arrastar para selecionar o texto de um
+       campo e soltar o botao um pouco fora da janela dava, portanto, um clique
+       no fundo: a janela fechava sozinha e o que estava escrito ia junto. Era
+       exatamente o que acontecia ao mexer num item. */
+    ov.__comecouNoFundo = false;
+    ov.addEventListener("pointerdown", e=>{ ov.__comecouNoFundo = (e.target===ov); });
+    ov.onclick = e => { if(this.cliqueFechaFundo(ov, e.target)) this.fecharPeloUsuario(); };
+    /* Digitou algo? A partir daqui sair por fora pergunta antes de descartar.
+       Vale so nas janelas que pedem (o detalhe do item, o item novo, o waiver):
+       uma janela de filtro nao tem nada a perder. */
+    const sujar = ()=>{ ov.__sujo = true; };
+    ov.addEventListener("input", sujar); ov.addEventListener("change", sujar);
+    $("#mX").onclick=()=>this.fecharPeloUsuario();
     /* Ligados pelo id, nao pelo seletor de atributo: e o que permite acionar o
        botao de uma janela nos testes em Node, onde so os ids existem. */
     botoes.forEach((b,k)=>{ const el=$("#mb"+k); if(el) el.onclick=()=>b.fn(); });
     return ov;
   },
+  /* A regra do clique no fundo, isolada para poder ser conferida sem navegador. */
+  cliqueFechaFundo(ov, alvo){ return !!ov && alvo===ov && ov.__comecouNoFundo===true; },
+
+  /* Saida por iniciativa de quem esta usando: o fundo, o X ou o Esc. E diferente
+     de fechar(), que tambem e chamada pelo proprio sistema - por modal(), ao
+     abrir a janela seguinte - quando nao ha nada que perguntar. */
+  fecharPeloUsuario(){
+    const ov=$("#ov"); if(!ov) return;
+    if(ov.__confirmarSaida && ov.__sujo && !confirmar(LANG==="pt"
+      ? "Esta janela tem alterações que ainda não foram salvas.\n\nFechar e descartar?"
+      : "This window has unsaved changes.\n\nClose and discard them?")) return;
+    this.fechar();
+  },
+
   /* aoFechar corre SEMPRE que a janela sai - pelo X, pelo clique fora ou porque
      outra janela tomou o lugar dela. E o que garante que uma tela que suspendeu
      algo (a de decisao do Sync suspende o polling) sempre o devolva. */
@@ -3462,6 +4101,7 @@ const UI = {
                 ? "está com este item aberto agora. Se os dois mudarem o mesmo campo, o sistema vai pedir uma decisão."
                 : "has this item open right now. If you both change the same field, the app will ask for a decision."}</div>`
           : ""; })()}
+        ${Waiver.blocoItemHTML(itemId)}
         ${pend.length?`<div class="panel pad" style="border-left:3px solid var(--chg-line);margin-bottom:12px">
           <b>${pend.length} ${LANG==="pt"?"alteração(ões) pendente(s) de consolidação":"change(s) pending consolidation"}</b>
           ${pend.map(p=>`<div class="rowflex muted" style="font-size:11.5px;margin-top:4px">
@@ -3528,8 +4168,10 @@ const UI = {
        {txt:LANG==="pt"?"Salvar e próximo":"Save and next",cls:"btn",
         fn:()=>{ this.salvarDetalhe(itemId); this.irrItem(1, {semSalvar:true}); }},
        {txt:T("salvar"),cls:"btn pri",fn:()=>{
-          this.salvarDetalhe(itemId); this.fechar(); Render.atual();}}]);
+          this.salvarDetalhe(itemId); this.fechar(); Render.atual();}}],
+      {confirmarSaida:true});
 
+    Waiver.ligarBloco(itemId);
     $$("[data-pd]").forEach(b=>b.onclick=()=>{
       const x=S.db.pendentes.find(y=>y.id===b.dataset.pd);
       if(x && Pend.descartarUma(x)) this.detalhe(itemId);
@@ -4309,7 +4951,12 @@ ${this.rodapeHTML()}
      nao mexe na tela que a pessoa esta usando. */
   pdf(lista, titulo, opc={}){
     const o = Object.assign(this.opcoes(), opc);
-    const html = this.documento(lista, titulo, o);
+    this.imprimirHTML(this.documento(lista, titulo, o));
+  },
+  /* A impressao separada do que se imprime: o waiver e um documento de outra
+     forma, mas passa pelo mesmo quadro escondido - e por ele que se escapa do
+     bloqueador de pop-up das instalacoes corporativas. */
+  imprimirHTML(html){
     try{
       $("#quadroImpressao")?.remove();
       const f = document.createElement("iframe");
@@ -4594,13 +5241,26 @@ function baseVazia(){
       caminhoPadrao:Caminho.FABRICA,
       status:[], familias:[], statusAbertoExcecoes:["1 - Validated by ICN","2 - Not Blocking","2 - Not Available Jx"],
       inspTypesFuncionais:[]},
-    marcos:[], itens:[], historico:[], pendentes:[], observacoes:[], conflitos:[]};
+    marcos:[], itens:[], historico:[], pendentes:[], observacoes:[], conflitos:[], waivers:[]};
 }
 function normalizar(db){
   db.schemaVersion ??= 1;
   db.meta ??= {revisao:0}; db.config ??= {}; db.marcos ??= [];
   db.itens ??= []; db.historico ??= []; db.pendentes ??= [];
   db.observacoes ??= []; db.conflitos ??= [];
+  /* Base gravada antes dos waivers nao traz a lista; sem isto a tela de
+     waivers estouraria ao abrir uma base antiga. */
+  db.waivers ??= [];
+  if(!Array.isArray(db.waivers)) db.waivers = [];
+  for(const w of db.waivers){
+    if(!w || typeof w!=="object") continue;
+    w.itens = Array.isArray(w.itens) ? w.itens.filter(x=>typeof x==="string") : [];
+    w.situacao ??= "rascunho"; w.origem ??= "sistema";
+    for(const k of ["numero","assunto","texto","condicao","para","referencia",
+                    "statusDestino","statusFinal","decisaoPor","decisaoObs"]) w[k] ??= "";
+    w.dataDocumento ??= (w.criadoEm||"").slice(0,10) || hoje();
+    w.criadoEm ??= agora(); w.atualizadoEm ??= w.criadoEm; w.autor ??= "";
+  }
   const c=db.config;
   c.minutosConsolidacao ??= 10; c.diasSemAtualizacao ??= 30; c.diasAlertaAging ??= 60;
   c.segundosSync ??= 7;
@@ -4706,7 +5366,7 @@ $("#pendBadge").onclick=()=>UI.painelPendentes();
 
 addEventListener("beforeunload",e=>{ Sync.sair(); if(S.sujo){ e.preventDefault(); e.returnValue=""; } });
 addEventListener("keydown",e=>{
-  if(e.key==="Escape") UI.fechar();
+  if(e.key==="Escape") UI.fecharPeloUsuario();
   if((e.ctrlKey||e.metaKey)&&e.key==="s"){ e.preventDefault(); if(S.db) Pend.consolidarTudo(); }
   if(!S.db) return;
   /* no detalhe: Alt+setas pula de item, Ctrl+Enter salva e avanca */

@@ -160,7 +160,7 @@ export function carregarApp({autor="Teste", confirmar=()=>true, arquivo=APP}={})
   /* os modulos sao declarados com const, que no escopo lexico global de um script
      classico nao vira propriedade de globalThis: buscamos as referencias aqui. */
   const nomes = ["IDB","Store","Usuario","S","R","Pend","Sync","M","G","Render","UI","Export","hoje","agora","T","Filtros","FiltroURL","Visita","ROTAS","Arquivamento","Colunas","Lote","TecladoItens","COLUNAS_PADRAO",
-                 "NovoItem","Caminho","limparTexto","nomeArquivo","$","$$"];
+                 "NovoItem","Caminho","limparTexto","nomeArquivo","$","$$","Waiver","EDITAVEL","uid"];
   /* NovoItem e Arquivamento nao existem no visualizador, e Visualizador nao
      existe no index: pedir um nome inexistente derrubaria a extracao inteira. */
   const presentes = nomes.concat(["Visualizador"]).filter(n=>{

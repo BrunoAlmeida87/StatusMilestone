@@ -11,9 +11,13 @@ O que este script faz, em ordem:
   1. tira a marca e o titulo para "Visualizador";
   2. substitui os metodos de escrita do Store por uma recusa -- nao e so a
      interface que some, o caminho de codigo ate um writer deixa de existir;
-  3. troca Pend, Sync, Lote, NovoItem e Arquivamento por cascas inertes;
-  4. tira da interface tudo que so servia para editar (item novo, selecao em
-     lote, arrastar no kanban, salvar no detalhe, tela de Configuracoes);
+  3. troca Pend, Sync, Lote, NovoItem e Arquivamento por cascas inertes, e
+     arranca do Waiver os metodos que gravam -- ler e imprimir waiver fica,
+     pedir e alterar nao;
+  4. poe EDITAVEL em false -- e por essa constante que as telas sabem se
+     devem oferecer o que altera a base -- e tira da interface o resto do que
+     so servia para editar (item novo, selecao em lote, arrastar no kanban,
+     salvar no detalhe, tela de Configuracoes);
   5. troca a abertura: em vez de pedir a pasta, le o database.json que estiver
      NA MESMA PASTA do arquivo .html.
 
@@ -58,6 +62,36 @@ def troca_modulo(s, nome_modulo, novo, nome):
         raise SystemExit(f"ERRO em '{nome}': fim do modulo {nome_modulo} nao encontrado.")
     _aplicadas.append(nome)
     return s[:ini.start()] + novo + s[ini.start() + fim.end():]
+
+
+def _bloco_modulo(s, nome_modulo, nome):
+    """Onde comeca e onde acaba um modulo de topo, no texto."""
+    ini = re.search(r"^const %s\s*=\s*\{" % re.escape(nome_modulo), s, re.M)
+    if not ini:
+        raise SystemExit(f"ERRO em '{nome}': modulo {nome_modulo} nao encontrado.")
+    fim = re.search(r"^\};$", s[ini.start():], re.M)
+    if not fim:
+        raise SystemExit(f"ERRO em '{nome}': fim do modulo {nome_modulo} nao encontrado.")
+    return ini.start(), ini.start() + fim.end()
+
+
+def troca_metodo_em(s, nome_modulo, nome_metodo, novo, nome):
+    """Troca um metodo DENTRO de um modulo.
+
+    Diferente de troca_metodo, que procura no arquivo inteiro: 'painel' existe
+    no Waiver e no Export, e trocar o primeiro que aparece arrancaria a janela
+    de exportacao do visualizador sem ninguem notar.
+    """
+    a, b = _bloco_modulo(s, nome_modulo, nome)
+    trecho = s[a:b]
+    ini = re.search(r"^  (?:async )?%s\(" % re.escape(nome_metodo), trecho, re.M)
+    if not ini:
+        raise SystemExit(f"ERRO em '{nome}': {nome_modulo}.{nome_metodo} nao encontrado.")
+    fim = re.search(r"^  \},$", trecho[ini.start():], re.M)
+    if not fim:
+        raise SystemExit(f"ERRO em '{nome}': fim de {nome_modulo}.{nome_metodo} nao encontrado.")
+    _aplicadas.append(nome)
+    return s[:a] + trecho[:ini.start()] + novo + trecho[ini.start() + fim.end():] + s[b:]
 
 
 def troca_metodo(s, nome_metodo, novo, nome):
@@ -143,7 +177,22 @@ def main(conferir=False):
     s = troca_modulo(s, "Arquivamento", "/* arquivamento: grava na pasta, nao existe aqui */",
                      "modulo Arquivamento")
 
+    # O waiver continua inteiro para LER e IMPRIMIR - quem consulta precisa ver
+    # que o item esta coberto por um pedido de dispensa, e poder imprimi-lo -,
+    # mas o que grava sai.
+    recusa_w = (
+        '  {m}(){{ toast(LANG==="pt"'
+        '?"Esta \u00e9 a tela de consulta \u2014 o waiver \u00e9 pedido no sistema"'
+        '\n'
+        '                        :"Read-only viewer \u2014 waivers are requested in the app","warn"); }},'
+    )
+    for m in ["painel", "guardar", "excluir", "aplicar", "salvarDaJanela"]:
+        s = troca_metodo_em(s, "Waiver", m, recusa_w.format(m=m), f"waiver.{m}")
+
     # ------------------------------------------------- 4. interface de edicao
+    # Uma constante decide, no arquivo inteiro, se as telas oferecem edicao.
+    s = troca(s, "const EDITAVEL = true;", "const EDITAVEL = false;", "EDITAVEL em false")
+
     # Configuracoes sai do menu; entra "Sobre a base", que so mostra.
     s = troca(s, '  {id:"config",    ic:"⚙", t:"config"},\n',
               '  {id:"sobre",     ic:"ℹ", t:"sobre"},\n', "rota config")

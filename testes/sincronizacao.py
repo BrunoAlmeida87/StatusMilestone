@@ -185,9 +185,12 @@ with sync_playwright() as pw:
     pg.evaluate("""Sync.presentes=['Bruno']; Sync.pintar();""")
     chk("some quando estou sozinho",
         pg.evaluate("getComputedStyle($('#presenca')).display") == "none")
-    chk("nome vira arquivo seguro",
-        pg.evaluate("Sync.slug('José da Silva Júnior')") == "jose-da-silva-junior",
-        pg.evaluate("Sync.slug('José da Silva Júnior')"))
+    # O slug leva um sufixo do nome INTEIRO: sem ele, "José Silva" e "Jose Silva"
+    # caiam no mesmo arquivo de presenca e uma pessoa apagava a outra.
+    slug1 = pg.evaluate("Sync.slug('José da Silva Júnior')")
+    slug2 = pg.evaluate("Sync.slug('Jose da Silva Junior')")
+    chk("nome vira arquivo seguro", slug1.startswith("jose-da-silva-junior-"), slug1)
+    chk("e dois nomes parecidos não caem no mesmo arquivo", slug1 != slug2, f"{slug1} / {slug2}")
 
     b.close()
 
