@@ -149,7 +149,6 @@ marcados na tabela (a barra de seleção tem o botão). O pedido cobre **um ou m
 | Condições / medidas compensatórias | o que fica combinado em troca |
 | Situação | rascunho · enviado · aprovado · recusado · cancelado |
 | Referência e data do documento | número da carta, e-mail ou ata |
-| Parecer | quem decidiu e o que disse |
 
 Tudo isso **fica salvo no `database.json`**, junto dos itens. O waiver aparece dentro da janela de
 cada item que ele cobre, e o movimento de status vai pelo caminho de sempre: vira alteração
@@ -177,9 +176,35 @@ Solicitamos a concessão de waiver para os itens acima, pelas razões a seguir: 
 ```
 
 Só quem realmente mudou ganha a observação — item que já estava no status não recebe nota nenhuma.
-Se todos já estiverem lá, a janela diz isso e não oferece caixa alguma. Depois, quando o waiver
-voltar aprovado, o botão **Aplicar status final** faz o mesmo para o destino final, registrando o
-parecer como observação.
+Se todos já estiverem lá, a janela diz isso e não oferece caixa alguma.
+
+### A resposta do destinatário, que chega depois
+
+O parecer não existe na hora do pedido: ele chega dias ou semanas depois, quando o destinatário
+responde. Esse é um segundo momento e tem janela própria — **Registrar resposta** —, alcançável de
+onde você estiver quando a resposta chegar:
+
+- **na tela de Waivers**, abrindo o waiver (enquanto não há resposta ele aparece marcado como
+  *aguardando a resposta do destinatário*);
+- **de dentro do item**, pelo botão **Responder** no bloco de waivers da janela do item. Vindo daí,
+  a janela do item reabre depois, para você ver o status novo e a observação que acabou de nascer.
+
+A janela pede o **resultado** (aprovado · recusado · cancelado), **quem respondeu**, a **data** e o
+**parecer**, e sugere o status a aplicar:
+
+- **aprovado** → sugere o status final desejado do waiver, e faz a mesma pergunta de antes sobre os
+  itens que ainda não estão nele;
+- **recusado** → não sugere status nenhum. Nada se move por conta própria: quem decide onde o item
+  fica é quem lê a recusa. Mas a caixa de **registrar o parecer como observação nos itens**
+  continua ali, porque uma recusa é exatamente o que alguém vai querer encontrar dentro do item.
+
+A observação que nasce aqui leva o **parecer** (não o texto do pedido). A resposta vale para o
+waiver inteiro — todos os itens que ele cobre —, porque foi para o waiver inteiro que o
+destinatário respondeu. Depois de respondido, o botão sai do item: não se responde duas vezes por
+engano; para corrigir, a mesma janela reabre como **Rever resposta**.
+
+Editar o pedido depois disso não apaga o parecer — o formulário do pedido mostra o parecer
+registrado, mas em leitura.
 
 ### O passivo — waiver que já foi feito à mão
 

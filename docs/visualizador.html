@@ -1842,15 +1842,67 @@ const Waiver = {
       .filter(i=>i && String(i.status)!==String(alvo));
   },
 
-  /* O texto que fica no item quando o status muda por causa de um waiver.
-     Cabecalho com o numero e a transicao, e embaixo o que foi escrito: quem
-     abrir o item daqui a tres meses le POR QUE ele mudou, nao so que mudou. */
+  /* O texto que fica no item por causa de um waiver. Cabecalho com o numero e
+     a transicao, e embaixo o que foi escrito: quem abrir o item daqui a tres
+     meses le POR QUE ele mudou, nao so que mudou. Sem transicao (o waiver foi
+     recusado e nada se moveu) o cabecalho diz o resultado - a resposta do
+     destinatario e informacao do item mesmo sem mudanca de status. */
   textoObservacao(w, de, para, qual){
     const corpo = qual==="final" ? (w.decisaoObs || w.texto) : w.texto;
-    return (LANG==="pt"
-      ? `Waiver ${w.numero} — status alterado de "${de}" para "${para}".`
-      : `Waiver ${w.numero} — status changed from "${de}" to "${para}".`)
-      + (corpo ? `\n\n${corpo}` : "");
+    const quem = w.decisaoPor? (LANG==="pt"?` por ${w.decisaoPor}`:` by ${w.decisaoPor}`) : "";
+    const quando = w.decisaoEm? ` (${fmtD(w.decisaoEm)})` : "";
+    const cab = para
+      ? (LANG==="pt" ? `Waiver ${w.numero} — status alterado de "${de}" para "${para}".`
+                     : `Waiver ${w.numero} — status changed from "${de}" to "${para}".`)
+      : (LANG==="pt" ? `Waiver ${w.numero} — ${this.rotuloSituacao(w.situacao).toLowerCase()}${quem}${quando}.`
+                     : `Waiver ${w.numero} — ${this.rotuloSituacao(w.situacao).toLowerCase()}${quem}${quando}.`);
+    return cab + (corpo ? `\n\n${corpo}` : "");
+  },
+
+  /* Uma observacao por item, pelo caminho de qualquer observacao: entra no
+     diario como {t:"obs"} e e gravada na hora. Um lugar so, usado pela
+     aplicacao de status e pela resposta que nao move nada. */
+  anotar(){ toast(LANG==="pt"?"Esta é a tela de consulta — o waiver é pedido no sistema"
+                        :"Read-only viewer — waivers are requested in the app","warn"); },
+
+  /* O bloco de pergunta "o status atual e outro". Uma implementacao so, usada
+     pela janela do pedido e pela janela da resposta - duas copias divergiriam
+     na primeira vez que uma das duas fosse ajustada. */
+  blocoDivergenciaHTML(lista, alvo, o={}){
+    const idApl = o.idApl || "wAplicar", idObs = o.idObs || "wObs";
+    if(!alvo || !lista.length) return "";
+    const fora = this.divergentes(lista, alvo);
+    if(!fora.length) return `<div class="muted" style="font-size:11.5px">✓ ${LANG==="pt"
+      ? `Os ${lista.length} item(ns) já estão em "${esc(alvo)}" — nada a mudar.`
+      : `All ${lista.length} item(s) are already at "${esc(alvo)}" — nothing to change.`}</div>`;
+    const porSt = new Map();
+    for(const i of fora) porSt.set(i.status, (porSt.get(i.status)||0)+1);
+    const de = [...porSt.entries()].sort((a,b)=>b[1]-a[1])
+      .map(([st,q])=>`<span class="pill" style="background:${R.corDe(st)}18;color:${R.corDe(st)};
+        border-color:${R.corDe(st)}55">${q}× ${esc(st)}</span>`).join(" ");
+    const trava = o.desabilitado? " disabled" : "";
+    return `<div class="panel pad" style="border-left:3px solid var(--warn);padding:9px 12px">
+      <div class="rowflex" style="gap:7px;margin-bottom:7px">
+        <b style="color:var(--warn)">${LANG==="pt"?"O status atual é outro":"The current status is different"}</b>
+        <span class="muted">${LANG==="pt"
+          ? `${fora.length} de ${lista.length} item(ns) não estão em "${esc(alvo)}":`
+          : `${fora.length} of ${lista.length} item(s) are not at "${esc(alvo)}":`}</span>
+      </div>
+      <div class="rowflex" style="gap:5px;margin-bottom:9px">${de}
+        <span style="opacity:.6">→</span>
+        <span class="pill" style="background:${R.corDe(alvo)}18;color:${R.corDe(alvo)};
+          border-color:${R.corDe(alvo)}55"><b>${esc(alvo)}</b></span></div>
+      <label class="rowflex" style="gap:7px"><input type="checkbox" id="${idApl}"${
+        o.aplMarcado && !o.desabilitado?" checked":""}${trava}>
+        <span>${esc(o.rotuloApl || (LANG==="pt"
+          ? `Alterar o status desses ${fora.length} item(ns)`
+          : `Change the status of these ${fora.length} item(s)`))}</span></label>
+      <label class="rowflex" style="gap:7px;margin-top:5px;margin-left:19px">
+        <input type="checkbox" id="${idObs}"${o.obsMarcado?" checked":""}${trava}>
+        <span>${esc(o.rotuloObs || (LANG==="pt"
+          ? "e registrar o texto do waiver como observação no item, junto dessa mudança"
+          : "and record the waiver text as a note on the item, alongside that change"))}</span></label>
+    </div>`;
   },
 
   aplicar(){ toast(LANG==="pt"?"Esta é a tela de consulta — o waiver é pedido no sistema"
@@ -1879,15 +1931,35 @@ const Waiver = {
       dataDocumento: v("Data") || hoje(),
       referencia: v("Ref"),
       condicao: String($("#wCondicao")?.value ?? "").trim(),
-      decisaoPor: v("DecPor"), decisaoObs: v("DecObs"),
       criadoEm: w?.criadoEm || agora(),
       autor: w?.autor || Usuario.garantir(),
     };
-    if(novo.decisaoPor && !novo.decisaoEm) novo.decisaoEm = agora();
+    /* O parecer NAO e lido daqui: ele so existe depois que o destinatario
+       responde e tem janela propria (responder). O spread acima preserva o que
+       ja estiver gravado - editar o pedido nao pode apagar a resposta. */
     return {w:novo};
   },
 
   salvarDaJanela(){ toast(LANG==="pt"?"Esta é a tela de consulta — o waiver é pedido no sistema"
+                        :"Read-only viewer — waivers are requested in the app","warn"); },
+
+  /* ------------------------ a resposta, depois --------------------------
+     O parecer nao existe na hora do pedido: ele chega quando o destinatario
+     responde, dias ou semanas depois. Este e o momento em que o waiver deixa
+     de ser pedido e vira decisao - entra quem respondeu, quando, o que disse,
+     e SO AGORA o status final e aplicado.
+
+     Alcancavel dos dois lados, porque a lembranca vem dos dois lados: da tela
+     de Waivers (o waiver na mao) e de dentro do item (o item na mao). Vindo do
+     item, a janela do item reabre depois, para a pessoa ver o status novo e a
+     observacao que acabou de nascer.
+
+     A resposta vale para o waiver INTEIRO - todos os itens que ele cobre -
+     porque foi para o waiver inteiro que o destinatario respondeu.            */
+  responder(){ toast(LANG==="pt"?"Esta é a tela de consulta — o waiver é pedido no sistema"
+                        :"Read-only viewer — waivers are requested in the app","warn"); },
+
+  gravarResposta(){ toast(LANG==="pt"?"Esta é a tela de consulta — o waiver é pedido no sistema"
                         :"Read-only viewer — waivers are requested in the app","warn"); },
 
   /* ---------------------------- so olhar ------------------------------ */
@@ -1901,6 +1973,9 @@ const Waiver = {
           <i class="dot" style="background:${cor}"></i>${esc(this.rotuloSituacao(w.situacao))}</span>
         ${w.origem==="passivo"?`<span class="tag">${LANG==="pt"?"passivo (feito à mão)":"backlog (by hand)"}</span>`:""}
         ${w.aplicado?`<span class="tag" title="${esc(fmtDT(w.aplicado.em))}">${LANG==="pt"?"status aplicado":"status applied"}: ${esc(w.aplicado.status)}</span>`:""}
+        ${!w.decisaoObs && ["rascunho","enviado"].includes(w.situacao)
+          ? `<span class="tag" style="color:var(--warn);border-color:var(--warn)">${LANG==="pt"
+              ? "aguardando a resposta do destinatário" : "waiting for the addressee's answer"}</span>` : ""}
       </div>
       <dl class="kv">
         ${linha(LANG==="pt"?"Assunto":"Subject", esc(w.assunto))}
@@ -1912,7 +1987,8 @@ const Waiver = {
         ${linha(LANG==="pt"?"Itens":"Items", (w.itens||[]).map(x=>
             `<span class="tag" data-wvi="${esc(x)}" style="cursor:pointer">${esc(x)}</span>`).join(" "))}
         ${linha(LANG==="pt"?"Aberto por":"Opened by", esc(w.autor)+" &middot; "+esc(fmtDT(w.criadoEm)))}
-        ${linha(LANG==="pt"?"Parecer":"Decision", esc(w.decisaoPor)+(w.decisaoObs?" &mdash; "+esc(w.decisaoObs):""))}
+        ${linha(LANG==="pt"?"Respondido por":"Answered by",
+                esc(w.decisaoPor)+(w.decisaoEm?" &middot; "+esc(fmtD(w.decisaoEm)):""))}
       </dl>
       <div class="sep"></div>
       <h3 style="border:0;padding:0;font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--fg-3)">
@@ -1921,14 +1997,20 @@ const Waiver = {
       ${w.condicao?`<div class="sep"></div>
         <h3 style="border:0;padding:0;font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--fg-3)">
           ${LANG==="pt"?"Condições":"Conditions"}</h3>
-        <div style="white-space:pre-wrap;margin-top:6px">${esc(w.condicao)}</div>`:""}`,
+        <div style="white-space:pre-wrap;margin-top:6px">${esc(w.condicao)}</div>`:""}
+      ${w.decisaoObs?`<div class="sep"></div>
+        <h3 style="border:0;padding:0;font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--fg-3)">
+          ${LANG==="pt"?"Parecer do destinatário":"Addressee's answer"}</h3>
+        <div class="panel pad" style="border-left:3px solid ${cor};margin-top:6px;padding:9px 12px">
+          <div style="white-space:pre-wrap;line-height:1.55">${esc(w.decisaoObs)}</div></div>`:""}`,
       [{txt:T("fechar"), cls:"btn", fn:()=>UI.fechar()},
        ...(EDITAVEL ? [
          {txt:LANG==="pt"?"Apagar":"Delete", cls:"btn danger",
           fn:()=>{ if(this.excluir(w)){ UI.fechar(); Render.atual(); } }},
-         {txt:LANG==="pt"?"Aplicar status final":"Apply final status", cls:"btn",
-          fn:()=>{ UI.fechar(); this.aplicar(w,"final",{observacao:true}); }},
-         {txt:LANG==="pt"?"Editar":"Edit", cls:"btn", fn:()=>this.painel({id:w.id})}] : []),
+         {txt:LANG==="pt"?"Editar pedido":"Edit request", cls:"btn", fn:()=>this.painel({id:w.id})},
+         {txt:w.decisaoObs ? (LANG==="pt"?"Rever resposta":"Revise the answer")
+                           : (LANG==="pt"?"Registrar resposta":"Record the answer"),
+          cls:"btn", fn:()=>this.responder(w.id)}] : []),
        {txt:T("imprimir"), cls:"btn pri", fn:()=>this.imprimir([w])}]);
     $$("[data-wvi]").forEach(t=>t.onclick=()=>UI.detalhe(t.dataset.wvi));
   },
@@ -1947,6 +2029,11 @@ const Waiver = {
           <span class="pill" style="background:${c}18;color:${c};border-color:${c}55">${esc(this.rotuloSituacao(w.situacao))}</span>
           <b>${esc(w.numero)}</b>
           <span class="muted" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(w.assunto||w.texto)}</span>
+          ${EDITAVEL && !w.decisaoObs && ["rascunho","enviado"].includes(w.situacao)
+            ? `<button class="btn sm pri" data-wvr="${esc(w.id)}" title="${LANG==="pt"
+                 ? "O destinatário respondeu: registrar o parecer e aplicar o status final"
+                 : "The addressee answered: record the decision and apply the final status"}">${
+                 LANG==="pt"?"Responder":"Answer"}</button>` : ""}
           <button class="btn sm" data-wvv="${esc(w.id)}">${LANG==="pt"?"Abrir":"Open"}</button>
         </div>`; }).join("")
         : `<div class="muted" style="font-size:11.5px;margin-top:5px">${LANG==="pt"
@@ -1957,6 +2044,9 @@ const Waiver = {
     const b = $("#wvNovoDoItem");
     if(b) b.onclick = ()=>this.painel({itens:[itemId]});
     $$("[data-wvv]").forEach(x=>x.onclick=()=>this.ver(x.dataset.wvv));
+    /* Vindo do item, a janela do item reabre depois: e la que a pessoa vai
+       conferir o status novo e a observacao que acabou de nascer. */
+    $$("[data-wvr]").forEach(x=>x.onclick=()=>this.responder(x.dataset.wvr, {voltarAoItem:itemId}));
   },
 
   /* --------------------------- o documento ---------------------------

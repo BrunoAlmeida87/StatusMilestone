@@ -2342,6 +2342,156 @@ secao("23. WAIVER");
   app.Waiver.filtro = "";
 }
 {
+  /* A RESPOSTA, que chega depois. O parecer não existe na hora do pedido: é
+     quando o destinatário responde que o waiver vira decisão. */
+  const c = cenario();
+  const {app} = c;
+  app.Pend.autosave = async ()=>{};
+  const w = {id:"wr1", numero:"W-2026-040", itens:["A-001","A-003"],
+             assunto:"dispensa", texto:"o pedido original", para:"ICN",
+             situacao:"enviado", statusDestino:"4 - Under Analysis",
+             statusFinal:"1 - Validated by ICN", criadoEm:app.agora(), autor:"Bruno"};
+  app.Waiver.guardar(w);
+
+  app.Waiver.responder("wr1");
+  chk("a janela da resposta abre", !!app.$("#ov"));
+  chk("com o destinatário já sugerido como quem respondeu",
+      app.$("#wrPor").value === "ICN", app.$("#wrPor").value);
+  igual("e o status a aplicar já vem do status final pedido",
+        app.$("#wrStatus").value, "1 - Validated by ICN");
+  chk("perguntando sobre os itens que não estão lá",
+      app.$("#wrDiv").innerHTML.includes("status atual é outro"));
+
+  /* Recusado não move nada por conta própria. */
+  app.$("#wrResultado").value = "recusado";
+  app.$("#wrResultado").onchange();
+  igual("recusando, nenhum status é sugerido", app.$("#wrStatus").value, "");
+  chk("e não há o que perguntar sobre status",
+      !app.$("#wrDiv").innerHTML.includes('id="wrAplicar"'));
+  chk("mas a caixa de registrar o parecer no item continua ali",
+      app.$("#wrDiv").innerHTML.includes('id="wrObs"'));
+
+  /* Sem parecer não grava: a resposta É o parecer. */
+  app.$("#mb1").onclick();
+  chk("sem parecer, não registra nada", !app.S.db.waivers[0].decisaoObs);
+  chk("e a janela continua aberta", !!app.$("#ov"));
+  app.UI.fechar();
+}
+{
+  /* Aprovado: entra o parecer E o status final vai para os itens. */
+  const c = cenario();
+  const {app} = c;
+  app.Pend.autosave = async ()=>{};
+  app.Waiver.guardar({id:"wr2", numero:"W-2026-041", itens:["A-001","A-003"],
+    texto:"o pedido original", para:"ICN", situacao:"enviado",
+    statusFinal:"1 - Validated by ICN", criadoEm:app.agora(), autor:"Bruno"});
+  app.Waiver.responder("wr2");
+  app.$("#wrResultado").value = "aprovado";
+  app.$("#wrResultado").onchange();
+  app.$("#wrPor").value = "ICN — J. Marques";
+  app.$("#wrData").value = "2026-04-10";
+  app.$("#wrParecer").value = "  Waiver concedido nas condições propostas.  ";
+  app.$("#wrAplicar").checked = true;
+  app.$("#wrObs").checked = true;
+  app.$("#mb1").onclick();
+
+  const w = app.Waiver.porId("wr2");
+  igual("a situação vira o resultado da resposta", w.situacao, "aprovado");
+  igual("com quem respondeu", w.decisaoPor, "ICN — J. Marques");
+  igual("a data da resposta", w.decisaoEm, "2026-04-10");
+  igual("e o parecer, sem o espaço sobrando", w.decisaoObs,
+        "Waiver concedido nas condições propostas.");
+  chk("os itens foram para o status final",
+      ["A-001","A-003"].every(id=>app.S.db.itens.find(i=>i.item===id).status==="1 - Validated by ICN"));
+  igual("como alteração pendente, como qualquer edição", app.S.db.pendentes.length, 2);
+  const obs = app.S.db.observacoes;
+  igual("uma observação por item movido", obs.length, 2);
+  chk("com o PARECER, não com o texto do pedido",
+      obs[0].texto.includes("Waiver concedido") && !obs[0].texto.includes("o pedido original"),
+      obs[0].texto.split("\n")[0]);
+  chk("e o cabeçalho diz de qual status para qual",
+      obs[0].texto.includes('"1 - Validated by ICN"'));
+  chk("a janela fechou", !app.$("#ov"));
+}
+{
+  /* Recusado: nada se move, mas a recusa fica registrada no item. */
+  const c = cenario();
+  const {app} = c;
+  app.Pend.autosave = async ()=>{};
+  app.Waiver.guardar({id:"wr3", numero:"W-2026-042", itens:["A-001","A-003"],
+    texto:"o pedido", para:"ICN", situacao:"enviado",
+    statusFinal:"1 - Validated by ICN", criadoEm:app.agora(), autor:"Bruno"});
+  app.Waiver.responder("wr3");
+  app.$("#wrResultado").value = "recusado";
+  app.$("#wrResultado").onchange();
+  app.$("#wrPor").value = "ICN";
+  app.$("#wrData").value = "2026-04-11";
+  app.$("#wrParecer").value = "Recusado: apresentar o ensaio antes do fechamento.";
+  app.$("#mb1").onclick();
+
+  const w = app.Waiver.porId("wr3");
+  igual("a recusa fica registrada", w.situacao, "recusado");
+  igual("nenhum status se move", app.S.db.pendentes.length, 0);
+  igual("os itens ficam onde estavam",
+        app.S.db.itens.find(i=>i.item==="A-001").status, "3 - Blocking");
+  igual("mas a recusa vira observação nos dois itens", app.S.db.observacoes.length, 2);
+  const o = app.S.db.observacoes[0];
+  chk("com um cabeçalho que não fala de mudança de status",
+      o.texto.includes("recusado") && !o.texto.includes("alterado de"), o.texto.split("\n")[0]);
+  chk("dizendo quem respondeu e quando",
+      o.texto.includes("ICN") && o.texto.includes("11/04/2026"), o.texto.split("\n")[0]);
+  chk("e trazendo o parecer", o.texto.includes("apresentar o ensaio"));
+}
+{
+  /* Editar o pedido depois da resposta não pode apagar o parecer. */
+  const c = cenario();
+  const {app} = c;
+  app.Pend.autosave = async ()=>{};
+  app.Waiver.guardar({id:"wr4", numero:"W-2026-043", itens:["A-001"], texto:"pedido",
+    situacao:"aprovado", decisaoPor:"ICN", decisaoEm:"2026-04-10",
+    decisaoObs:"parecer que não pode sumir", criadoEm:app.agora(), autor:"Bruno"});
+  app.Waiver.painel({id:"wr4"});
+  chk("o formulário do pedido mostra o parecer já registrado",
+      app.$("#ov").innerHTML.includes("parecer que não pode sumir"));
+  chk("mas não como campo editável", !app.$("#ov").innerHTML.includes('id="wDecObs"'));
+  app.$("#wTexto").value = "pedido corrigido";
+  app.$("#mb2").onclick();                       /* fechar · imprimir · salvar */
+  const w = app.Waiver.porId("wr4");
+  igual("o texto do pedido muda", w.texto, "pedido corrigido");
+  igual("e o parecer continua lá", w.decisaoObs, "parecer que não pode sumir");
+  igual("com quem respondeu", w.decisaoPor, "ICN");
+}
+{
+  /* O caminho pelo item: é lá que a pessoa costuma estar quando lembra. */
+  const c = cenario();
+  const {app} = c;
+  app.Pend.autosave = async ()=>{};
+  app.Waiver.guardar({id:"wr5", numero:"W-2026-044", itens:["A-001"], texto:"pedido",
+    para:"ICN", situacao:"enviado", statusFinal:"2 - Not Blocking",
+    criadoEm:app.agora(), autor:"Bruno"});
+  const bloco = app.Waiver.blocoItemHTML("A-001");
+  chk("o bloco do item oferece responder enquanto não há resposta",
+      bloco.includes('data-wvr="wr5"'));
+  app.UI.detalhe("A-001");
+  chk("e o botão está ligado", typeof app.$$("[data-wvr]")[0]?.onclick === "function");
+  app.$$("[data-wvr]")[0].onclick();
+  chk("abre a janela da resposta", app.$("#ov").innerHTML.includes("W-2026-044"));
+  app.$("#wrParecer").value = "aceito";
+  app.$("#wrAplicar").checked = true;
+  app.$("#wrObs").checked = true;
+  app.$("#mb1").onclick();
+  igual("o item vai para o status final",
+        app.S.db.itens.find(i=>i.item==="A-001").status, "2 - Not Blocking");
+  igual("com a observação do parecer", app.S.db.observacoes.length, 1);
+  chk("e a janela do item reabre, para ver o resultado",
+      !!app.$("#ov") && app.$("#ov").innerHTML.includes("A-001"));
+  app.UI.fechar();
+
+  /* Respondido, o botão sai: não se responde duas vezes por engano. */
+  chk("waiver já respondido não oferece responder de novo",
+      !app.Waiver.blocoItemHTML("A-001").includes("data-wvr"));
+}
+{
   /* No visualizador: o waiver se lê e se imprime, e não se mexe. */
   const viz = carregarApp({arquivo:VISUALIZADOR});
   const avisos = [];
@@ -2361,6 +2511,10 @@ secao("23. WAIVER");
   igual("aplicar não aplica", viz.S.db.itens.find(i=>i.item==="A-001").status, "3 - Blocking");
   viz.Waiver.excluir(viz.S.db.waivers[0]);
   igual("apagar não apaga", viz.S.db.waivers.length, 1);
+  viz.Waiver.responder("w1");
+  chk("registrar resposta ali não abre janela nenhuma", !viz.$("#ov"));
+  viz.Waiver.anotar(["A-001"], "nota de mentira", "x");
+  igual("nem grava observação", viz.S.db.observacoes.length, 0);
 
   viz.Render.waivers();
   chk("a tela existe e lista", viz.$("#view").innerHTML.includes("W-2026-030"));

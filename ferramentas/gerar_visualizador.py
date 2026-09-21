@@ -186,7 +186,8 @@ def main(conferir=False):
         '\n'
         '                        :"Read-only viewer \u2014 waivers are requested in the app","warn"); }},'
     )
-    for m in ["painel", "guardar", "excluir", "aplicar", "salvarDaJanela"]:
+    for m in ["painel", "guardar", "excluir", "aplicar", "salvarDaJanela",
+              "responder", "gravarResposta", "anotar"]:
         s = troca_metodo_em(s, "Waiver", m, recusa_w.format(m=m), f"waiver.{m}")
 
     # ------------------------------------------------- 4. interface de edicao

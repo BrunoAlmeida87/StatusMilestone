@@ -148,6 +148,84 @@ with sync_playwright() as pw:
     chk("com o texto inteiro", "não pode ser executado antes do docking" in pg.inner_text("#ov"))
     pg.evaluate("() => UI.fechar()")
 
+    print("=== 3b. A RESPOSTA DO DESTINATARIO, QUE CHEGA DEPOIS")
+    pg.evaluate("() => irPara('waivers')"); pg.wait_for_timeout(300)
+    pg.click(f'tr[data-wv="{w["id"]}"]'); pg.wait_for_timeout(300)
+    chk("enquanto não há resposta, o waiver diz que está esperando",
+        "aguardando a resposta" in pg.inner_text("#ov"))
+    chk("e oferece registrar a resposta", "Registrar resposta" in pg.inner_text("#ov"))
+    pg.click('#ov footer button:has-text("Registrar resposta")'); pg.wait_for_timeout(350)
+    chk("a janela da resposta abre", "Resposta ao waiver" in pg.inner_text("#ov"))
+    chk("com o destinatário sugerido como quem respondeu",
+        pg.input_value("#wrPor") == "ICN / Classificadora", pg.input_value("#wrPor"))
+    chk("e o status a aplicar já vem do status final pedido",
+        pg.input_value("#wrStatus") == "1 - Validated by ICN", pg.input_value("#wrStatus"))
+    chk("perguntando sobre os itens que ainda não estão lá",
+        "status atual é outro" in pg.inner_text("#wrDiv"))
+    chk("com as duas caixas já marcadas",
+        pg.is_checked("#wrAplicar") and pg.is_checked("#wrObs"))
+
+    print("--- recusar não move nada por conta própria")
+    pg.select_option("#wrResultado", "recusado"); pg.wait_for_timeout(250)
+    chk("recusando, nenhum status é sugerido", pg.input_value("#wrStatus") == "",
+        pg.input_value("#wrStatus"))
+    chk("e não há o que perguntar sobre status", pg.locator("#wrAplicar").count() == 0)
+    chk("mas a caixa de registrar o parecer continua ali",
+        pg.locator("#wrObs").count() == 1 and pg.is_checked("#wrObs"))
+
+    print("--- aprovando: parecer, status final e observação num gesto")
+    pg.select_option("#wrResultado", "aprovado"); pg.wait_for_timeout(250)
+    chk("voltando a aprovar, o status final volta",
+        pg.input_value("#wrStatus") == "1 - Validated by ICN")
+    pg.fill("#wrPor", "ICN — J. Marques")
+    pg.fill("#wrData", "2026-09-19")
+    pg.fill("#wrParecer", "Waiver concedido nas condições propostas. "
+                          "Reavaliar no fechamento do J08.")
+    pg.check("#wrAplicar"); pg.check("#wrObs")
+    pg.click('#ov footer button:has-text("Registrar resposta")'); pg.wait_for_timeout(700)
+
+    wr = pg.evaluate("(id)=>S.db.waivers.find(x=>x.id===id)", w["id"])
+    chk("a situação vira aprovado", wr["situacao"] == "aprovado", wr["situacao"])
+    chk("com quem respondeu e quando",
+        wr["decisaoPor"] == "ICN — J. Marques" and wr["decisaoEm"] == "2026-09-19")
+    chk("e o parecer registrado", "Reavaliar no fechamento" in wr["decisaoObs"])
+    fim = pg.evaluate("(a)=>a.map(x=>S.db.itens.find(i=>i.item===x).status)", alvos)
+    chk("os itens foram para o status final",
+        all(x == "1 - Validated by ICN" for x in fim), str(set(fim)))
+    ob2 = pg.evaluate("(a)=>S.db.observacoes.filter(o=>a.includes(o.item) "
+                      "&& o.texto.includes('Reavaliar'))", alvos)
+    chk("o parecer virou observação em cada item movido", len(ob2) == len(alvos), str(len(ob2)))
+    chk("com o PARECER, não com o texto do pedido",
+        all("antes do docking" not in o["texto"] for o in ob2))
+
+    print("--- respondido, o botão de responder sai do item")
+    pg.evaluate("(x)=>UI.detalhe(x)", alvos[0]); pg.wait_for_timeout(400)
+    chk("o item não oferece responder de novo", pg.locator("[data-wvr]").count() == 0)
+    chk("mas o waiver continua lá, agora aprovado", "Aprovado" in pg.inner_text("#ov"))
+    pg.evaluate("() => UI.fechar()")
+
+    print("=== 3c. O CAMINHO PELO ITEM: RESPONDER DE DENTRO DELE")
+    it3 = pg.evaluate("() => S.db.itens.filter(i=>i.status==='3 - Blocking').slice(0,1)[0].item")
+    pg.evaluate("""(x)=>{ Waiver.guardar({id:'viaItem', numero:'W-2026-900', itens:[x],
+        assunto:'pedido respondido pelo item', texto:'pedido', para:'ICN',
+        situacao:'enviado', statusFinal:'2 - Not Blocking',
+        criadoEm:agora(), autor:'Bruno Almeida'}); }""", it3)
+    pg.evaluate("(x)=>UI.detalhe(x)", it3); pg.wait_for_timeout(400)
+    chk("o item oferece responder enquanto não há resposta",
+        pg.locator('[data-wvr="viaItem"]').count() == 1)
+    pg.click('[data-wvr="viaItem"]'); pg.wait_for_timeout(350)
+    chk("abre a janela da resposta", "W-2026-900" in pg.inner_text("#ov"))
+    pg.fill("#wrParecer", "Aceito pelo ICN por e-mail de 19/09.")
+    pg.check("#wrAplicar"); pg.check("#wrObs")
+    pg.click('#ov footer button:has-text("Registrar resposta")'); pg.wait_for_timeout(800)
+    chk("o item vai para o status final",
+        pg.evaluate("(x)=>S.db.itens.find(i=>i.item===x).status", it3) == "2 - Not Blocking")
+    chk("a janela do ITEM reabre, para ver o resultado",
+        pg.locator("#ov").count() == 1 and it3 in pg.inner_text("#ov h2"))
+    pg.click('.tabs button[data-t="o"]'); pg.wait_for_timeout(250)
+    chk("com a observação do parecer já lá", "Aceito pelo ICN" in pg.inner_text("#tp-o"))
+    pg.evaluate("() => UI.fechar()")
+
     print("=== 4. O PASSIVO: WAIVER QUE JA TINHA SIDO FEITO A MAO")
     velho = pg.evaluate("""() => S.db.itens.filter(i=>R.aberto(i.status)).slice(5,6)[0].item""")
     st0 = pg.evaluate("(x)=>S.db.itens.find(i=>i.item===x).status", velho)
@@ -199,7 +277,9 @@ with sync_playwright() as pw:
     chk("os status saem como pílulas coloridas", pg2.locator(".waiver .stp").count() >= 4,
         str(pg2.locator(".waiver .stp").count()))
     chk("as seções são numeradas", pg2.locator(".wsec > h2 .n").count() >= 4)
-    chk("o enviado não leva marca d'água", pg2.locator(".wmarca").count() == 0)
+    chk("o aprovado não leva marca d'água", pg2.locator(".wmarca").count() == 0)
+    chk("e o parecer registrado sai impresso",
+        "Reavaliar no fechamento" in pg2.inner_text(".waiver"))
     pdf = SAIDA/"waiver.pdf"
     pg2.pdf(path=str(pdf), format="A4", print_background=True)
     dados = pdf.read_bytes()
@@ -214,13 +294,15 @@ with sync_playwright() as pw:
         pg2.locator(".wmarca").count() == 1 and "RASCUNHO" in pg2.inner_text(".wmarca").upper())
     pg2.screenshot(path=str(SAIDA/"waiver-rascunho.png"), full_page=True)
 
+    quantos = pg.evaluate("() => S.db.waivers.length")
     dois = pg.evaluate("() => Waiver.documento(S.db.waivers)")
     (SAIDA/"waivers.html").write_text(dois, encoding="utf-8")
     pg2.goto((SAIDA/"waivers.html").as_uri()); pg2.wait_for_timeout(400)
     pg2.pdf(path=str(SAIDA/"waivers.pdf"), format="A4", print_background=True)
     d2 = (SAIDA/"waivers.pdf").read_bytes()
-    chk("dois waivers saem em duas folhas, um por página",
-        d2.count(b"/Type /Page") - d2.count(b"/Type /Pages") == 2)
+    paginas2 = d2.count(b"/Type /Page") - d2.count(b"/Type /Pages")
+    chk("vários waivers saem um por página", paginas2 == quantos,
+        f"{paginas2} páginas para {quantos} waivers")
     pg2.close()
 
     print("=== 6. A JANELA NAO FOGE COM O MOUSE FORA DELA")

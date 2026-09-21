@@ -372,6 +372,19 @@ waiver entra como **observação** no item, com cabeçalho `Waiver <nº> — sta
 A observação segue o caminho de qualquer observação — `{t:"obs"}` no diário, gravação imediata —
 então é rebasável e sobrevive à gravação de outra pessoa no meio.
 
+**A resposta é um segundo momento.** O parecer não existe quando o pedido é escrito — chega quando
+o destinatário responde. Por isso saiu do formulário do pedido e ganhou janela própria
+(`Waiver.responder`), alcançável da tela de Waivers e de dentro do item, que é onde a lembrança
+costuma vir. Ela grava resultado, quem respondeu, quando e o parecer, e só então aplica o status
+final. Aprovado sugere o `statusFinal` pedido; recusado não sugere nada — nada se move por conta
+própria —, mas a caixa de registrar o parecer como observação aparece sozinha, porque uma recusa
+sem rastro no item é informação perdida. Vindo do item, `UI.detalhe` reabre no fim: o resultado da
+ação tem de ser visível onde a ação começou. Um waiver já respondido não oferece o botão de novo.
+
+O bloco de pergunta "o status atual é outro" é **um só** (`blocoDivergenciaHTML`), usado pela janela
+do pedido e pela da resposta: duas cópias divergiriam na primeira vez que uma fosse ajustada. As
+observações de ambas passam por `anotar`, que é o único lugar que empurra `{t:"obs"}` para o diário.
+
 **O desenho do documento**, e por quê: faixa cheia no topo em vez de caixa vazada (dá peso e separa
 identificação de conteúdo sem mais uma régua); um fio na cor da **situação** sob a faixa (aprovado
 ou não se lê de longe, com a folha na mesa); pílulas com a **cor real do status na base**, a mesma

@@ -2672,19 +2672,81 @@ const Waiver = {
       .filter(i=>i && String(i.status)!==String(alvo));
   },
 
-  /* O texto que fica no item quando o status muda por causa de um waiver.
-     Cabecalho com o numero e a transicao, e embaixo o que foi escrito: quem
-     abrir o item daqui a tres meses le POR QUE ele mudou, nao so que mudou. */
+  /* O texto que fica no item por causa de um waiver. Cabecalho com o numero e
+     a transicao, e embaixo o que foi escrito: quem abrir o item daqui a tres
+     meses le POR QUE ele mudou, nao so que mudou. Sem transicao (o waiver foi
+     recusado e nada se moveu) o cabecalho diz o resultado - a resposta do
+     destinatario e informacao do item mesmo sem mudanca de status. */
   textoObservacao(w, de, para, qual){
     const corpo = qual==="final" ? (w.decisaoObs || w.texto) : w.texto;
-    return (LANG==="pt"
-      ? `Waiver ${w.numero} — status alterado de "${de}" para "${para}".`
-      : `Waiver ${w.numero} — status changed from "${de}" to "${para}".`)
-      + (corpo ? `\n\n${corpo}` : "");
+    const quem = w.decisaoPor? (LANG==="pt"?` por ${w.decisaoPor}`:` by ${w.decisaoPor}`) : "";
+    const quando = w.decisaoEm? ` (${fmtD(w.decisaoEm)})` : "";
+    const cab = para
+      ? (LANG==="pt" ? `Waiver ${w.numero} — status alterado de "${de}" para "${para}".`
+                     : `Waiver ${w.numero} — status changed from "${de}" to "${para}".`)
+      : (LANG==="pt" ? `Waiver ${w.numero} — ${this.rotuloSituacao(w.situacao).toLowerCase()}${quem}${quando}.`
+                     : `Waiver ${w.numero} — ${this.rotuloSituacao(w.situacao).toLowerCase()}${quem}${quando}.`);
+    return cab + (corpo ? `\n\n${corpo}` : "");
   },
 
-  aplicar(w, qual="destino", {observacao=false, perguntar=true}={}){
-    const alvo = qual==="final" ? w.statusFinal : w.statusDestino;
+  /* Uma observacao por item, pelo caminho de qualquer observacao: entra no
+     diario como {t:"obs"} e e gravada na hora. Um lugar so, usado pela
+     aplicacao de status e pela resposta que nao move nada. */
+  anotar(itens, texto, autor){
+    let n = 0;
+    for(const alvo of itens){
+      const id = typeof alvo === "string" ? alvo : alvo.item;
+      const o = {id:uid(), item:id, criadoEm:agora(), autor,
+                 texto: typeof texto === "function" ? texto(alvo) : texto};
+      S.db.observacoes.push(o);
+      Pend.registrar({t:"obs", obj:o});
+      n++;
+    }
+    return n;
+  },
+
+  /* O bloco de pergunta "o status atual e outro". Uma implementacao so, usada
+     pela janela do pedido e pela janela da resposta - duas copias divergiriam
+     na primeira vez que uma das duas fosse ajustada. */
+  blocoDivergenciaHTML(lista, alvo, o={}){
+    const idApl = o.idApl || "wAplicar", idObs = o.idObs || "wObs";
+    if(!alvo || !lista.length) return "";
+    const fora = this.divergentes(lista, alvo);
+    if(!fora.length) return `<div class="muted" style="font-size:11.5px">✓ ${LANG==="pt"
+      ? `Os ${lista.length} item(ns) já estão em "${esc(alvo)}" — nada a mudar.`
+      : `All ${lista.length} item(s) are already at "${esc(alvo)}" — nothing to change.`}</div>`;
+    const porSt = new Map();
+    for(const i of fora) porSt.set(i.status, (porSt.get(i.status)||0)+1);
+    const de = [...porSt.entries()].sort((a,b)=>b[1]-a[1])
+      .map(([st,q])=>`<span class="pill" style="background:${R.corDe(st)}18;color:${R.corDe(st)};
+        border-color:${R.corDe(st)}55">${q}× ${esc(st)}</span>`).join(" ");
+    const trava = o.desabilitado? " disabled" : "";
+    return `<div class="panel pad" style="border-left:3px solid var(--warn);padding:9px 12px">
+      <div class="rowflex" style="gap:7px;margin-bottom:7px">
+        <b style="color:var(--warn)">${LANG==="pt"?"O status atual é outro":"The current status is different"}</b>
+        <span class="muted">${LANG==="pt"
+          ? `${fora.length} de ${lista.length} item(ns) não estão em "${esc(alvo)}":`
+          : `${fora.length} of ${lista.length} item(s) are not at "${esc(alvo)}":`}</span>
+      </div>
+      <div class="rowflex" style="gap:5px;margin-bottom:9px">${de}
+        <span style="opacity:.6">→</span>
+        <span class="pill" style="background:${R.corDe(alvo)}18;color:${R.corDe(alvo)};
+          border-color:${R.corDe(alvo)}55"><b>${esc(alvo)}</b></span></div>
+      <label class="rowflex" style="gap:7px"><input type="checkbox" id="${idApl}"${
+        o.aplMarcado && !o.desabilitado?" checked":""}${trava}>
+        <span>${esc(o.rotuloApl || (LANG==="pt"
+          ? `Alterar o status desses ${fora.length} item(ns)`
+          : `Change the status of these ${fora.length} item(s)`))}</span></label>
+      <label class="rowflex" style="gap:7px;margin-top:5px;margin-left:19px">
+        <input type="checkbox" id="${idObs}"${o.obsMarcado?" checked":""}${trava}>
+        <span>${esc(o.rotuloObs || (LANG==="pt"
+          ? "e registrar o texto do waiver como observação no item, junto dessa mudança"
+          : "and record the waiver text as a note on the item, alongside that change"))}</span></label>
+    </div>`;
+  },
+
+  aplicar(w, qual="destino", {observacao=false, perguntar=true, alvo=null}={}){
+    alvo = alvo || (qual==="final" ? w.statusFinal : w.statusDestino);
     if(!alvo) return toast(LANG==="pt"?"Este waiver não tem esse status definido"
                                       :"This waiver has no such status set","bad");
     const alvos = (w.itens||[]).filter(id=>S.db.itens.some(i=>i.item===id));
@@ -2695,20 +2757,16 @@ const Waiver = {
       : `Move ${fora.length} item(s) to "${alvo}"?\n\nEach becomes a pending change, just like a normal edit`
         + (observacao? `, and the waiver text is recorded as a note on the item.` : "."))) return;
     const autor = Usuario.garantir();
-    let n = 0;
-    for(const it of fora){
-      const de = it.status;
+    /* A observacao so entra para quem mudou de verdade: uma nota dizendo
+       "alterado de X para X" e ruido. O status de origem e lido ANTES da
+       mudanca, senao o texto sairia com o destino dos dois lados. */
+    const antes = new Map(fora.map(i=>[i.item, i.status]));
+    for(const it of fora)
       Pend.alterar(it.item, "status", alvo, {dataEfetiva:hoje(), motivo:`Waiver ${w.numero}`});
-      /* A observacao so entra depois da mudanca, e so para quem mudou de
-         verdade: uma observacao dizendo "alterado de X para X" e ruido. */
-      if(observacao){
-        const o = {id:uid(), item:it.item, texto:this.textoObservacao(w, de, alvo, qual),
-                   criadoEm:agora(), autor};
-        S.db.observacoes.push(o);
-        Pend.registrar({t:"obs", obj:o});
-      }
-      n++;
-    }
+    if(observacao)
+      this.anotar(fora.map(i=>i.item),
+                  id=>this.textoObservacao(w, antes.get(id), alvo, qual), autor);
+    const n = fora.length;
     const base = w.atualizadoEm;
     w.aplicado = {qual, em:agora(), por:autor, status:alvo, quantos:n, observacao:!!observacao};
     this.guardar(w, {base});
@@ -2789,12 +2847,14 @@ const Waiver = {
       <label class="fld" style="margin-bottom:11px">
         <span>${LANG==="pt"?"Condições e medidas compensatórias (opcional)":"Conditions and compensating measures (optional)"}</span>
         <textarea id="wCondicao" rows="3">${esc(w?.condicao||"")}</textarea></label>
-      <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(min(230px,100%),1fr));gap:11px">
-        <label class="fld"><span>${LANG==="pt"?"Parecer / quem decidiu":"Decision / decided by"}</span>
-          <input type="text" id="wDecPor" value="${esc(w?.decisaoPor||"")}"></label>
-        <label class="fld"><span>${LANG==="pt"?"Observação do parecer":"Decision note"}</span>
-          <input type="text" id="wDecObs" value="${esc(w?.decisaoObs||"")}"></label>
-      </div>`,
+      ${w?.decisaoObs?`<div class="panel pad" style="border-left:3px solid var(--ok);padding:9px 12px">
+        <b>${LANG==="pt"?"Parecer registrado":"Recorded decision"}</b>
+        <span class="muted">${esc(w.decisaoPor||"")}${w.decisaoEm?" · "+esc(fmtD(w.decisaoEm)):""}</span>
+        <div style="margin-top:5px;white-space:pre-wrap;font-size:11.5px">${esc(w.decisaoObs)}</div>
+        <div class="muted" style="font-size:11px;margin-top:6px">${LANG==="pt"
+          ? "Para mudar o parecer, use \u201cRegistrar resposta\u201d na janela do waiver."
+          : "To change the decision, use \u201cRecord the answer\u201d in the waiver window."}</div>
+      </div>`:""}`,
       [{txt:T("fechar"), cls:"btn", fn:()=>UI.fechar()},
        ...(w ? [{txt:T("imprimir"), cls:"btn", fn:()=>{ const n=this.ler(w); if(n.erro) return toast(n.erro,"bad");
                                                         this.guardar(n.w,{base:w.atualizadoEm}); this.imprimir([n.w]); }}] : []),
@@ -2851,38 +2911,11 @@ const Waiver = {
       const lista = [...sel];
       if(!alvo || !lista.length){ cx.innerHTML = ""; return; }
       const fora = this.divergentes(lista, alvo);
-      if(!fora.length){
-        cx.innerHTML = `<div class="muted" style="font-size:11.5px">✓ ${LANG==="pt"
-          ? `Os ${lista.length} item(ns) já estão em "${esc(alvo)}" — nada a mudar.`
-          : `All ${lista.length} item(s) are already at "${esc(alvo)}" — nothing to change.`}</div>`;
-        return;
-      }
-      /* Quantos estão em cada status hoje: é o que torna a pergunta concreta. */
-      const porSt = new Map();
-      for(const i of fora) porSt.set(i.status, (porSt.get(i.status)||0)+1);
-      const de = [...porSt.entries()].sort((a,b)=>b[1]-a[1])
-        .map(([st,q])=>`<span class="pill" style="background:${R.corDe(st)}18;color:${R.corDe(st)};
-          border-color:${R.corDe(st)}55">${q}× ${esc(st)}</span>`).join(" ");
-      cx.innerHTML = `<div class="panel pad" style="border-left:3px solid var(--warn);padding:9px 12px">
-        <div class="rowflex" style="gap:7px;margin-bottom:7px">
-          <b style="color:var(--warn)">${LANG==="pt"?"O status atual é outro":"The current status is different"}</b>
-          <span class="muted">${LANG==="pt"
-            ? `${fora.length} de ${lista.length} item(ns) não estão em "${esc(alvo)}":`
-            : `${fora.length} of ${lista.length} item(s) are not at "${esc(alvo)}":`}</span>
-        </div>
-        <div class="rowflex" style="gap:5px;margin-bottom:9px">${de}
-          <span style="opacity:.6">→</span>
-          <span class="pill" style="background:${R.corDe(alvo)}18;color:${R.corDe(alvo)};
-            border-color:${R.corDe(alvo)}55"><b>${esc(alvo)}</b></span></div>
-        <label class="rowflex" style="gap:7px"><input type="checkbox" id="wAplicar"${
-          antesApl && !passivo?" checked":""}${passivo?" disabled":""}>
-          <span>${LANG==="pt"?`Alterar o status desses ${fora.length} item(ns) ao salvar o waiver`
-                             :`Change the status of these ${fora.length} item(s) when the waiver is saved`}</span></label>
-        <label class="rowflex" style="gap:7px;margin-top:5px;margin-left:19px">
-          <input type="checkbox" id="wObs"${antesObs?" checked":""}${passivo?" disabled":""}>
-          <span>${LANG==="pt"?"e registrar o texto do waiver como observação no item, junto dessa mudança"
-                             :"and record the waiver text as a note on the item, alongside that change"}</span></label>
-      </div>`;
+      cx.innerHTML = this.blocoDivergenciaHTML(lista, alvo, {
+        aplMarcado:antesApl, obsMarcado:antesObs, desabilitado:passivo,
+        rotuloApl: LANG==="pt" ? `Alterar o status desses ${fora.length} item(ns) ao salvar o waiver`
+                               : `Change the status of these ${fora.length} item(s) when the waiver is saved`,
+      });
     };
     this.__pintarDivergencia = pintarDivergencia;
 
@@ -2922,11 +2955,12 @@ const Waiver = {
       dataDocumento: v("Data") || hoje(),
       referencia: v("Ref"),
       condicao: String($("#wCondicao")?.value ?? "").trim(),
-      decisaoPor: v("DecPor"), decisaoObs: v("DecObs"),
       criadoEm: w?.criadoEm || agora(),
       autor: w?.autor || Usuario.garantir(),
     };
-    if(novo.decisaoPor && !novo.decisaoEm) novo.decisaoEm = agora();
+    /* O parecer NAO e lido daqui: ele so existe depois que o destinatario
+       responde e tem janela propria (responder). O spread acima preserva o que
+       ja estiver gravado - editar o pedido nao pode apagar a resposta. */
     return {w:novo};
   },
 
@@ -2945,6 +2979,137 @@ const Waiver = {
            toast(LANG==="pt"?`Waiver ${novo.numero} salvo`:`Waiver ${novo.numero} saved`,"ok"); }
   },
 
+  /* ------------------------ a resposta, depois --------------------------
+     O parecer nao existe na hora do pedido: ele chega quando o destinatario
+     responde, dias ou semanas depois. Este e o momento em que o waiver deixa
+     de ser pedido e vira decisao - entra quem respondeu, quando, o que disse,
+     e SO AGORA o status final e aplicado.
+
+     Alcancavel dos dois lados, porque a lembranca vem dos dois lados: da tela
+     de Waivers (o waiver na mao) e de dentro do item (o item na mao). Vindo do
+     item, a janela do item reabre depois, para a pessoa ver o status novo e a
+     observacao que acabou de nascer.
+
+     A resposta vale para o waiver INTEIRO - todos os itens que ele cobre -
+     porque foi para o waiver inteiro que o destinatario respondeu.            */
+  responder(id, {voltarAoItem=null}={}){
+    if(!S.db || !EDITAVEL) return;
+    const w = this.porId(id); if(!w) return;
+    const ativos = R.statusAtivos();
+    const itens = (w.itens||[]).filter(x=>S.db.itens.some(i=>i.item===x));
+    const pt = LANG==="pt";
+    const resultados = ["aprovado","recusado","cancelado"];
+    const inicial = resultados.includes(w.situacao) ? w.situacao : "aprovado";
+
+    UI.modal(`${pt?"Resposta ao waiver":"Waiver response"} ${w.numero}`, `
+      <p class="muted" style="margin-bottom:12px">${pt
+        ? `Esta é a resposta do destinatário, registrada quando ela chega. Vale para <b>os ${itens.length} item(ns)</b> que o waiver cobre.`
+        : `This is the addressee's answer, recorded when it arrives. It applies to <b>all ${itens.length} item(s)</b> the waiver covers.`}</p>
+      <div class="panel pad" style="margin-bottom:13px;padding:9px 12px">
+        <div class="rowflex" style="gap:8px">
+          <b>${esc(w.numero)}</b>
+          <span class="muted" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${
+            esc(w.assunto || limparTexto(w.texto,{quebras:"achatar"}).slice(0,80))}</span>
+          ${w.para?`<span class="tag">${esc(w.para)}</span>`:""}
+        </div>
+      </div>
+
+      <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(min(200px,100%),1fr));gap:11px">
+        <label class="fld"><span>${pt?"Resultado":"Outcome"}</span>
+          <select id="wrResultado">${resultados.map(x=>{ const st=this.situacao(x);
+            return `<option value="${x}"${x===inicial?" selected":""}>${esc(pt?st.pt:st.en)}</option>`;}).join("")}</select></label>
+        <label class="fld"><span>${pt?"Quem respondeu":"Answered by"}</span>
+          <input type="text" id="wrPor" value="${esc(w.decisaoPor || w.para || "")}"></label>
+        <label class="fld"><span>${pt?"Data da resposta":"Answer date"}</span>
+          <input type="date" id="wrData" value="${esc((w.decisaoEm||agora()).slice(0,10))}" max="${hoje()}"></label>
+      </div>
+
+      <label class="fld" style="margin:11px 0"><span>${pt?"Parecer":"Decision note"} *</span>
+        <textarea id="wrParecer" rows="6" placeholder="${pt
+          ? "o que o destinatário respondeu" : "what the addressee answered"}">${esc(w.decisaoObs||"")}</textarea></label>
+
+      <div class="sep"></div>
+      <label class="fld"><span>${pt?"Status a aplicar nos itens":"Status to apply to the items"}</span>
+        <select id="wrStatus"><option value="">${pt?"— não mexer no status —":"— leave status alone —"}</option>
+          ${ativos.map(v=>`<option value="${esc(v)}">${esc(v)}</option>`).join("")}</select></label>
+      <p class="muted" style="font-size:11.5px;margin-top:5px">${pt
+        ? `O status final desejado deste waiver é <b>${esc(w.statusFinal||"—")}</b>.`
+        : `This waiver's desired final status is <b>${esc(w.statusFinal||"—")}</b>.`}</p>
+      <div id="wrDiv" style="margin-top:10px"></div>`,
+      [{txt:T("cancelar"), cls:"btn", fn:()=>UI.fechar()},
+       {txt:pt?"Registrar resposta":"Record the answer", cls:"btn pri",
+        fn:()=>this.gravarResposta(w, {voltarAoItem})}],
+      {confirmarSaida:true});
+
+    const res = $("#wrResultado"), st = $("#wrStatus");
+    /* Aprovado leva ao status final pedido; recusado nao mexe em nada por
+       conta propria - quem decide onde o item fica e quem le a recusa. */
+    /* O valor entra por parametro na abertura: e o que a janela nasceu com,
+       nao o que o navegador conseguiu devolver do <select> ainda. */
+    const sugerir = (v)=>{
+      if(!st) return;
+      st.value = (v ?? res?.value) === "aprovado" ? (w.statusFinal || "") : "";
+      pintar();
+    };
+    const pintar = ()=>{
+      const cx = $("#wrDiv"); if(!cx) return;
+      const marcado = k => { const el=$("#"+k); return el? !!el.checked : true; };
+      const bloco = this.blocoDivergenciaHTML(itens, st?.value || "", {
+        idApl:"wrAplicar", idObs:"wrObs",
+        aplMarcado: marcado("wrAplicar"), obsMarcado: marcado("wrObs"),
+        rotuloObs: pt ? "e registrar o parecer como observação no item, junto dessa mudança"
+                      : "and record the decision note on the item, alongside that change",
+      });
+      /* Sem mudanca de status - uma recusa, tipicamente - nao ha bloco de
+         pergunta, mas a resposta continua valendo a pena no item: a caixa da
+         observacao aparece sozinha. Sem isto, recusar um waiver nao deixava
+         rastro nenhum em nenhum dos itens. */
+      const temPergunta = bloco.includes(`id="wrAplicar"`);
+      cx.innerHTML = bloco + (temPergunta ? "" : `
+        <label class="rowflex" style="gap:7px;margin-top:${bloco?"8px":"0"}">
+          <input type="checkbox" id="wrObs"${marcado("wrObs")?" checked":""}>
+          <span>${pt ? `Registrar o parecer como observação nos ${itens.length} item(ns) do waiver`
+                     : `Record the decision note on the waiver's ${itens.length} item(s)`}</span></label>`);
+    };
+    if(res) res.onchange = ()=>sugerir();
+    if(st)  st.onchange  = pintar;
+    sugerir(inicial);
+    $("#wrParecer")?.focus?.();
+  },
+
+  gravarResposta(w, {voltarAoItem=null}={}){
+    const parecer = String($("#wrParecer")?.value ?? "").trim();
+    if(!parecer) return toast(LANG==="pt"?"Escreva o parecer da resposta."
+                                         :"Write the decision note.","bad");
+    const itens = (w.itens||[]).filter(x=>S.db.itens.some(i=>i.item===x));
+    const alvo = $("#wrStatus")?.value || "";
+    const aplicar = alvo && !!$("#wrAplicar")?.checked;
+    const comObs = !!$("#wrObs")?.checked;
+    const autor = Usuario.garantir();
+
+    const base = w.atualizadoEm;
+    w.situacao   = $("#wrResultado")?.value || w.situacao;
+    w.decisaoPor = String($("#wrPor")?.value ?? "").trim();
+    w.decisaoEm  = $("#wrData")?.value || hoje();
+    w.decisaoObs = parecer;
+    this.guardar(w, {base});
+    UI.fechar();
+
+    if(aplicar){
+      /* A pergunta ja foi feita na janela, com os numeros na frente. */
+      this.aplicar(w, "final", {observacao:comObs, perguntar:false, alvo});
+    }else{
+      /* Sem mudanca de status o parecer continua sendo informacao do item -
+         uma recusa e exatamente o que alguem vai querer ler la dentro. */
+      if(comObs) this.anotar(itens, this.textoObservacao(w, null, null, "final"), autor);
+      Pend.autosave();
+      Render.atual();
+      toast(LANG==="pt"?`Resposta registrada em ${w.numero}`
+                       :`Answer recorded on ${w.numero}`,"ok");
+    }
+    if(voltarAoItem) UI.detalhe(voltarAoItem);
+  },
+
   /* ---------------------------- so olhar ------------------------------ */
   ver(id){
     const w = this.porId(id); if(!w) return;
@@ -2956,6 +3121,9 @@ const Waiver = {
           <i class="dot" style="background:${cor}"></i>${esc(this.rotuloSituacao(w.situacao))}</span>
         ${w.origem==="passivo"?`<span class="tag">${LANG==="pt"?"passivo (feito à mão)":"backlog (by hand)"}</span>`:""}
         ${w.aplicado?`<span class="tag" title="${esc(fmtDT(w.aplicado.em))}">${LANG==="pt"?"status aplicado":"status applied"}: ${esc(w.aplicado.status)}</span>`:""}
+        ${!w.decisaoObs && ["rascunho","enviado"].includes(w.situacao)
+          ? `<span class="tag" style="color:var(--warn);border-color:var(--warn)">${LANG==="pt"
+              ? "aguardando a resposta do destinatário" : "waiting for the addressee's answer"}</span>` : ""}
       </div>
       <dl class="kv">
         ${linha(LANG==="pt"?"Assunto":"Subject", esc(w.assunto))}
@@ -2967,7 +3135,8 @@ const Waiver = {
         ${linha(LANG==="pt"?"Itens":"Items", (w.itens||[]).map(x=>
             `<span class="tag" data-wvi="${esc(x)}" style="cursor:pointer">${esc(x)}</span>`).join(" "))}
         ${linha(LANG==="pt"?"Aberto por":"Opened by", esc(w.autor)+" &middot; "+esc(fmtDT(w.criadoEm)))}
-        ${linha(LANG==="pt"?"Parecer":"Decision", esc(w.decisaoPor)+(w.decisaoObs?" &mdash; "+esc(w.decisaoObs):""))}
+        ${linha(LANG==="pt"?"Respondido por":"Answered by",
+                esc(w.decisaoPor)+(w.decisaoEm?" &middot; "+esc(fmtD(w.decisaoEm)):""))}
       </dl>
       <div class="sep"></div>
       <h3 style="border:0;padding:0;font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--fg-3)">
@@ -2976,14 +3145,20 @@ const Waiver = {
       ${w.condicao?`<div class="sep"></div>
         <h3 style="border:0;padding:0;font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--fg-3)">
           ${LANG==="pt"?"Condições":"Conditions"}</h3>
-        <div style="white-space:pre-wrap;margin-top:6px">${esc(w.condicao)}</div>`:""}`,
+        <div style="white-space:pre-wrap;margin-top:6px">${esc(w.condicao)}</div>`:""}
+      ${w.decisaoObs?`<div class="sep"></div>
+        <h3 style="border:0;padding:0;font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--fg-3)">
+          ${LANG==="pt"?"Parecer do destinatário":"Addressee's answer"}</h3>
+        <div class="panel pad" style="border-left:3px solid ${cor};margin-top:6px;padding:9px 12px">
+          <div style="white-space:pre-wrap;line-height:1.55">${esc(w.decisaoObs)}</div></div>`:""}`,
       [{txt:T("fechar"), cls:"btn", fn:()=>UI.fechar()},
        ...(EDITAVEL ? [
          {txt:LANG==="pt"?"Apagar":"Delete", cls:"btn danger",
           fn:()=>{ if(this.excluir(w)){ UI.fechar(); Render.atual(); } }},
-         {txt:LANG==="pt"?"Aplicar status final":"Apply final status", cls:"btn",
-          fn:()=>{ UI.fechar(); this.aplicar(w,"final",{observacao:true}); }},
-         {txt:LANG==="pt"?"Editar":"Edit", cls:"btn", fn:()=>this.painel({id:w.id})}] : []),
+         {txt:LANG==="pt"?"Editar pedido":"Edit request", cls:"btn", fn:()=>this.painel({id:w.id})},
+         {txt:w.decisaoObs ? (LANG==="pt"?"Rever resposta":"Revise the answer")
+                           : (LANG==="pt"?"Registrar resposta":"Record the answer"),
+          cls:"btn", fn:()=>this.responder(w.id)}] : []),
        {txt:T("imprimir"), cls:"btn pri", fn:()=>this.imprimir([w])}]);
     $$("[data-wvi]").forEach(t=>t.onclick=()=>UI.detalhe(t.dataset.wvi));
   },
@@ -3002,6 +3177,11 @@ const Waiver = {
           <span class="pill" style="background:${c}18;color:${c};border-color:${c}55">${esc(this.rotuloSituacao(w.situacao))}</span>
           <b>${esc(w.numero)}</b>
           <span class="muted" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(w.assunto||w.texto)}</span>
+          ${EDITAVEL && !w.decisaoObs && ["rascunho","enviado"].includes(w.situacao)
+            ? `<button class="btn sm pri" data-wvr="${esc(w.id)}" title="${LANG==="pt"
+                 ? "O destinatário respondeu: registrar o parecer e aplicar o status final"
+                 : "The addressee answered: record the decision and apply the final status"}">${
+                 LANG==="pt"?"Responder":"Answer"}</button>` : ""}
           <button class="btn sm" data-wvv="${esc(w.id)}">${LANG==="pt"?"Abrir":"Open"}</button>
         </div>`; }).join("")
         : `<div class="muted" style="font-size:11.5px;margin-top:5px">${LANG==="pt"
@@ -3012,6 +3192,9 @@ const Waiver = {
     const b = $("#wvNovoDoItem");
     if(b) b.onclick = ()=>this.painel({itens:[itemId]});
     $$("[data-wvv]").forEach(x=>x.onclick=()=>this.ver(x.dataset.wvv));
+    /* Vindo do item, a janela do item reabre depois: e la que a pessoa vai
+       conferir o status novo e a observacao que acabou de nascer. */
+    $$("[data-wvr]").forEach(x=>x.onclick=()=>this.responder(x.dataset.wvr, {voltarAoItem:itemId}));
   },
 
   /* --------------------------- o documento ---------------------------

@@ -53,23 +53,43 @@ function elemento(doc){
       if(!doc) return;
       for(const id of el.__ids) doc.porId.delete(id);
       for(const k of el.__dados) doc.porDados.get(k.attr)?.delete(k.valor);
-      el.__ids = [...html.matchAll(/id="([\w-]+)"/g)].map(m=>m[1]);
-      for(const id of el.__ids){ const e=elemento(doc); e.id=id; doc.porId.set(id,e); }
-
-      el.__dados = [];
-      /* uma tag por vez, para que o class= lido seja o da MESMA tag do data-* */
+      el.__ids = []; el.__dados = [];
+      /* uma tag por vez, para que o class=, o value= e o checked lidos sejam os
+         da MESMA tag do id/data-* */
       for(const [tag] of html.matchAll(/<[a-zA-Z][^>]*>/g)){
         const classes = (/class="([^"]*)"/.exec(tag)?.[1] || "").split(/\s+/).filter(Boolean);
         const idDaTag = /id="([\w-]+)"/.exec(tag)?.[1] || "";
-        for(const [,attr,valor] of tag.matchAll(/data-([a-zA-Z0-9-]+)="([^"]*)"/g)){
-          const e = idDaTag && doc.porId.get(idDaTag) || elemento(doc);
-          if(idDaTag) e.id = idDaTag;
-          e.dataset[attr.replace(/-([a-z])/g,(_,c)=>c.toUpperCase())] = valor;
+        let e = null;
+        if(idDaTag){
+          e = elemento(doc); e.id = idDaTag;
+          /* O estado inicial vem do proprio texto, como no navegador: value="…"
+             e o atributo checked. Sem isto, uma caixa desenhada JA MARCADA
+             aparecia desmarcada aqui, e o teste do caminho "ler a janela e
+             guardar" nao via o padrao que a tela oferece. */
+          const v = /\svalue="([^"]*)"/.exec(tag);
+          if(v) e.value = v[1];
+          if(/\schecked(?=[\s/>])/.test(tag)) e.checked = true;
           classes.forEach(c=>e.classList.add(c));
+          doc.porId.set(idDaTag, e);
+          el.__ids.push(idDaTag);
+        }
+        for(const [,attr,valor] of tag.matchAll(/data-([a-zA-Z0-9-]+)="([^"]*)"/g)){
+          const alvo = e || elemento(doc);
+          alvo.dataset[attr.replace(/-([a-z])/g,(_,c)=>c.toUpperCase())] = valor;
+          if(!e) classes.forEach(c=>alvo.classList.add(c));
           if(!doc.porDados.has(attr)) doc.porDados.set(attr, new Map());
-          doc.porDados.get(attr).set(valor, e);
+          doc.porDados.get(attr).set(valor, alvo);
           el.__dados.push({attr, valor});
         }
+      }
+      /* <select>: no navegador o valor e o da <option selected> (ou, sem
+         nenhuma, o da primeira). Sem esta passada, toda janela que abre com
+         uma escolha ja feita aparecia vazia aqui. */
+      for(const m of html.matchAll(/<select[^>]*\bid="([\w-]+)"[^>]*>([\s\S]*?)<\/select>/g)){
+        const alvo = doc.porId.get(m[1]); if(!alvo) continue;
+        const op = /<option([^>]*\sselected[^>]*)>([\s\S]*?)<\/option>/.exec(m[2])
+                || /<option([^>]*)>([\s\S]*?)<\/option>/.exec(m[2]);
+        if(op) alvo.value = /\svalue="([^"]*)"/.exec(op[1])?.[1] ?? op[2].trim();
       }
     },
   });
