@@ -1834,6 +1834,25 @@ const Waiver = {
      de qualquer outra tela, com o numero do waiver como motivo. A mudanca
      entra no historico do item dizendo de onde veio, vira pendente e e gravada
      como todas as outras. */
+  /* Quem nao esta no status alvo. E o que a janela pergunta e o que o
+     documento mostra: nao adianta dizer "3 itens" quando um deles ja esta la. */
+  divergentes(itens, alvo){
+    if(!alvo) return [];
+    return (itens||[]).map(id=>S.db?.itens.find(i=>i.item===id))
+      .filter(i=>i && String(i.status)!==String(alvo));
+  },
+
+  /* O texto que fica no item quando o status muda por causa de um waiver.
+     Cabecalho com o numero e a transicao, e embaixo o que foi escrito: quem
+     abrir o item daqui a tres meses le POR QUE ele mudou, nao so que mudou. */
+  textoObservacao(w, de, para, qual){
+    const corpo = qual==="final" ? (w.decisaoObs || w.texto) : w.texto;
+    return (LANG==="pt"
+      ? `Waiver ${w.numero} — status alterado de "${de}" para "${para}".`
+      : `Waiver ${w.numero} — status changed from "${de}" to "${para}".`)
+      + (corpo ? `\n\n${corpo}` : "");
+  },
+
   aplicar(){ toast(LANG==="pt"?"Esta é a tela de consulta — o waiver é pedido no sistema"
                         :"Read-only viewer — waivers are requested in the app","warn"); },
 
@@ -1908,7 +1927,7 @@ const Waiver = {
          {txt:LANG==="pt"?"Apagar":"Delete", cls:"btn danger",
           fn:()=>{ if(this.excluir(w)){ UI.fechar(); Render.atual(); } }},
          {txt:LANG==="pt"?"Aplicar status final":"Apply final status", cls:"btn",
-          fn:()=>{ UI.fechar(); this.aplicar(w,"final"); }},
+          fn:()=>{ UI.fechar(); this.aplicar(w,"final",{observacao:true}); }},
          {txt:LANG==="pt"?"Editar":"Edit", cls:"btn", fn:()=>this.painel({id:w.id})}] : []),
        {txt:T("imprimir"), cls:"btn pri", fn:()=>this.imprimir([w])}]);
     $$("[data-wvi]").forEach(t=>t.onclick=()=>UI.detalhe(t.dataset.wvi));
@@ -1940,74 +1959,166 @@ const Waiver = {
     $$("[data-wvv]").forEach(x=>x.onclick=()=>this.ver(x.dataset.wvv));
   },
 
-  /* --------------------------- o documento ---------------------------- */
-  /* Folha de estilo propria: um waiver e um documento formal, nao um relatorio
-     de dados. Herda do relatorio o corpo, a tabela e o rodape (Export.moldura),
-     e acrescenta o cabecalho de oficio, a faixa da tramitacao e as assinaturas.
-     Retrato, sempre: e um documento que se assina. */
+  /* --------------------------- o documento ---------------------------
+     Folha de estilo propria: um waiver e um documento formal, nao um relatorio
+     de dados. Herda do relatorio o corpo, a tabela e o rodape (Export.moldura)
+     e acrescenta o que faz um oficio parecer um oficio.
+
+     As decisoes de desenho, em uma linha cada:
+       - faixa cheia no topo em vez de caixa vazada: da peso ao documento e
+         separa a identificacao do conteudo sem uma regua a mais;
+       - o fio colorido sob a faixa e a cor da SITUACAO - da para saber se um
+         waiver foi aprovado de longe, com a folha na mesa;
+       - as pilulas de status usam a cor real do status na base, a mesma da
+         tela: o papel e a tela falam a mesma lingua;
+       - tres etapas na tramitacao (de onde esta -> para onde vai agora -> onde
+         deve parar), porque duas escondiam a informacao que mais importa: o
+         item nao esta onde o waiver supoe;
+       - cada bloco de texto tem uma barra lateral de cor propria (azul para o
+         pedido, verde para as condicoes, ambar para o parecer): quem folheia
+         acha a secao sem ler o titulo;
+       - marca d'agua so em rascunho e cancelado - um papel que nao vale nao
+         pode parecer que vale. */
   cssWaiver(){ return `
-  .waiver { break-after:page; page-break-after:always; }
+  /* A moldura do relatorio afasta o conteudo das bordas para ficar bonito na
+     TELA; no papel quem afasta e a margem da @page, entao esse respiro extra e
+     so folha desperdicada - e sao 28px, que e o que faz um waiver bem escrito
+     caber ou nao caber. */
+  @media print { .folha { padding:0; } }
+  /* Margem propria, menor que a do relatorio: aqui a folha e um documento
+     unico e cada milimetro de sobra decide se o waiver bem escrito cabe numa
+     folha ou deixa as assinaturas orfas na seguinte. 10mm continua dentro da
+     area imprimivel de qualquer impressora de escritorio. */
+  @page { size: A4 portrait; margin: 10mm 10mm 12mm; }
+  .waiver { break-after:page; page-break-after:always; position:relative; }
   .waiver:last-of-type { break-after:auto; page-break-after:auto; }
-  .wtopo { display:flex; justify-content:space-between; align-items:flex-start; gap:16px;
-           border:1.5px solid #2F5FA8; border-radius:4px; padding:9px 12px; margin-bottom:10px; }
-  .wtopo .esq .marca { font-size:9.5px; letter-spacing:.12em; text-transform:uppercase; color:#2F5FA8; font-weight:700; }
-  .wtopo .esq h1 { font-size:17px; margin:2px 0 0; letter-spacing:-.01em; }
-  .wtopo .esq .ass { font-size:11px; color:#3a4150; margin-top:2px; }
-  .wtopo .dir { text-align:right; flex:none; }
-  .wtopo .dir .num { font-size:15px; font-weight:700; font-variant-numeric:tabular-nums; }
-  .wtopo .dir .sit { display:inline-block; margin-top:3px; padding:1px 8px; border-radius:9px;
-                     font-size:9.5px; font-weight:700; text-transform:uppercase; letter-spacing:.05em;
-                     border:1px solid currentColor; }
-  .wficha { display:grid; grid-template-columns:repeat(4,1fr); gap:0; border:1px solid #d6d9e0;
-            border-radius:4px; overflow:hidden; margin-bottom:12px; }
-  .wficha > div { padding:5px 9px; border-right:1px solid #e6e8ec; border-bottom:1px solid #e6e8ec; }
+  .waiver > * { position:relative; z-index:1; }
+
+  /* ---- marca d'agua: so no que ainda nao vale ----
+     POR CIMA do conteudo, nao atras: atras dos paineis brancos ela sumia e o
+     rascunho saia com cara de documento valido. Contornada em vez de
+     preenchida - le-se de longe sem cobrir uma linha sequer do texto. */
+  .wmarca { position:absolute; inset:0; z-index:2; display:flex; align-items:center;
+            justify-content:center; pointer-events:none; }
+  .wmarca span { font-size:80px; font-weight:800; letter-spacing:.22em; text-transform:uppercase;
+                 color:transparent; -webkit-text-stroke:2px rgba(17,36,63,.17);
+                 transform:rotate(-24deg); white-space:nowrap; }
+
+  /* ---- cabecalho ---- */
+  .wtopo { display:flex; justify-content:space-between; align-items:stretch; gap:16px;
+           background:linear-gradient(100deg,#11243f 0%,#22467a 58%,#2f5fa8 100%);
+           color:#fff; border-radius:7px 7px 0 0; padding:11px 17px; }
+  .wtopo .esq { min-width:0; }
+  .wtopo .esq .marca { font-size:8px; letter-spacing:.18em; text-transform:uppercase;
+                       color:#9cc0ee; font-weight:700; }
+  .wtopo .esq h1 { font-size:18.5px; margin:3px 0 0; font-weight:650; letter-spacing:.005em; color:#fff; }
+  .wtopo .esq .ass { font-size:11px; color:#cddff5; margin-top:3px; overflow-wrap:anywhere; }
+  .wtopo .dir { flex:none; text-align:right; display:flex; flex-direction:column;
+                justify-content:space-between; align-items:flex-end; }
+  .wtopo .dir .rot { font-size:7.5px; letter-spacing:.16em; text-transform:uppercase; color:#9cc0ee; }
+  .wtopo .dir .num { font-size:18px; font-weight:750; font-variant-numeric:tabular-nums; letter-spacing:.02em; }
+  .wtopo .dir .sit { margin-top:6px; padding:2px 11px; border-radius:20px; background:#fff;
+                     font-size:8.5px; font-weight:800; text-transform:uppercase; letter-spacing:.1em; }
+  .wfio { height:4px; border-radius:0 0 3px 3px; margin-bottom:11px; }
+
+  /* ---- ficha de identificacao ---- */
+  .wficha { display:grid; grid-template-columns:repeat(4,1fr); border:1px solid #dbe3ef;
+            border-radius:6px; overflow:hidden; margin:0 0 4px; background:#fff; }
+  .wficha > div { padding:4px 11px; border-right:1px solid #e9eef6; border-bottom:1px solid #e9eef6; }
   .wficha > div:nth-child(4n) { border-right:0; }
-  .wficha dt { font-size:8.5px; text-transform:uppercase; letter-spacing:.06em; color:#6b7280; }
-  .wficha dd { margin:1px 0 0; font-size:11px; font-weight:600; overflow-wrap:anywhere; }
-  .wsec { margin-top:11px; }
-  .wsec > h2 { font-size:10.5px; text-transform:uppercase; letter-spacing:.06em; color:#2F5FA8;
-               border-bottom:1px solid #d6d9e0; padding-bottom:3px; margin:0 0 6px; }
-  .wtexto { white-space:pre-wrap; font-size:11px; line-height:1.55; text-align:justify;
-            border:1px solid #e6e8ec; border-radius:4px; padding:9px 11px; background:#fcfcfd;
-            min-height:34mm; }
-  .wtram { display:flex; align-items:stretch; gap:0; }
-  .wtram .cx { flex:1; border:1px solid #d6d9e0; border-radius:4px; padding:6px 9px; text-align:center; background:#fafbfc; }
-  .wtram .cx .lab { display:block; font-size:8.5px; text-transform:uppercase; letter-spacing:.06em; color:#6b7280; }
-  .wtram .cx b { font-size:11px; overflow-wrap:anywhere; }
-  .wtram .seta { display:flex; align-items:center; padding:0 9px; color:#2F5FA8; font-size:15px; font-weight:700; }
-  .witens th { font-size:8.5px; }
-  /* Quebra na palavra, nao no meio dela: "Shipyard prerequisites" cortado em
-     "prerequisit / es" fica ilegivel numa coluna estreita. */
-  .witens td { font-size:10px; overflow-wrap:break-word; }
-  /* O espaco de assinar fica ACIMA da linha - e ali que se assina. A margem do
-     topo e esse espaco; a linha e a borda de cima de cada bloco. */
-  .wassin { display:grid; grid-template-columns:repeat(3,1fr); gap:14px; margin-top:6px; break-inside:avoid; }
-  .wassin .lin { border-top:1px solid #16181d; padding-top:4px; margin-top:18mm;
-                 font-size:9.5px; color:#3a4150; }
-  .wassin .lin b { display:block; font-size:10px; color:#16181d; }
-  .wassin .lin span { color:#6b7280; }
-  .wnota { font-size:9px; color:#6b7280; margin-top:8px; }`; },
+  .wficha > div:nth-last-child(-n+4) { border-bottom:0; background:#f7f9fc; }
+  .wficha dt { font-size:7.5px; text-transform:uppercase; letter-spacing:.11em; color:#8a97a8; font-weight:700; }
+  .wficha dd { margin:2px 0 0; font-size:11px; font-weight:600; color:#16181d; overflow-wrap:anywhere; }
+
+  /* ---- secoes numeradas ---- */
+  .wsec { margin-top:9px; break-inside:avoid; }
+  .wsec > h2 { display:flex; align-items:center; gap:8px; margin:0 0 6px; padding:0 0 4px;
+               font-size:10px; text-transform:uppercase; letter-spacing:.11em; color:#11243f;
+               font-weight:700; border-bottom:1.5px solid #dbe3ef; }
+  .wsec > h2 .n { display:inline-flex; align-items:center; justify-content:center; flex:none;
+                  width:17px; height:17px; border-radius:50%; background:#2f5fa8; color:#fff;
+                  font-size:9px; font-weight:700; letter-spacing:0; }
+  .wsec > h2 .aux { margin-left:auto; font-weight:500; letter-spacing:.02em; text-transform:none;
+                    color:#8a97a8; font-size:9.5px; }
+
+  /* ---- tramitacao: de onde esta, para onde vai agora, onde deve parar ---- */
+  .wtram { display:flex; align-items:stretch; }
+  .wtram .cx { flex:1; min-width:0; border:1px solid #dbe3ef; border-top:3px solid #9db1cc;
+               border-radius:6px; padding:8px 10px; background:#fff; text-align:center; }
+  /* A do meio e a ACAO que se pede - as duas vizinhas sao contexto. */
+  .wtram .cx.agora { background:#f4f8fd; border-color:#c3d4ea; border-top-width:4px; }
+  .wtram .cx .lab { display:block; font-size:7.5px; text-transform:uppercase; letter-spacing:.11em;
+                    color:#8a97a8; font-weight:700; margin-bottom:5px; }
+  .wtram .cx .val { display:flex; flex-direction:column; gap:3px; align-items:center; }
+  .wtram .seta { display:flex; align-items:center; padding:0 9px; color:#b3c4da; font-size:17px; font-weight:700; }
+
+  /* ---- pilula de status, com a cor real do status na base ---- */
+  .stp { display:inline-block; padding:1px 8px; border-radius:20px; font-size:9.5px; font-weight:700;
+         border:1px solid currentColor; white-space:nowrap; max-width:100%; overflow-wrap:break-word; }
+
+  /* ---- tabela dos itens ---- */
+  table.witens th { background:#11243f; border-color:#11243f; font-size:8.5px; letter-spacing:.09em; }
+  table.witens td { font-size:10px; border-color:#e4eaf3; overflow-wrap:break-word; padding:3px 6px; }
+  table.witens tbody tr:nth-child(even) td { background:#f7f9fc; }
+  table.witens td.cod b { font-size:10.5px; }
+
+  /* ---- blocos de texto, cada um com a sua cor ---- */
+  .wtexto { white-space:pre-wrap; font-size:11px; line-height:1.55; text-align:justify; color:#16181d;
+            border:1px solid #e4eaf3; border-left:3px solid #2f5fa8; border-radius:0 6px 6px 0;
+            padding:8px 13px; background:#fbfcfe; min-height:24mm; }
+  .wtexto.cond { border-left-color:#2f7a4f; background:#f9fdfa; min-height:0; }
+  .wtexto.parecer { border-left-color:#b8860b; background:#fffdf6; min-height:13mm; }
+  .wtexto .vazio { color:#aab3c0; font-style:italic; }
+
+  /* ---- assinaturas: o espaco de assinar fica ACIMA da linha ---- */
+  /* O parecer e as assinaturas viajam juntos: um waiver que quebre deixando
+     so a linha de assinatura na folha seguinte parece documento truncado. */
+  .wfecho { break-inside:avoid; page-break-inside:avoid; }
+  .wassin { display:grid; grid-template-columns:repeat(2,1fr); gap:30px; margin-top:4px; break-inside:avoid; }
+  .wassin .lin { border-top:1.2px solid #11243f; padding-top:5px; margin-top:10mm;
+                 font-size:9.5px; color:#5d6a7d; }
+  .wassin .lin b { display:block; font-size:10.5px; color:#11243f; letter-spacing:.02em; }
+  .wnota { font-size:8.5px; color:#8a97a8; margin-top:6px; padding-top:5px; border-top:1px solid #eef2f7; }`; },
 
   docWaiverHTML(w){
     const e = v => esc(limparTexto(v,{quebras:"achatar"}));
     const p = v => esc(limparTexto(v,{quebras:"manter"}));
+    const pt = LANG==="pt";
     const sit = this.situacao(w.situacao);
     const itens = (w.itens||[]).map(id => (S.db?.itens||[]).find(i=>i.item===id) || {item:id});
-    const pt = LANG==="pt";
-    const cx = (lab, v) => `<div class="cx"><span class="lab">${e(lab)}</span><b>${e(v)||"—"}</b></div>`;
-    const ficha = (k,v) => `<div><dt>${e(k)}</dt><dd>${e(v)||"—"}</dd></div>`;
+    const cor = st => corSegura(R.corDe(st));
+    const pilula = st => st
+      ? `<span class="stp" style="color:${cor(st)};background:${cor(st)}14">${e(st)}</span>`
+      : `<span class="stp" style="color:#9aa3b0;background:#f2f4f7">—</span>`;
+
+    /* De onde os itens saem HOJE. Sem isto o documento dizia para onde vai sem
+       dizer de onde - e quem le nao consegue conferir se a premissa vale. */
+    const atuais = [...new Set(itens.map(i=>i.status).filter(Boolean))];
+    const fora = w.statusDestino ? itens.filter(i=>i.status && i.status!==w.statusDestino).length : 0;
+
+    let k = 0;
+    const sec = (titulo, corpo, aux="") => `<section class="wsec">
+      <h2><span class="n">${++k}</span>${e(titulo)}${aux?`<span class="aux">${e(aux)}</span>`:""}</h2>
+      ${corpo}</section>`;
+    const ficha = (rot, v) => `<div><dt>${e(rot)}</dt><dd>${e(v)||"—"}</dd></div>`;
+    const marca = ["rascunho","cancelado"].includes(w.situacao)
+      ? `<div class="wmarca"><span>${e(this.rotuloSituacao(w.situacao))}</span></div>` : "";
+
     return `<section class="waiver">
+    ${marca}
     <div class="wtopo">
       <div class="esq">
-        <div class="marca">StatusMilestone &mdash; J08 &middot; ${e(pt?"Fluxo de Evidências":"Evidence Flow")}</div>
+        <div class="marca">StatusMilestone &middot; J08 &middot; ${e(pt?"Fluxo de Evidências":"Evidence Flow")}</div>
         <h1>${e(pt?"Solicitação de Waiver":"Waiver Request")}</h1>
         ${w.assunto?`<div class="ass">${e(w.assunto)}</div>`:""}
       </div>
       <div class="dir">
-        <div class="num">${e(w.numero)}</div>
-        <span class="sit" style="color:${sit.cor}">${e(this.rotuloSituacao(w.situacao))}</span>
+        <div><div class="rot">${e(pt?"Documento nº":"Document no.")}</div>
+             <div class="num">${e(w.numero)}</div></div>
+        <span class="sit" style="color:${corSegura(sit.cor)}">${e(this.rotuloSituacao(w.situacao))}</span>
       </div>
     </div>
+    <div class="wfio" style="background:${corSegura(sit.cor)}"></div>
 
     <dl class="wficha">
       ${ficha(pt?"Data do documento":"Document date", fmtD(w.dataDocumento))}
@@ -2015,60 +2126,68 @@ const Waiver = {
       ${ficha(pt?"Solicitante":"Requested by", w.autor)}
       ${ficha(pt?"Referência":"Reference", w.referencia)}
       ${ficha(pt?"Itens abrangidos":"Items covered", String(itens.length))}
-      ${ficha(pt?"Origem":"Origin", w.origem==="passivo" ? (pt?"Passivo — documento feito à mão":"Backlog — written by hand")
+      ${ficha(pt?"Origem":"Origin", w.origem==="passivo" ? (pt?"Passivo — feito à mão":"Backlog — by hand")
                                                          : (pt?"Emitido pelo sistema":"Issued by the app"))}
       ${ficha(pt?"Revisão da base":"Database revision", String(S.db?.meta?.revisao ?? "—"))}
       ${ficha(pt?"Emitido em":"Printed", fmtDT(agora()))}
     </dl>
 
-    <section class="wsec">
-      <h2>1. ${e(pt?"Tramitação solicitada":"Requested routing")}</h2>
+    ${sec(pt?"Tramitação solicitada":"Requested routing", `
       <div class="wtram">
-        ${cx(pt?"Status de tramitação (agora)":"Routing status (now)", w.statusDestino)}
+        <div class="cx"><span class="lab">${e(pt?"Situação atual dos itens":"Items' current status")}</span>
+          <div class="val">${atuais.length? atuais.slice(0,4).map(pilula).join("")
+            + (atuais.length>4?`<span class="stp" style="color:#9aa3b0;background:#f2f4f7">+${atuais.length-4}</span>`:"")
+            : pilula("")}</div></div>
         <div class="seta">&rarr;</div>
-        ${cx(pt?"Status final desejado":"Desired final status", w.statusFinal)}
-      </div>
-    </section>
+        <div class="cx agora" style="border-top-color:${w.statusDestino?cor(w.statusDestino):"#9db1cc"}">
+          <span class="lab">${e(pt?"Tramitação (agora)":"Routing (now)")}</span>
+          <div class="val">${pilula(w.statusDestino)}</div></div>
+        <div class="seta">&rarr;</div>
+        <div class="cx" style="border-top-color:${w.statusFinal?cor(w.statusFinal):"#9db1cc"}">
+          <span class="lab">${e(pt?"Status final desejado":"Desired final status")}</span>
+          <div class="val">${pilula(w.statusFinal)}</div></div>
+      </div>`,
+      w.statusDestino ? (fora ? (pt?`${fora} item(ns) ainda não estão na tramitação`
+                                  : `${fora} item(s) not yet at the routing status`)
+                              : (pt?"todos já na tramitação":"all already at the routing status")) : "")}
 
-    <section class="wsec">
-      <h2>2. ${e(pt?"Itens abrangidos":"Items covered")} (${itens.length})</h2>
+    ${sec(pt?"Itens abrangidos":"Items covered", `
       <table class="itens witens">
-        <colgroup><col style="width:26px"><col style="width:88px"><col style="width:92px"><col style="width:74px">
-          <col><col style="width:118px"></colgroup>
+        <colgroup><col style="width:24px"><col style="width:86px"><col style="width:92px"><col style="width:72px">
+          <col><col style="width:126px"></colgroup>
         <thead><tr><th class="n">#</th><th>${e(pt?"Item":"Item")}</th><th>InspType</th><th>Evidence</th>
           <th>${e(pt?"Descrição":"Description")}</th><th>${e(pt?"Status atual":"Current status")}</th></tr></thead>
-        <tbody>${itens.map((i,k)=>`<tr>
-          <td class="n">${k+1}</td><td><b>${e(i.item)}</b></td><td>${e(i.inspType)}</td>
+        <tbody>${itens.map((i,j)=>`<tr>
+          <td class="n">${j+1}</td><td class="cod"><b>${e(i.item)}</b></td><td>${e(i.inspType)}</td>
           <td>${e(i.evidence)}</td><td>${e(i.numAndDescription || i.description)}</td>
-          <td>${e(i.status) || `<span class="vazio">${e(pt?"não encontrado na base":"not in the database")}</span>`}</td>
+          <td>${i.status? pilula(i.status)
+                        : `<span class="vazio">${e(pt?"não está na base":"not in the database")}</span>`}</td>
         </tr>`).join("") || `<tr><td colspan="6" class="vazio">—</td></tr>`}</tbody>
-      </table>
-    </section>
+      </table>`, `${itens.length} ${pt?"item(ns)":"item(s)"}`)}
 
-    <section class="wsec">
-      <h2>3. ${e(pt?"Texto do waiver":"Waiver text")}</h2>
-      <div class="wtexto">${p(w.texto)}</div>
-    </section>
+    ${sec(pt?"Texto do waiver":"Waiver text",
+      `<div class="wtexto">${p(w.texto) || `<span class="vazio">${e(pt?"(sem texto)":"(no text)")}</span>`}</div>`)}
 
-    ${w.condicao?`<section class="wsec">
-      <h2>4. ${e(pt?"Condições e medidas compensatórias":"Conditions and compensating measures")}</h2>
-      <div class="wtexto" style="min-height:0">${p(w.condicao)}</div>
-    </section>`:""}
+    ${w.condicao ? sec(pt?"Condições e medidas compensatórias":"Conditions and compensating measures",
+      `<div class="wtexto cond">${p(w.condicao)}</div>`) : ""}
 
-    <section class="wsec">
-      <h2>${w.condicao?"5":"4"}. ${e(pt?"Parecer e decisão":"Decision")}</h2>
-      <div class="wtexto" style="min-height:22mm">${p(w.decisaoObs)}${
-        w.decisaoPor?`\n\n${e(pt?"Decidido por":"Decided by")}: ${e(w.decisaoPor)}${
-          w.decisaoEm?` (${e(fmtD(w.decisaoEm))})`:""}`:""}</div>
-    </section>
+    <div class="wfecho">
+    ${sec(pt?"Parecer e decisão":"Decision",
+      `<div class="wtexto parecer">${
+        (p(w.decisaoObs) || `<span class="vazio">${e(pt?"a preencher":"to be filled in")}</span>`)
+        + (w.decisaoPor?`\n\n${e(pt?"Decidido por":"Decided by")}: ${e(w.decisaoPor)}${
+            w.decisaoEm?` (${e(fmtD(w.decisaoEm))})`:""}`:"")
+      }</div>`)}
 
     <div class="wassin">
-      <div class="lin"><b>${e(pt?"Solicitante":"Requested by")}</b><span>${e(w.autor)||"&nbsp;"} &middot; ${e(pt?"data":"date")} ___/___/______</span></div>
-      <div class="lin"><b>${e(pt?"Análise técnica":"Technical review")}</b><span>${e(pt?"nome e visto":"name and initials")} &middot; ___/___/______</span></div>
-      <div class="lin"><b>${e(pt?"Aprovação":"Approval")}</b><span>${e(w.para)||e(pt?"nome e visto":"name and initials")} &middot; ___/___/______</span></div>
+      <div class="lin"><b>${e(pt?"Solicitante":"Requested by")}</b>
+        <span>${e(w.autor)||"&nbsp;"} &middot; ${e(pt?"data":"date")} ___/___/______</span></div>
+      <div class="lin"><b>${e(pt?"Aprovação":"Approval")}</b>
+        <span>${e(w.para)||e(pt?"nome e visto":"name and initials")} &middot; ___/___/______</span></div>
+    </div>
     </div>
     <p class="wnota">${e(pt
-      ? "Documento gerado pelo StatusMilestone a partir do registro do waiver na base. A situação impressa é a do momento da geração."
+      ? "Documento gerado pelo StatusMilestone a partir do registro do waiver na base. A situação e os status impressos são os do momento da geração."
       : "Generated by StatusMilestone from the waiver record in the database. The status printed is the one at generation time.")}</p>
   </section>`;
   },

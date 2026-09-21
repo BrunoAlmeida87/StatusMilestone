@@ -156,8 +156,30 @@ cada item que ele cobre, e o movimento de status vai pelo caminho de sempre: vir
 pendente, entra no histórico do item com o motivo `Waiver W-2026-001` e é gravado pelo autosave.
 Não há uma segunda porta de escrita.
 
-Marcando **"já mover os itens"** na criação, o pedido e o movimento saem num gesto só. Depois,
-quando o waiver voltar aprovado, o botão **Aplicar status final** leva os itens ao destino.
+### Quando o status escolhido não é o que os itens têm
+
+Escolher um **status de tramitação diferente do atual** é o momento de decidir se é para mudar —
+então a janela **pergunta ali mesmo**, com os números na frente:
+
+> ⚠ **O status atual é outro** — 3 de 4 itens não estão em "4 - Under Analysis":
+> `2× 3 - Blocking` `1× 5 - Waiting Proof` → **4 - Under Analysis**
+> ☑ Alterar o status desses 3 itens ao salvar o waiver
+> ☑ e registrar o texto do waiver como observação no item, junto dessa mudança
+
+Confirmando, ao salvar o waiver acontecem as duas coisas: o status muda (como alteração pendente,
+igual a qualquer edição) e **o texto que você escreveu entra como observação no item**, com o
+cabeçalho dizendo de qual waiver veio e de qual status para qual:
+
+```
+Waiver W-2026-001 — status alterado de "3 - Blocking" para "4 - Under Analysis".
+
+Solicitamos a concessão de waiver para os itens acima, pelas razões a seguir: …
+```
+
+Só quem realmente mudou ganha a observação — item que já estava no status não recebe nota nenhuma.
+Se todos já estiverem lá, a janela diz isso e não oferece caixa alguma. Depois, quando o waiver
+voltar aprovado, o botão **Aplicar status final** faz o mesmo para o destino final, registrando o
+parecer como observação.
 
 ### O passivo — waiver que já foi feito à mão
 
@@ -168,12 +190,28 @@ aparece marcado como `passivo`.
 
 ### O documento
 
-**Imprimir** monta uma folha A4 retrato, pronta para assinar: cabeçalho com número e situação,
-ficha com data/destinatário/solicitante/referência, a faixa *status de tramitação → status final*,
-a tabela dos itens com o status atual de cada um, o texto do waiver, as condições, o espaço do
-parecer e as três assinaturas (solicitante · análise técnica · aprovação). Um waiver cabe numa
-folha; vários saem um por página. O botão **↓ HTML** salva o mesmo documento como arquivo, para
-anexar num e-mail sem passar pela caixa de impressão.
+**Imprimir** monta uma folha A4 retrato pronta para assinar:
+
+- **faixa de cabeçalho** com a marca, o título, o número do documento e a situação, e um fio na
+  **cor da situação** logo abaixo — dá para saber se um waiver foi aprovado de longe, com a folha
+  na mesa;
+- **ficha de identificação** em oito campos: data, destinatário, solicitante, referência, itens,
+  origem, revisão da base e hora de emissão;
+- **seções numeradas**, cada bloco de texto com uma barra lateral de cor própria — azul no pedido,
+  verde nas condições, âmbar no parecer — para achar a seção sem ler o título;
+- **tramitação em três etapas**: *onde os itens estão hoje → para onde vão agora → onde devem
+  parar*. A etapa do meio é a que pesa, porque é a que se pede. As pílulas usam a **cor real do
+  status na base**, a mesma da tela;
+- **tabela dos itens** com o status atual de cada um, também em pílula colorida;
+- **espaço do parecer** e **duas assinaturas**: solicitante e aprovação;
+- **marca d'água** em rascunho e cancelado — um papel que não vale não pode parecer que vale. Ela
+  é contornada, não preenchida: lê-se de longe sem cobrir uma linha do texto.
+
+Um waiver completo — justificativa em quatro seções, condições, parecer e quatro itens — cabe numa
+folha. Se o texto for muito longo, quebra em duas, e o parecer viaja junto das assinaturas, para
+não sobrar uma linha de assinatura órfã na folha seguinte. Vários waivers saem um por página. O
+botão **↓ HTML** salva o mesmo documento como arquivo, para anexar num e-mail sem passar pela
+caixa de impressão.
 
 ## Onde a base fica
 

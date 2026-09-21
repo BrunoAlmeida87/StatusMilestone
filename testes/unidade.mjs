@@ -2053,7 +2053,15 @@ secao("23. WAIVER");
   chk("traz o texto com as quebras de linha", d.includes("linha 1\nlinha 2"));
   chk("traz as condições", d.includes("manter sob inspe"));
   chk("traz a referência do documento", d.includes("CARTA-123"));
-  chk("e as três assinaturas", (d.match(/class="lin"/g)||[]).length === 3);
+  chk("duas assinaturas: solicitante e aprovação",
+      (d.match(/class="lin"/g)||[]).length === 2 && d.includes("Solicitante") && d.includes("Aprova"));
+  chk("sem o bloco de análise técnica", !/An.lise t.cnica/.test(d));
+  chk("a faixa de tramitação mostra de onde os itens saem HOJE",
+      d.includes("Situa") && d.includes("3 - Blocking") && d.includes("4 - Under Analysis"));
+  chk("as pílulas usam a cor real do status", d.includes(app.R.corDe("3 - Blocking")));
+  chk("rascunho sai com marca d'água", app.Waiver.documento([{...w, situacao:"rascunho"}])
+        .includes('class="wmarca"'));
+  chk("e o enviado não", !d.includes('class="wmarca"'));
   chk("o HTML de dentro do texto sai escapado",
       !d.includes("<img src=x") && d.includes("&lt;img src=x"), "");
   chk("um item que saiu da base é dito, não omitido em silêncio",
@@ -2186,19 +2194,101 @@ secao("23. WAIVER");
   app.UI.fechar();
 }
 {
-  /* Marcar "já mover os itens" faz o pedido e o movimento num gesto só. */
+  /* A pergunta que o status de tramitação faz nascer: escolher um status
+     diferente do que os itens têm DE FATO tem de perguntar se é para mudar. */
+  const c = cenario();
+  const {app} = c;
+  app.Pend.autosave = async ()=>{};
+  app.Waiver.painel({itens:["A-001","A-003"]});      /* Blocking e Under Analysis */
+  chk("sem status de tramitação escolhido, não pergunta nada",
+      !app.$("#wDivergencia")?.innerHTML);
+  app.$("#wDestino").value = "2 - Not Blocking";
+  app.$("#wDestino").onchange();
+  const perg = app.$("#wDivergencia").innerHTML;
+  chk("escolhendo um status diferente do atual, a janela pergunta",
+      /status atual é outro/i.test(perg), perg.slice(0,90));
+  chk("e diz quantos itens não estão lá", perg.includes("2 de 2"), "");
+  chk("mostrando em que status cada um está hoje",
+      perg.includes("3 - Blocking") && perg.includes("4 - Under Analysis"));
+  chk("com a caixa de alterar o status", !!app.$("#wAplicar"));
+  chk("e a de registrar o texto como observação", !!app.$("#wObs"));
+
+  app.UI.fechar();
+
+  /* Um status que os itens já têm não é pergunta nenhuma. */
+  app.Waiver.painel({itens:["A-001"]});            /* já está em 3 - Blocking */
+  app.$("#wDestino").value = "3 - Blocking";
+  app.$("#wDestino").onchange();
+  /* Conferido no HTML do bloco, nao por $("#wAplicar"): o DOM de mentira nao
+     apaga os ids dos filhos quando o pai e reescrito, e o que interessa aqui e
+     o que a janela DESENHOU. O comportamento no DOM de verdade tem teste em
+     Chromium (testes/waiver.py). */
+  const semPergunta = app.$("#wDivergencia").innerHTML;
+  chk("escolhendo o status que o item já tem, não há o que perguntar",
+      !semPergunta.includes('id="wAplicar"') && /j. est/i.test(semPergunta),
+      semPergunta.slice(0,70));
+  app.UI.fechar();
+}
+{
+  /* Confirmando: o status muda E o texto vira observação no item. */
+  const c = cenario();
+  const {app} = c;
+  app.Pend.autosave = async ()=>{};
+  app.Waiver.painel({itens:["A-001","A-002"]});   /* A-002 já está em Validated */
+  app.$("#wTexto").value = "montagem concluída, teste depois do docking";
+  app.$("#wDestino").value = "1 - Validated by ICN";
+  app.$("#wDestino").onchange();
+  app.$("#wAplicar").checked = true;
+  app.$("#wObs").checked = true;
+  app.$("#mb1").onclick();
+
+  igual("o item que estava em outro status foi movido",
+        app.S.db.itens.find(i=>i.item==="A-001").status, "1 - Validated by ICN");
+  igual("como alteração pendente, como qualquer edição", app.S.db.pendentes.length, 1);
+  const obs = app.S.db.observacoes.filter(o=>o.item==="A-001");
+  igual("e o texto virou observação no item", obs.length, 1);
+  chk("a observação diz de qual waiver veio", obs[0].texto.includes("Waiver W-"));
+  chk("e de qual status para qual",
+      obs[0].texto.includes('"3 - Blocking"') && obs[0].texto.includes('"1 - Validated by ICN"'),
+      obs[0].texto.split("\n")[0]);
+  chk("com o texto que foi escrito",
+      obs[0].texto.includes("montagem concluída, teste depois do docking"));
+  chk("assinada por quem pediu", !!obs[0].autor);
+  chk("e entra no diário, como qualquer observação",
+      app.Pend.diario.some(e=>e.t==="obs" && e.obj.item==="A-001"));
+  igual("quem já estava no status não ganha observação de mentira",
+        app.S.db.observacoes.filter(o=>o.item==="A-002").length, 0);
+}
+{
+  /* Recusando a observação: o status muda, o item não ganha nota. */
   const c = cenario();
   const {app} = c;
   app.Pend.autosave = async ()=>{};
   app.Waiver.painel({itens:["A-001"]});
-  app.$("#wTexto").value = "pedido com movimento";
+  app.$("#wTexto").value = "só o status";
   app.$("#wDestino").value = "2 - Not Blocking";
+  app.$("#wDestino").onchange();
   app.$("#wAplicar").checked = true;
+  app.$("#wObs").checked = false;
   app.$("#mb1").onclick();
-  igual("o item foi para o status de tramitação",
-        app.S.db.itens.find(i=>i.item==="A-001").status, "2 - Not Blocking");
-  igual("como alteração pendente, como qualquer edição", app.S.db.pendentes.length, 1);
+  igual("o status muda", app.S.db.itens.find(i=>i.item==="A-001").status, "2 - Not Blocking");
+  igual("e nenhuma observação é criada", app.S.db.observacoes.length, 0);
 
+  /* Recusando a mudança: nada se move. */
+  const c2 = cenario();
+  c2.app.Pend.autosave = async ()=>{};
+  c2.app.Waiver.painel({itens:["A-001"]});
+  c2.app.$("#wTexto").value = "só registrar o pedido";
+  c2.app.$("#wDestino").value = "2 - Not Blocking";
+  c2.app.$("#wDestino").onchange();
+  c2.app.$("#wAplicar").checked = false;
+  c2.app.$("#mb1").onclick();
+  igual("dizendo não, o waiver é salvo", c2.app.S.db.waivers.length, 1);
+  igual("e o status fica onde estava",
+        c2.app.S.db.itens.find(i=>i.item==="A-001").status, "3 - Blocking");
+  igual("sem pendente nenhum", c2.app.S.db.pendentes.length, 0);
+}
+{
   /* O passivo NÃO mexe no status por conta própria. */
   const c2 = cenario();
   c2.app.Pend.autosave = async ()=>{};
@@ -2206,7 +2296,8 @@ secao("23. WAIVER");
   c2.app.$("#wTexto").value = "waiver que já existia em papel";
   c2.app.$("#wDestino").value = "2 - Not Blocking";
   c2.app.$("#wOrigem").value = "passivo";
-  c2.app.$("#wAplicar").checked = true;
+  c2.app.$("#wOrigem").onchange();
+  if(c2.app.$("#wAplicar")) c2.app.$("#wAplicar").checked = true;
   c2.app.$("#mb1").onclick();
   igual("o passivo entra na base", c2.app.S.db.waivers.length, 1);
   igual("marcado como passivo", c2.app.S.db.waivers[0].origem, "passivo");

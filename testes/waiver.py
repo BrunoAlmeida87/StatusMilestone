@@ -80,9 +80,18 @@ with sync_playwright() as pw:
     pg.fill("#wRef", "CARTA-GTO-2026-0042")
     pg.fill("#wCondicao", "Executar o teste na primeira janela de docking e reportar em 5 dias.")
     pg.select_option("#wSituacao", "enviado")
-    pg.select_option("#wDestino", "4 - Under Analysis")
     pg.select_option("#wFinal", "1 - Validated by ICN")
-    pg.check("#wAplicar")
+    chk("sem status de tramitação escolhido, a janela não pergunta nada",
+        pg.inner_html("#wDivergencia").strip() == "")
+    pg.select_option("#wDestino", "4 - Under Analysis")
+    pg.wait_for_timeout(250)
+    perg = pg.inner_text("#wDivergencia")
+    chk("escolhendo um status diferente do atual, ela pergunta ali mesmo",
+        "status atual é outro" in perg.lower() or "O status atual é outro" in perg, perg[:70])
+    chk("dizendo quantos itens não estão nele", f"de {len(alvos)}" in perg, perg[:90])
+    chk("com a caixa de alterar o status", pg.locator("#wAplicar").count() == 1)
+    chk("e a de registrar o texto como observação", pg.locator("#wObs").count() == 1)
+    pg.check("#wAplicar"); pg.check("#wObs")
     pg.click("#mb1"); pg.wait_for_timeout(600)
 
     w = pg.evaluate("() => S.db.waivers[0]")
@@ -102,6 +111,30 @@ with sync_playwright() as pw:
         pg.evaluate("() => S.db.pendentes.length") == movidos, str(movidos))
     chk("e o motivo no pendente diz de qual waiver veio",
         pg.evaluate("() => S.db.pendentes.every(p=>/^Waiver W-/.test(p.motivo||''))"))
+
+    print("--- e o texto vira observação no item, junto da mudança de status")
+    obs = pg.evaluate("(a)=>S.db.observacoes.filter(o=>a.includes(o.item))", alvos)
+    chk("uma observação por item movido", len(obs) == movidos, f"{len(obs)} para {movidos}")
+    chk("dizendo de qual waiver veio", all(w["numero"] in o["texto"] for o in obs))
+    chk("de qual status para qual", all('"4 - Under Analysis"' in o["texto"] for o in obs))
+    chk("e com o texto que foi escrito",
+        all("não pode ser executado antes do docking" in o["texto"] for o in obs))
+    pg.evaluate("(x)=>UI.detalhe(x)", alvos[0]); pg.wait_for_timeout(400)
+    pg.click('.tabs button[data-t="o"]'); pg.wait_for_timeout(250)
+    chk("e ela aparece na aba Observações do item", w["numero"] in pg.inner_text("#tp-o"))
+    pg.evaluate("() => UI.fechar()")
+
+    print("--- um status que os itens já têm não vira pergunta")
+    ja = pg.evaluate("() => S.db.itens.filter(i=>i.status==='4 - Under Analysis').slice(0,2).map(i=>i.item)")
+    pg.evaluate("() => irPara('waivers')"); pg.wait_for_timeout(300)
+    pg.click("#wvNovo"); pg.wait_for_timeout(300)
+    for it in ja:
+        pg.fill("#wItemAdd", it); pg.click("#wItemBtn")
+    pg.select_option("#wDestino", "4 - Under Analysis"); pg.wait_for_timeout(250)
+    chk("ela diz que não há o que mudar", "já estão" in pg.inner_text("#wDivergencia"),
+        pg.inner_text("#wDivergencia")[:70])
+    chk("e não oferece caixa nenhuma", pg.locator("#wAplicar").count() == 0)
+    pg.evaluate("() => UI.fechar()")
 
     print("=== 3. O WAIVER APARECE ONDE O ITEM ESTA")
     pg.evaluate("(x)=>UI.detalhe(x)", alvos[0]); pg.wait_for_timeout(400)
@@ -158,13 +191,28 @@ with sync_playwright() as pw:
         str(pg2.locator(".witens tbody tr").count()))
     chk("o texto do waiver está lá", "docking" in pg2.inner_text(".wtexto"))
     chk("as condições também", "primeira janela de docking" in pg2.inner_text(".waiver"))
-    chk("e as três assinaturas", pg2.locator(".wassin .lin").count() == 3)
+    chk("duas assinaturas: solicitante e aprovação", pg2.locator(".wassin .lin").count() == 2)
+    chk("sem o bloco de análise técnica", "nálise técnica" not in pg2.inner_text(".waiver"))
+    chk("a faixa de tramitação tem as três etapas", pg2.locator(".wtram .cx").count() == 3)
+    chk("e mostra de onde os itens saem hoje",
+        "atual" in pg2.inner_text(".wtram").lower())
+    chk("os status saem como pílulas coloridas", pg2.locator(".waiver .stp").count() >= 4,
+        str(pg2.locator(".waiver .stp").count()))
+    chk("as seções são numeradas", pg2.locator(".wsec > h2 .n").count() >= 4)
+    chk("o enviado não leva marca d'água", pg2.locator(".wmarca").count() == 0)
     pdf = SAIDA/"waiver.pdf"
     pg2.pdf(path=str(pdf), format="A4", print_background=True)
     dados = pdf.read_bytes()
     paginas = dados.count(b"/Type /Page") - dados.count(b"/Type /Pages")
     chk("um waiver cabe em uma folha A4", paginas == 1, f"{paginas} página(s)")
     pg2.screenshot(path=str(SAIDA/"waiver.png"), full_page=True)
+
+    rasc = pg.evaluate("""() => Waiver.documento([{...S.db.waivers[0], situacao:'rascunho'}])""")
+    (SAIDA/"waiver-rascunho.html").write_text(rasc, encoding="utf-8")
+    pg2.goto((SAIDA/"waiver-rascunho.html").as_uri()); pg2.wait_for_timeout(300)
+    chk("mas o rascunho leva — um papel que não vale não pode parecer que vale",
+        pg2.locator(".wmarca").count() == 1 and "RASCUNHO" in pg2.inner_text(".wmarca").upper())
+    pg2.screenshot(path=str(SAIDA/"waiver-rascunho.png"), full_page=True)
 
     dois = pg.evaluate("() => Waiver.documento(S.db.waivers)")
     (SAIDA/"waivers.html").write_text(dois, encoding="utf-8")

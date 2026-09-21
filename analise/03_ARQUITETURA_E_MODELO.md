@@ -359,11 +359,31 @@ versão dela. Se os dois criarem o mesmo código, abre a tela de decisão.
 
 ### Waiver
 Um waiver é o pedido formal de aceitar um item como está. Cobre **um ou mais itens**, mora na base
-(`waivers`) e sai em documento A4 retrato pronto para assinar: cabeçalho com número e situação,
-ficha de identificação, a faixa *status de tramitação → status final*, a tabela dos itens com o
-status **atual** de cada um, o texto, as condições, o espaço do parecer e três blocos de
-assinatura. O documento reaproveita a moldura do relatório (`Export.moldura`), então herda o CSS
-próprio de quem exporta e sai também como arquivo HTML.
+(`waivers`) e sai em documento A4 retrato pronto para assinar. O documento reaproveita a moldura do
+relatório (`Export.moldura`), então herda o CSS próprio de quem exporta e sai também como arquivo
+HTML.
+
+**A pergunta do status.** Escolher um status de tramitação diferente do que os itens têm de fato é
+o momento de decidir se é para mudar — e a janela pergunta ali, com os números na frente (quantos
+itens, em que status cada um está hoje), em vez de trazer uma caixa genérica sempre ligada.
+Confirmando, ao salvar acontecem as duas coisas: `Pend.alterar` move quem está fora, e o texto do
+waiver entra como **observação** no item, com cabeçalho `Waiver <nº> — status alterado de "A" para
+"B"`. Só quem mudou de verdade ganha a observação: uma nota dizendo "alterado de X para X" é ruído.
+A observação segue o caminho de qualquer observação — `{t:"obs"}` no diário, gravação imediata —
+então é rebasável e sobrevive à gravação de outra pessoa no meio.
+
+**O desenho do documento**, e por quê: faixa cheia no topo em vez de caixa vazada (dá peso e separa
+identificação de conteúdo sem mais uma régua); um fio na cor da **situação** sob a faixa (aprovado
+ou não se lê de longe, com a folha na mesa); pílulas com a **cor real do status na base**, a mesma
+da tela (papel e tela falam a mesma língua); **três** etapas na tramitação — de onde está, para
+onde vai agora, onde deve parar — porque duas escondiam justamente a informação que mais importa,
+que o item não está onde o waiver supõe; barra lateral de cor própria por bloco de texto (quem
+folheia acha a seção sem ler o título); marca d'água **contornada** em rascunho e cancelado, por
+cima do conteúdo — atrás dos painéis brancos ela sumia, e um rascunho saía com cara de documento
+válido. O `@page` do waiver usa margens próprias, menores que as do relatório: um waiver completo
+(justificativa em quatro seções, condições, parecer e quatro itens) cabe em uma folha com folga de
+milímetros, e o parecer viaja junto das assinaturas (`.wfecho`) para nunca deixar uma linha de
+assinatura órfã na folha seguinte.
 
 No diário de sincronização ele entra como `waiver` (upsert) ou `waiver-del`, carregando o
 `atualizadoEm` **de onde se partiu**: é esse campo que distingue "a outra pessoa mexeu neste mesmo
