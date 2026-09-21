@@ -2053,6 +2053,16 @@ secao("23. WAIVER");
   chk("traz o texto com as quebras de linha", d.includes("linha 1\nlinha 2"));
   chk("traz as condições", d.includes("manter sob inspe"));
   chk("traz a referência do documento", d.includes("CARTA-123"));
+  /* A procedencia do parecer no papel: de onde veio e quem transcreveu. */
+  const resp = app.Waiver.documento([{...w, situacao:"aprovado",
+    decisaoPor:"ICN — J. Marques", decisaoEm:"2026-04-10",
+    decisaoObs:"Concedido.", decisaoRef:"e-mail de 10/04",
+    decisaoRegistradaPor:"Bruno", decisaoRegistradaEm:"2026-04-11T10:00:00.000Z"}]);
+  chk("o parecer sai impresso", resp.includes("Concedido."));
+  chk("com quem decidiu", resp.includes("ICN") && resp.includes("Decidido por"));
+  chk("por onde chegou", resp.includes("e-mail de 10/04") && resp.includes("Recebido via"));
+  chk("e quem transcreveu", resp.includes("Bruno") && resp.includes("Transcrito por"));
+  chk("sem parecer, nada de procedência no papel", !d.includes("Transcrito por"));
   chk("duas assinaturas: solicitante e aprovação",
       (d.match(/class="lin"/g)||[]).length === 2 && d.includes("Solicitante") && d.includes("Aprova"));
   chk("sem o bloco de análise técnica", !/An.lise t.cnica/.test(d));
@@ -2087,6 +2097,8 @@ secao("23. WAIVER");
   suja.waivers = [{id:"a", itens:"nao e lista"}];
   app.normalizar(suja);
   igual("waiver com itens de mentira vira lista", suja.waivers[0].itens, []);
+  igual("e os campos da resposta nascem vazios, não indefinidos",
+        [suja.waivers[0].decisaoRef, suja.waivers[0].decisaoRegistradaPor], ["",""]);
   igual("e ganha a situação padrão", suja.waivers[0].situacao, "rascunho");
   chk("waivers que não é lista é erro estrutural",
       app.avaliar("validarBase")({...baseDeTeste(), waivers:{}}).valido === false);
@@ -2390,6 +2402,7 @@ secao("23. WAIVER");
   app.$("#wrResultado").onchange();
   app.$("#wrPor").value = "ICN — J. Marques";
   app.$("#wrData").value = "2026-04-10";
+  app.$("#wrRef").value = "e-mail de 10/04/2026";
   app.$("#wrParecer").value = "  Waiver concedido nas condições propostas.  ";
   app.$("#wrAplicar").checked = true;
   app.$("#wrObs").checked = true;
@@ -2401,6 +2414,12 @@ secao("23. WAIVER");
   igual("a data da resposta", w.decisaoEm, "2026-04-10");
   igual("e o parecer, sem o espaço sobrando", w.decisaoObs,
         "Waiver concedido nas condições propostas.");
+  /* O destinatario nao usa o sistema: quem respondeu e quem transcreveu sao
+     duas pessoas diferentes, e as duas ficam registradas. */
+  igual("por onde a resposta chegou", w.decisaoRef, "e-mail de 10/04/2026");
+  igual("e quem a lançou no sistema", w.decisaoRegistradaPor, "Teste");
+  chk("com a hora do lançamento", !!w.decisaoRegistradaEm);
+  chk("que é diferente de quem respondeu", w.decisaoRegistradaPor !== w.decisaoPor);
   chk("os itens foram para o status final",
       ["A-001","A-003"].every(id=>app.S.db.itens.find(i=>i.item===id).status==="1 - Validated by ICN"));
   igual("como alteração pendente, como qualquer edição", app.S.db.pendentes.length, 2);

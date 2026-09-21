@@ -181,16 +181,19 @@ Se todos já estiverem lá, a janela diz isso e não oferece caixa alguma.
 ### A resposta do destinatário, que chega depois
 
 O parecer não existe na hora do pedido: ele chega dias ou semanas depois, quando o destinatário
-responde. Esse é um segundo momento e tem janela própria — **Registrar resposta** —, alcançável de
-onde você estiver quando a resposta chegar:
+responde. **O destinatário não usa o sistema** — a resposta dele chega por e-mail, carta, ata ou
+reunião e é **transcrita** aqui por você ou pela sua equipe. Esse é um segundo momento e tem
+janela própria — **Registrar resposta** —, alcançável de onde você estiver quando a resposta
+chegar:
 
 - **na tela de Waivers**, abrindo o waiver (enquanto não há resposta ele aparece marcado como
   *aguardando a resposta do destinatário*);
 - **de dentro do item**, pelo botão **Responder** no bloco de waivers da janela do item. Vindo daí,
   a janela do item reabre depois, para você ver o status novo e a observação que acabou de nascer.
 
-A janela pede o **resultado** (aprovado · recusado · cancelado), **quem respondeu**, a **data** e o
-**parecer**, e sugere o status a aplicar:
+A janela pede o **resultado** (aprovado · recusado · cancelado), **quem respondeu** (a pessoa do
+lado de lá), a **data**, **por onde a resposta chegou** (`e-mail de 19/09`, `carta ICN-123`,
+`ata da reunião de 18/09`) e o **parecer**, e sugere o status a aplicar:
 
 - **aprovado** → sugere o status final desejado do waiver, e faz a mesma pergunta de antes sobre os
   itens que ainda não estão nele;
@@ -202,6 +205,15 @@ A observação que nasce aqui leva o **parecer** (não o texto do pedido). A res
 waiver inteiro — todos os itens que ele cobre —, porque foi para o waiver inteiro que o
 destinatário respondeu. Depois de respondido, o botão sai do item: não se responde duas vezes por
 engano; para corrigir, a mesma janela reabre como **Rever resposta**.
+
+Como é transcrição, o registro guarda **três coisas diferentes** e não as confunde: **quem
+respondeu** (do lado do destinatário), **por onde a resposta chegou** (onde está o original) e
+**quem a lançou no sistema**, com data e hora — anotado sozinho, a partir de quem está usando.
+Daqui a um ano, quem abrir o waiver sabe a quem perguntar e em qual caixa de e-mail procurar. As
+três saem impressas embaixo do parecer:
+
+> **Decidido por:** ICN — J. Marques (19/09/2026) · **Recebido via:** e-mail ICN de 19/09/2026 ·
+> **Transcrito por:** Bruno Almeida (21/09/2026)
 
 Editar o pedido depois disso não apaga o parecer — o formulário do pedido mostra o parecer
 registrado, mas em leitura.

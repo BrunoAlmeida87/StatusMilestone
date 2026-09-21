@@ -6,7 +6,7 @@ comportamento em Chromium real, via Playwright.
 ## Unidade (Node, sem navegador e sem base real)
 
 ```bash
-node testes/unidade.mjs        # 701 verificações: persistência (arquivo inexistente,
+node testes/unidade.mjs        # 711 verificações: persistência (arquivo inexistente,
                                # conflito de revisão, JSON corrompido, permissão negada,
                                # falha em createWritable/write/close), fila de gravação,
                                # edição durante a escrita, descarte de pendentes (tudo e
@@ -85,12 +85,14 @@ python3 testes/exportacao.py           # 53: janela de exportação, CSV conferi
                                        # de CSV de verdade, relatório PDF aberto num navegador
                                        # limpo, formulário de item novo, Shipyard por ActualJx
                                        # e caminho padrão
-python3 testes/waiver.py               # 96: o waiver do começo ao fim — pedir pela tela, a
+python3 testes/waiver.py               # 101: o waiver do começo ao fim — pedir pela tela, a
                                        # pergunta que a janela faz quando o status escolhido
                                        # não é o que os itens têm, o texto virando observação
                                        # no item, a resposta do destinatário registrada pelos
                                        # dois caminhos (tela de waivers e de dentro do item),
-                                       # a recusa que não move nada mas fica no item, o
+                                       # a recusa que não move nada mas fica no item, a
+                                       # procedência da transcrição (quem respondeu, por
+                                       # onde chegou, quem lançou) impressa no papel, o
                                        # passivo feito à mão e o documento MEDIDO em folhas A4
                                        # de verdade; e a janela que fechava sozinha quando o
                                        # mouse era solto fora dela, reproduzida com arraste

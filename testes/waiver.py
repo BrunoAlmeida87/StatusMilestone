@@ -177,8 +177,13 @@ with sync_playwright() as pw:
     pg.select_option("#wrResultado", "aprovado"); pg.wait_for_timeout(250)
     chk("voltando a aprovar, o status final volta",
         pg.input_value("#wrStatus") == "1 - Validated by ICN")
+    chk("a janela diz que a resposta é transcrita, não preenchida pelo destinatário",
+        "transcrita aqui" in pg.inner_text("#ov"))
+    chk("e mostra quem está lançando",
+        "Bruno Almeida" in pg.inner_text("#ov"))
     pg.fill("#wrPor", "ICN — J. Marques")
     pg.fill("#wrData", "2026-09-19")
+    pg.fill("#wrRef", "e-mail de 19/09/2026")
     pg.fill("#wrParecer", "Waiver concedido nas condições propostas. "
                           "Reavaliar no fechamento do J08.")
     pg.check("#wrAplicar"); pg.check("#wrObs")
@@ -189,6 +194,10 @@ with sync_playwright() as pw:
     chk("com quem respondeu e quando",
         wr["decisaoPor"] == "ICN — J. Marques" and wr["decisaoEm"] == "2026-09-19")
     chk("e o parecer registrado", "Reavaliar no fechamento" in wr["decisaoObs"])
+    chk("por onde a resposta chegou", wr["decisaoRef"] == "e-mail de 19/09/2026")
+    chk("e quem a lançou — que não é quem respondeu",
+        wr["decisaoRegistradaPor"] == "Bruno Almeida"
+        and wr["decisaoRegistradaPor"] != wr["decisaoPor"], wr["decisaoRegistradaPor"])
     fim = pg.evaluate("(a)=>a.map(x=>S.db.itens.find(i=>i.item===x).status)", alvos)
     chk("os itens foram para o status final",
         all(x == "1 - Validated by ICN" for x in fim), str(set(fim)))
@@ -280,6 +289,10 @@ with sync_playwright() as pw:
     chk("o aprovado não leva marca d'água", pg2.locator(".wmarca").count() == 0)
     chk("e o parecer registrado sai impresso",
         "Reavaliar no fechamento" in pg2.inner_text(".waiver"))
+    proc = pg2.inner_text(".wproc")
+    chk("com a procedência: quem decidiu, por onde chegou e quem transcreveu",
+        all(x in proc for x in ["J. Marques", "e-mail de 19/09/2026", "Bruno Almeida",
+                                "Decidido por", "Recebido via", "Transcrito por"]), proc[:90])
     pdf = SAIDA/"waiver.pdf"
     pg2.pdf(path=str(pdf), format="A4", print_background=True)
     dados = pdf.read_bytes()

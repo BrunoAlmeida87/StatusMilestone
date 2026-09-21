@@ -142,7 +142,7 @@ Chave lógica: **(item, campo)** — é o que garante o agrupamento.
 ### `observacoes` · `waivers` · `conflitos` · `marcos` · `config`
 
 - **`observacoes`**: `id` · `item` · `texto` · `criadoEm` · `autor`. Acumulativas, nunca sobrescrevem.
-- **`waivers`**: `id` · `numero` (série anual `W-2026-001`, tirada do **maior número já usado**, não do tamanho da lista — apagar um rascunho não pode devolver ao estoque um número que já circulou por e-mail) · `itens[]` · `assunto` · `para` · `texto` · `condicao` · `statusDestino` (para onde os itens vão **agora**) · `statusFinal` (onde devem parar se o waiver for aceito) · `situacao` (rascunho·enviado·aprovado·recusado·cancelado) · `origem` (`sistema` | `passivo`) · `dataDocumento` · `referencia` · `decisaoPor` · `decisaoObs` · `decisaoEm` · `aplicado` · `criadoEm` · `atualizadoEm` · `autor`. **O waiver não move status por um caminho próprio**: chama `Pend.alterar` como qualquer tela, com `Waiver <numero>` no motivo — a mudança aparece no histórico do item dizendo de onde veio. `origem:"passivo"` é o waiver que já existia em papel: entra com a data e a referência do documento original e **não** mexe no status, porque o item já está onde o papel o deixou.
+- **`waivers`**: `id` · `numero` (série anual `W-2026-001`, tirada do **maior número já usado**, não do tamanho da lista — apagar um rascunho não pode devolver ao estoque um número que já circulou por e-mail) · `itens[]` · `assunto` · `para` · `texto` · `condicao` · `statusDestino` (para onde os itens vão **agora**) · `statusFinal` (onde devem parar se o waiver for aceito) · `situacao` (rascunho·enviado·aprovado·recusado·cancelado) · `origem` (`sistema` | `passivo`) · `dataDocumento` · `referencia` · `decisaoPor` (quem respondeu, do lado do destinatário) · `decisaoObs` · `decisaoEm` · `decisaoRef` (por onde a resposta chegou) · `decisaoRegistradaPor` · `decisaoRegistradaEm` (quem transcreveu, e quando) · `aplicado` · `criadoEm` · `atualizadoEm` · `autor`. **O waiver não move status por um caminho próprio**: chama `Pend.alterar` como qualquer tela, com `Waiver <numero>` no motivo — a mudança aparece no histórico do item dizendo de onde veio. `origem:"passivo"` é o waiver que já existia em papel: entra com a data e a referência do documento original e **não** mexe no status, porque o item já está onde o papel o deixou.
 - **`conflitos`**: `id` · `item` · `campo` · `valorArquivo1` · `valorArquivo2` · `valorAplicado` · `resolvido` · `resolvidoPor` · `resolvidoEm` · `justificativa`. Resolver gerava evento no histórico. **Os 40 estão decididos e a tela saiu** (ver Etapa 8); o array permanece na base, intacto, como registro do que cada arquivo dizia.
 - **`marcos`**: `id` · `nome` · `data` · `tipo`. São as emissões de relatório (29/07, 09/09, 10/09). É contra eles que se calcula "mudou no ciclo" e as setas ▲▼.
 - **`config`**: status (com `ativo`), famílias/colunas do Kanban, minutos de consolidação, limites de aging, `statusAbertoExcecoes` (a **única** fonte de "em aberto", casada por prefixo), tipos funcionais, `mbAvisoTamanho`, `vistas` (filtros salvos com nome, compartilhados por ficarem na base) e `caminhoPadrao` (onde a base mora na rede — fica aqui, e não no navegador, para valer para todo mundo que abrir aquele `database.json`).
@@ -371,6 +371,14 @@ waiver entra como **observação** no item, com cabeçalho `Waiver <nº> — sta
 "B"`. Só quem mudou de verdade ganha a observação: uma nota dizendo "alterado de X para X" é ruído.
 A observação segue o caminho de qualquer observação — `{t:"obs"}` no diário, gravação imediata —
 então é rebasável e sobrevive à gravação de outra pessoa no meio.
+
+**A resposta é transcrição, não preenchimento.** O destinatário não tem acesso ao sistema: a
+resposta dele chega por e-mail, carta ou ata e é digitada por quem a recebeu. Por isso o registro
+separa três papéis que seriam facilmente confundidos num campo só — `decisaoPor` (quem respondeu,
+do lado de lá), `decisaoRef` (por onde chegou, que é onde o original está guardado) e
+`decisaoRegistradaPor`/`decisaoRegistradaEm` (quem transcreveu e quando, anotado sozinho a partir
+de `Usuario`). Os três saem impressos sob o parecer: sem eles o papel não diz de onde saiu o que
+está escrito ali, que é exatamente o que alguém vai querer conferir daqui a um ano.
 
 **A resposta é um segundo momento.** O parecer não existe quando o pedido é escrito — chega quando
 o destinatário responde. Por isso saiu do formulário do pedido e ganhou janela própria

@@ -3003,8 +3003,8 @@ const Waiver = {
 
     UI.modal(`${pt?"Resposta ao waiver":"Waiver response"} ${w.numero}`, `
       <p class="muted" style="margin-bottom:12px">${pt
-        ? `Esta é a resposta do destinatário, registrada quando ela chega. Vale para <b>os ${itens.length} item(ns)</b> que o waiver cobre.`
-        : `This is the addressee's answer, recorded when it arrives. It applies to <b>all ${itens.length} item(s)</b> the waiver covers.`}</p>
+        ? `O destinatário não usa o sistema: <b>a resposta dele é transcrita aqui</b> por quem a recebeu — por isso o registro guarda também <b>por onde ela chegou</b> e <b>quem a lançou</b>. Vale para <b>os ${itens.length} item(ns)</b> que o waiver cobre.`
+        : `The addressee does not use the app: <b>their answer is transcribed here</b> by whoever received it — so the record also keeps <b>how it arrived</b> and <b>who entered it</b>. It applies to <b>all ${itens.length} item(s)</b> the waiver covers.`}</p>
       <div class="panel pad" style="margin-bottom:13px;padding:9px 12px">
         <div class="rowflex" style="gap:8px">
           <b>${esc(w.numero)}</b>
@@ -3018,11 +3018,19 @@ const Waiver = {
         <label class="fld"><span>${pt?"Resultado":"Outcome"}</span>
           <select id="wrResultado">${resultados.map(x=>{ const st=this.situacao(x);
             return `<option value="${x}"${x===inicial?" selected":""}>${esc(pt?st.pt:st.en)}</option>`;}).join("")}</select></label>
-        <label class="fld"><span>${pt?"Quem respondeu":"Answered by"}</span>
+        <label class="fld"><span>${pt?"Quem respondeu (no destinatário)":"Answered by (at the addressee)"}</span>
           <input type="text" id="wrPor" value="${esc(w.decisaoPor || w.para || "")}"></label>
         <label class="fld"><span>${pt?"Data da resposta":"Answer date"}</span>
           <input type="date" id="wrData" value="${esc((w.decisaoEm||agora()).slice(0,10))}" max="${hoje()}"></label>
       </div>
+      <label class="fld" style="margin-top:11px">
+        <span>${pt?"Por onde a resposta chegou":"How the answer arrived"}</span>
+        <input type="text" id="wrRef" value="${esc(w.decisaoRef||"")}" placeholder="${pt
+          ? "e-mail de 19/09, carta ICN-123, ata da reunião de 18/09..."
+          : "e-mail of 19/09, letter ICN-123, minutes of the 18/09 meeting..."}"></label>
+      <p class="muted" style="font-size:11.5px;margin-top:5px">${pt
+        ? `Lançado por <b>${esc(Usuario.nome()||"—")}</b> em ${esc(fmtD(hoje()))} — fica registrado junto.`
+        : `Entered by <b>${esc(Usuario.nome()||"—")}</b> on ${esc(fmtD(hoje()))} — recorded alongside.`}</p>
 
       <label class="fld" style="margin:11px 0"><span>${pt?"Parecer":"Decision note"} *</span>
         <textarea id="wrParecer" rows="6" placeholder="${pt
@@ -3092,6 +3100,13 @@ const Waiver = {
     w.decisaoPor = String($("#wrPor")?.value ?? "").trim();
     w.decisaoEm  = $("#wrData")?.value || hoje();
     w.decisaoObs = parecer;
+    w.decisaoRef = String($("#wrRef")?.value ?? "").trim();
+    /* Quem transcreveu e quando. E diferente de decisaoPor (quem respondeu, do
+       lado de la): daqui a um ano alguem vai querer saber a quem perguntar
+       sobre o que foi digitado, e o e-mail original esta na caixa de quem
+       lancou. */
+    w.decisaoRegistradaPor = autor;
+    w.decisaoRegistradaEm  = agora();
     this.guardar(w, {base});
     UI.fechar();
 
@@ -3137,6 +3152,10 @@ const Waiver = {
         ${linha(LANG==="pt"?"Aberto por":"Opened by", esc(w.autor)+" &middot; "+esc(fmtDT(w.criadoEm)))}
         ${linha(LANG==="pt"?"Respondido por":"Answered by",
                 esc(w.decisaoPor)+(w.decisaoEm?" &middot; "+esc(fmtD(w.decisaoEm)):""))}
+        ${linha(LANG==="pt"?"Resposta chegou por":"Answer arrived via", esc(w.decisaoRef))}
+        ${linha(LANG==="pt"?"Lançado no sistema por":"Entered in the app by",
+                esc(w.decisaoRegistradaPor)
+                + (w.decisaoRegistradaEm?" &middot; "+esc(fmtDT(w.decisaoRegistradaEm)):""))}
       </dl>
       <div class="sep"></div>
       <h3 style="border:0;padding:0;font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--fg-3)">
@@ -3181,7 +3200,7 @@ const Waiver = {
             ? `<button class="btn sm pri" data-wvr="${esc(w.id)}" title="${LANG==="pt"
                  ? "O destinatário respondeu: registrar o parecer e aplicar o status final"
                  : "The addressee answered: record the decision and apply the final status"}">${
-                 LANG==="pt"?"Responder":"Answer"}</button>` : ""}
+                 LANG==="pt"?"Registrar resposta":"Record answer"}</button>` : ""}
           <button class="btn sm" data-wvv="${esc(w.id)}">${LANG==="pt"?"Abrir":"Open"}</button>
         </div>`; }).join("")
         : `<div class="muted" style="font-size:11.5px;margin-top:5px">${LANG==="pt"
@@ -3307,6 +3326,11 @@ const Waiver = {
   .wtexto.cond { border-left-color:#2f7a4f; background:#f9fdfa; min-height:0; }
   .wtexto.parecer { border-left-color:#b8860b; background:#fffdf6; min-height:13mm; }
   .wtexto .vazio { color:#aab3c0; font-style:italic; }
+  /* De onde veio o parecer e quem o transcreveu. O destinatario nao usa o
+     sistema: sem esta linha, o papel nao diz de onde saiu o que esta escrito
+     ali - e e isso que alguem vai querer conferir daqui a um ano. */
+  .wproc { font-size:9px; color:#6b7280; margin:4px 0 0; padding-left:3px; overflow-wrap:break-word; }
+  .wproc b { color:#3a4150; font-weight:700; }
 
   /* ---- assinaturas: o espaco de assinar fica ACIMA da linha ---- */
   /* O parecer e as assinaturas viajam juntos: um waiver que quebre deixando
@@ -3412,10 +3436,15 @@ const Waiver = {
     <div class="wfecho">
     ${sec(pt?"Parecer e decisão":"Decision",
       `<div class="wtexto parecer">${
-        (p(w.decisaoObs) || `<span class="vazio">${e(pt?"a preencher":"to be filled in")}</span>`)
-        + (w.decisaoPor?`\n\n${e(pt?"Decidido por":"Decided by")}: ${e(w.decisaoPor)}${
-            w.decisaoEm?` (${e(fmtD(w.decisaoEm))})`:""}`:"")
-      }</div>`)}
+        p(w.decisaoObs) || `<span class="vazio">${e(pt?"a preencher":"to be filled in")}</span>`
+      }</div>${w.decisaoPor||w.decisaoRef||w.decisaoRegistradaPor ? `
+      <p class="wproc">${[
+        w.decisaoPor && `<b>${e(pt?"Decidido por":"Decided by")}:</b> ${e(w.decisaoPor)}${
+          w.decisaoEm?` (${e(fmtD(w.decisaoEm))})`:""}`,
+        w.decisaoRef && `<b>${e(pt?"Recebido via":"Received via")}:</b> ${e(w.decisaoRef)}`,
+        w.decisaoRegistradaPor && `<b>${e(pt?"Transcrito por":"Transcribed by")}:</b> ${
+          e(w.decisaoRegistradaPor)}${w.decisaoRegistradaEm?` (${e(fmtD(w.decisaoRegistradaEm))})`:""}`,
+      ].filter(Boolean).join(" &nbsp;·&nbsp; ")}</p>` : ""}`)}
 
     <div class="wassin">
       <div class="lin"><b>${e(pt?"Solicitante":"Requested by")}</b>
@@ -5621,7 +5650,10 @@ function normalizar(db){
     w.itens = Array.isArray(w.itens) ? w.itens.filter(x=>typeof x==="string") : [];
     w.situacao ??= "rascunho"; w.origem ??= "sistema";
     for(const k of ["numero","assunto","texto","condicao","para","referencia",
-                    "statusDestino","statusFinal","decisaoPor","decisaoObs"]) w[k] ??= "";
+                    "statusDestino","statusFinal","decisaoPor","decisaoObs",
+                    /* o destinatario nao usa o sistema: a resposta e transcrita aqui,
+                       entao por onde ela chegou e quem a lancou fazem parte do registro */
+                    "decisaoRef","decisaoRegistradaPor"]) w[k] ??= "";
     w.dataDocumento ??= (w.criadoEm||"").slice(0,10) || hoje();
     w.criadoEm ??= agora(); w.atualizadoEm ??= w.criadoEm; w.autor ??= "";
   }
