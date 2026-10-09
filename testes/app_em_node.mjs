@@ -60,21 +60,25 @@ function elemento(doc){
         const classes = (/class="([^"]*)"/.exec(tag)?.[1] || "").split(/\s+/).filter(Boolean);
         const idDaTag = /id="([\w-]+)"/.exec(tag)?.[1] || "";
         let e = null;
+        /* O estado inicial vem do proprio texto, como no navegador: value="…"
+           e o atributo checked. Sem isto, uma caixa desenhada JA MARCADA
+           aparecia desmarcada aqui, e um campo desenhado JA PREENCHIDO (as
+           descricoes dos itens fora da base, por exemplo) aparecia vazio - e o
+           teste do caminho "ler a janela e guardar" nao via o que a tela
+           oferece. Vale para quem tem id E para quem so tem data-*. */
+        const vIni = /\svalue="([^"]*)"/.exec(tag)?.[1];
+        const marcado = /\schecked(?=[\s/>])/.test(tag);
+        const semear = x => { if(vIni!==undefined) x.value = vIni; if(marcado) x.checked = true; };
         if(idDaTag){
           e = elemento(doc); e.id = idDaTag;
-          /* O estado inicial vem do proprio texto, como no navegador: value="…"
-             e o atributo checked. Sem isto, uma caixa desenhada JA MARCADA
-             aparecia desmarcada aqui, e o teste do caminho "ler a janela e
-             guardar" nao via o padrao que a tela oferece. */
-          const v = /\svalue="([^"]*)"/.exec(tag);
-          if(v) e.value = v[1];
-          if(/\schecked(?=[\s/>])/.test(tag)) e.checked = true;
+          semear(e);
           classes.forEach(c=>e.classList.add(c));
           doc.porId.set(idDaTag, e);
           el.__ids.push(idDaTag);
         }
         for(const [,attr,valor] of tag.matchAll(/data-([a-zA-Z0-9-]+)="([^"]*)"/g)){
           const alvo = e || elemento(doc);
+          if(!e) semear(alvo);
           alvo.dataset[attr.replace(/-([a-z])/g,(_,c)=>c.toUpperCase())] = valor;
           if(!e) classes.forEach(c=>alvo.classList.add(c));
           if(!doc.porDados.has(attr)) doc.porDados.set(attr, new Map());
@@ -180,7 +184,8 @@ export function carregarApp({autor="Teste", confirmar=()=>true, arquivo=APP}={})
   /* os modulos sao declarados com const, que no escopo lexico global de um script
      classico nao vira propriedade de globalThis: buscamos as referencias aqui. */
   const nomes = ["IDB","Store","Usuario","S","R","Pend","Sync","M","G","Render","UI","Export","hoje","agora","T","Filtros","FiltroURL","Visita","ROTAS","Arquivamento","Colunas","Lote","TecladoItens","COLUNAS_PADRAO",
-                 "NovoItem","Caminho","limparTexto","nomeArquivo","$","$$","Waiver","EDITAVEL","uid"];
+                 "NovoItem","Caminho","limparTexto","nomeArquivo","$","$$","Waiver","EDITAVEL","uid",
+                 "Catalogo","lerTabela"];
   /* NovoItem e Arquivamento nao existem no visualizador, e Visualizador nao
      existe no index: pedir um nome inexistente derrubaria a extracao inteira. */
   const presentes = nomes.concat(["Visualizador"]).filter(n=>{
