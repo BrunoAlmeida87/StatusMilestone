@@ -130,30 +130,6 @@ com a caixa trocada. O item nasce com um evento no histórico com o seu nome e e
 caminho de qualquer edição: pendente, autosave, e sobrevive à gravação de outra pessoa no meio.
 Se os dois criarem o mesmo código, a tela de decisão aparece em vez de alguém perder o item.
 
-## A tabela geral do projeto
-
-Esta base é o recorte do **J08**: 428 itens. O projeto inteiro tem muito mais, e um waiver pode
-cair sobre um item que nunca entrou aqui. **Configurações ▸ Tabela geral do projeto ▸ Importar**
-traz essa lista de consulta para dentro da base.
-
-Entra por **CSV, TSV ou JSON**, ou **colada direto do Excel** — selecione as colunas com o
-cabeçalho, Ctrl+C, e cole na caixa; o Excel copia com TAB entre as colunas e o sistema entende.
-A tela então mostra, lado a lado, **cada coluna do arquivo, a primeira linha dela e o que ela
-vira** — já adivinhado pelo nome (`Item`, `Descrição`, `InspType`, `Evidence`…) e corrigível num
-clique. Antes de confirmar aparece a **prévia** do que vai entrar e o que ficou de fora: linha sem
-código, código repetido (fica a primeira) e quantos daqueles códigos **já existem como item da
-base**.
-
-O que ela **não** faz, de propósito:
-
-- **não vira item** e **não entra em indicador nenhum** — KPI, Evidence Flow, aging e histórico
-  continuam exatamente como estavam. É lista de consulta, não dado de painel;
-- **não mexe em status** de coisa alguma.
-
-Ela fica dentro do `database.json`, então vale para todo mundo que abrir a base — e aparece no
-tamanho dela, em **Configurações ▸ Tamanho e arquivamento**. Importar de novo substitui a tabela
-inteira; **Remover** apaga só ela, sem tocar em item nem em waiver.
-
 ## Waiver (pedido de dispensa)
 
 Um waiver é o pedido formal de aceitar um item como está: *"este item não vai atender o requisito
@@ -187,8 +163,7 @@ e cada uma tem um desfecho diferente:
 | O que você digita | O que acontece |
 |---|---|
 | Código **da base** | o de sempre: pílula com a cor do status, e o status pode se mover |
-| Código **da tabela geral** | entra como **item fora da base**, já com a descrição que a planilha tem |
-| Código que **não existe em lugar nenhum** | o sistema **pergunta** antes de incluir, em vez de recusar |
+| Código que **não está na base** | o sistema **pergunta** antes de incluir, em vez de recusar |
 
 Os itens de fora aparecem em bloco próprio, com a **descrição editável** — é ela que vai para o
 documento no lugar do status, porque quem lê o papel precisa saber de que item se trata sem abrir
@@ -200,8 +175,8 @@ itens de fora, a janela diz isso e não oferece caixa nenhuma de alteração.
 
 Se o item **entrar na base depois**, com o mesmo código, o waiver se liga a ele sozinho: passa a
 aparecer dentro da janela do item e deixa de ser "de fora" na próxima vez que o pedido for salvo.
-O botão **+ base** em cada item de fora abre o formulário de item novo **já preenchido** com o que
-a tabela geral sabe dele.
+O botão **+ base** em cada item de fora abre o formulário de item novo **já com o código e a
+descrição** escritos no waiver.
 
 ### Quando o status escolhido não é o que os itens têm
 

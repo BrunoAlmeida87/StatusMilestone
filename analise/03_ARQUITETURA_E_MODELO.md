@@ -147,18 +147,6 @@ Chave lógica: **(item, campo)** — é o que garante o agrupamento.
 - **`marcos`**: `id` · `nome` · `data` · `tipo`. São as emissões de relatório (29/07, 09/09, 10/09). É contra eles que se calcula "mudou no ciclo" e as setas ▲▼.
 - **`config`**: status (com `ativo`), famílias/colunas do Kanban, minutos de consolidação, limites de aging, `statusAbertoExcecoes` (a **única** fonte de "em aberto", casada por prefixo), tipos funcionais, `mbAvisoTamanho`, `vistas` (filtros salvos com nome, compartilhados por ficarem na base) e `caminhoPadrao` (onde a base mora na rede — fica aqui, e não no navegador, para valer para todo mundo que abrir aquele `database.json`).
 
-### `catalogo` — a tabela geral do projeto
-
-Lista de consulta do projeto inteiro, importada de CSV/TSV/JSON ou colada do Excel:
-`item` · `descricao` · `campos` (os demais campos mapeados, com os mesmos nomes de um item, para
-que uma linha possa virar item da base já preenchida). `catalogoMeta` guarda `importadoEm`,
-`autor`, `arquivo`, `linhas` e `colunas`.
-
-**Não é uma coleção de itens**: nada aqui entra em indicador, status, aging ou histórico. Existe
-para dois usos — achar o código e a descrição certos ao escrever um waiver sobre item que não está
-nesta base, e preencher o formulário de item novo quando se decide trazer um para cá. A validação
-trata problema nela sempre como aviso, nunca como impedimento de abrir a base.
-
 ### Relacionamentos
 
 ```

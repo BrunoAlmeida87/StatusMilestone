@@ -2617,106 +2617,30 @@ secao("24. JANELAS");
   app.UI.fechar();
 }
 
-/* ============ 25. TABELA GERAL DO PROJETO (IMPORTACAO) ================= */
-secao("25. TABELA GERAL DO PROJETO");
-{
-  const c = cenario({semPasta:true});
-  const {app} = c;
-  const t1 = app.lerTabela("Item;Descrição;InspType\nP-100;Válvula de fundo;B05\nP-101;Flange;FUN\n");
-  igual("CSV com ponto e vírgula: colunas", t1.cols, ["Item","Descrição","InspType"]);
-  igual("e linhas", t1.linhas.length, 2);
-  igual("separador detectado", t1.separador, ";");
-  const t2 = app.lerTabela("Item\tDescrição\nP-100\tVálvula\n");
-  igual("colado do Excel vem com TAB", t2.separador, "\t");
-  const t3 = app.lerTabela('Item,Descrição\nP-100,"Válvula, de fundo"\n');
-  igual("vírgula dentro de aspas não parte a célula", t3.linhas[0][1], "Válvula, de fundo");
-  const t4 = app.lerTabela('﻿Item;Desc\r\nP-1;x\r\n');
-  igual("BOM e CRLF do Excel não atrapalham", [t4.cols[0], t4.linhas.length], ["Item",1]);
-  const t5 = app.lerTabela('[{"item":"P-9","descricao":"Bomba"}]');
-  igual("JSON de objetos também entra", [t5.formato, t5.cols, t5.linhas[0]],
-        ["json", ["item","descricao"], ["P-9","Bomba"]]);
-  igual("arquivo vazio não inventa coluna", app.lerTabela("  ").cols, []);
-}
-{
-  const c = cenario({semPasta:true});
-  const {app} = c;
-  const tab = app.lerTabela("Item;Descrição;InspType;Evidence\nP-100;Válvula;B05;EV-9\n;sem código;X;Y\nP-100;repetido;Z;W\nP-101;Flange;FUN;EV-8\n");
-  igual("sem dizer onde está o código, não importa", !!app.Catalogo.preparar(tab,["","","",""]).erro, true);
-  const mapa = tab.cols.map(x=>app.Catalogo.adivinhar(x));
-  igual("as colunas de praxe se mapeiam sozinhas", mapa, ["item","descricao","inspType","evidence"]);
-  const prep = app.Catalogo.preparar(tab, mapa);
-  igual("linha sem código fica de fora", prep.semCodigo, 1);
-  igual("código repetido é relatado", prep.repetidos, ["P-100"]);
-  igual("e fica a primeira ocorrência", prep.linhas.map(l=>l.item), ["P-100","P-101"]);
-  igual("descrição vai para o campo certo", prep.linhas[0].descricao, "Válvula");
-  igual("os demais campos ficam prontos para virar item",
-        prep.linhas[0].campos, {inspType:"B05", evidence:"EV-9"});
-}
-{
-  const c = cenario({semPasta:true});
-  const {app} = c;
-  const tab = app.lerTabela("Codigo;Description\nP-100;Válvula de fundo\n");
-  const prep = app.Catalogo.preparar(tab, tab.cols.map(x=>app.Catalogo.adivinhar(x)));
-  igual("sem coluna de descrição, a melhor que houver vira rótulo",
-        prep.linhas[0].descricao, "Válvula de fundo");
-  app.Catalogo.guardar(prep.linhas, {arquivo:"geral.csv", colunas:2});
-  clearTimeout(app.Pend.timerAuto);
-  igual("a tabela entra na base", app.S.db.catalogo.length, 1);
-  igual("com a procedência registrada", app.S.db.catalogoMeta.arquivo, "geral.csv");
-  chk("e por quem", app.S.db.catalogoMeta.autor === "Teste");
-  chk("é mudança estrutural, então entra no diário",
-      app.Pend.diario.some(e=>e.o==="catalogo"));
-  igual("procura pelo código", app.Catalogo.porCodigo("p-100").descricao, "Válvula de fundo");
-  igual("procura pela descrição", app.Catalogo.buscar("fundo").length, 1);
-  igual("item da base não vira linha da tabela", app.S.db.itens.length, 4);
-  app.ctx.confirm = ()=>true;
-  app.Catalogo.remover(); clearTimeout(app.Pend.timerAuto);
-  igual("remover limpa tudo", [app.S.db.catalogo.length, app.S.db.catalogoMeta], [0, null]);
-}
-{
-  const c = cenario({semPasta:true});
-  const val = c.app.avaliar("validarBase");
-  const ruim = {...baseDeTeste(), catalogo:{}};
-  chk("catálogo que não é lista bloqueia a base", val(ruim).valido===false);
-  const dup = {...baseDeTeste(), catalogo:[{item:"P-1"},{item:"p-1"},{item:""}]};
-  const r = val(dup);
-  chk("catálogo com problema não impede de abrir", r.valido===true);
-  chk("repetido vira aviso", r.avisos.some(a=>/repetidos|duplicate/.test(a)), r.avisos.join(" | "));
-  chk("linha sem código também", r.avisos.some(a=>/sem código|without a code/.test(a)));
-}
-
-/* ============ 26. WAIVER PARA ITEM QUE NAO ESTA NA BASE ================ */
-secao("26. WAIVER FORA DA BASE");
+/* ============ 25. WAIVER PARA ITEM QUE NAO ESTA NA BASE ================ */
+secao("25. WAIVER FORA DA BASE");
 {
   const c = cenario();
   const {app} = c;
   app.Pend.autosave = async ()=>{};
-  app.Catalogo.guardar([{item:"P-500", descricao:"Casco — reforço estrutural",
-                         campos:{inspType:"B05", evidence:"EV-500"}}], {arquivo:"geral.csv"});
   app.Waiver.painel({itens:["A-001"]});
   const add = (v)=>{ app.$("#wItemAdd").value = v; app.$("#wItemBtn").onclick(); };
-  add("P-500");
-  igual("item da tabela geral entra no waiver", app.$$("[data-wi]").length, 2);
-  igual("e aparece no bloco de fora da base", app.$$("[data-wx]").length, 1);
-  igual("já com a descrição que a planilha tinha",
-        app.$$("[data-wx]")[0].value, "Casco — reforço estrutural");
   app.ctx.confirm = ()=>false;
   add("Z-999");
-  igual("código que não existe em lugar nenhum só entra se confirmado",
-        app.$$("[data-wi]").length, 2);
+  igual("código fora da base só entra se confirmado", app.$$("[data-wi]").length, 1);
   app.ctx.confirm = ()=>true;
   add("Z-999");
-  igual("confirmando, entra como item fora da base", app.$$("[data-wi]").length, 3);
+  igual("confirmando, entra como item fora da base", app.$$("[data-wi]").length, 2);
+  igual("e ganha linha própria para a descrição", app.$$("[data-wx]").length, 1);
+  app.$$("[data-wx]")[0].value = "Suporte fora do J08";
+  app.$$("[data-wx]")[0].oninput();
   app.$("#wTexto").value = "pedido de dispensa";
   app.$("#wDestino").value = "4 - Under Analysis";
   app.$("#mb1").onclick();
   const w = app.S.db.waivers[0];
-  igual("o waiver cobre os três", w.itens, ["A-001","P-500","Z-999"]);
-  igual("e guarda os dois que não estão na base", Object.keys(w.externos).sort(), ["P-500","Z-999"]);
-  igual("com a procedência de cada um",
-        [w.externos["P-500"].fonte, w.externos["Z-999"].fonte], ["catalogo","manual"]);
-  igual("a descrição da tabela geral viaja com o waiver",
-        w.externos["P-500"].descricao, "Casco — reforço estrutural");
+  igual("o waiver cobre os dois", w.itens, ["A-001","Z-999"]);
+  igual("e guarda o que não está na base", Object.keys(w.externos), ["Z-999"]);
+  igual("com a descrição escrita na janela", w.externos["Z-999"].descricao, "Suporte fora do J08");
 }
 {
   /* O status só se move para quem existe: o waiver cobre o item de fora, mas
@@ -2764,7 +2688,7 @@ secao("26. WAIVER FORA DA BASE");
   const {app} = c;
   app.Pend.autosave = async ()=>{};
   const w = {id:"wd2", numero:"W-2026-032", itens:["P-900"],
-             externos:{"P-900":{descricao:"x", fonte:"catalogo"}},
+             externos:{"P-900":{descricao:"x", fonte:"manual"}},
              texto:"t", situacao:"enviado", criadoEm:app.agora(), autor:"Teste"};
   app.Waiver.guardar(w);
   igual("antes, o waiver não acha item nenhum", app.Waiver.doItem("P-900").length, 1);

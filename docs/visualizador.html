@@ -1778,272 +1778,6 @@ const Lote = { barra(){ return ""; }, ligar(){} };
 
    Nada aqui grava por um caminho proprio: o status vai por Pend.alterar, como
    qualquer edicao, e o waiver em si e gravado pelo autosave.              */
-/* ===================== a tabela geral do projeto ======================
-   A base do J08 tem os 428 itens do marco. O projeto inteiro tem muito mais,
-   e um waiver pode cair sobre um item que nunca entrou aqui. Esta tabela e a
-   LISTA DE CONSULTA desse universo: nao vira item da base nem entra em
-   indicador nenhum - serve para achar o codigo e a descricao certos na hora
-   de escrever um waiver, e para trazer um item para a base quando for o caso.
-
-   Entra por arquivo (CSV, TSV ou JSON) ou colada direto do Excel, que coloca
-   TAB entre as colunas na area de transferencia - e o caminho mais curto para
-   quem tem a planilha aberta e nao quer salvar um CSV antes.               */
-function lerTabela(texto){
-  const t = String(texto ?? "").replace(/^\ufeff/, "");
-  if(!t.trim()) return {cols:[], linhas:[], formato:null};
-  /* JSON: uma lista de objetos (o que o proprio sistema exporta) */
-  if(/^\s*\[/.test(t)){
-    let j; try{ j = JSON.parse(t); }catch{ j = null; }
-    if(Array.isArray(j)){
-      const objs = j.filter(x=>x && typeof x==="object" && !Array.isArray(x));
-      const cols = [...new Set(objs.flatMap(o=>Object.keys(o)))];
-      return {cols, linhas:objs.map(o=>cols.map(c=>o[c]==null? "" : String(o[c]))), formato:"json"};
-    }
-  }
-  /* Separador: o que mais aparece na primeira linha de verdade. O Excel usa
-     TAB ao copiar e ";" ao salvar CSV em maquina com virgula decimal. */
-  const primeira = t.split(/\r?\n/).find(l=>l.trim()) || "";
-  const sep = [["\t",(primeira.match(/\t/g)||[]).length],
-               [";", (primeira.match(/;/g)||[]).length],
-               [",", (primeira.match(/,/g)||[]).length]]
-              .sort((a,b)=>b[1]-a[1])[0];
-  const d = sep[1] ? sep[0] : ";";
-  /* Parser com aspas: uma celula entre aspas pode conter o separador e ate
-     quebra de linha - e exatamente o caso das descricoes longas. */
-  const linhas=[]; let campo="", linha=[], aspas=false;
-  for(let k=0; k<t.length; k++){
-    const c = t[k];
-    if(aspas){
-      if(c === '"'){ if(t[k+1] === '"'){ campo+='"'; k++; } else aspas=false; }
-      else campo += c;
-      continue;
-    }
-    if(c === '"'){ aspas=true; continue; }
-    if(c === d){ linha.push(campo); campo=""; continue; }
-    if(c === "\n"){ linha.push(campo); linhas.push(linha); linha=[]; campo=""; continue; }
-    if(c === "\r") continue;
-    campo += c;
-  }
-  if(campo!=="" || linha.length){ linha.push(campo); linhas.push(linha); }
-  const limpas = linhas.map(l=>l.map(x=>String(x).trim())).filter(l=>l.some(x=>x!==""));
-  if(!limpas.length) return {cols:[], linhas:[], formato:null};
-  const cols = limpas[0].map((c,i)=>c || `coluna ${i+1}`);
-  return {cols, linhas:limpas.slice(1), formato:"texto", separador:d};
-}
-
-const Catalogo = {
-  lista(){ return S.db?.catalogo ?? []; },
-  meta(){ return S.db?.catalogoMeta ?? null; },
-  porCodigo(cod){
-    const chave = String(cod||"").trim().toLowerCase();
-    return this.lista().find(c=>String(c.item).trim().toLowerCase()===chave) || null;
-  },
-  /* Busca por codigo ou descricao, para o campo de item do waiver. */
-  buscar(q, n=30){
-    const t = String(q||"").trim().toLowerCase();
-    if(!t) return this.lista().slice(0,n);
-    return this.lista().filter(c=>
-      String(c.item).toLowerCase().includes(t) ||
-      String(c.descricao||"").toLowerCase().includes(t)).slice(0,n);
-  },
-
-  /* Os destinos possiveis de uma coluna do arquivo. Alem do codigo e da
-     descricao, qualquer campo de item - assim a linha do catalogo serve para
-     criar o item na base depois, ja preenchido. */
-  destinos(){
-    return [{id:"item", rot:(LANG==="pt"?"Código do item *":"Item code *")},
-            {id:"descricao", rot:(LANG==="pt"?"Descrição":"Description")},
-            ...NovoItem.CAMPOS.map(c=>({id:c.id, rot:NovoItem.rotulo(c)}))];
-  },
-  /* Chute do destino pelo nome da coluna - acerta a planilha de praxe sem
-     ninguem mexer em nada, e o que errar esta a um clique de ser corrigido. */
-  adivinhar(col){
-    /* Sem tirar o acento, "Descrição" virava "descrio" e nao casava com nada -
-       e a coluna mais comum da planilha ficava sem destino. */
-    const t = String(col||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"")
-                .toLowerCase().replace(/[^a-z0-9]/g,"");
-    if(/^(item|codigo|code|tag|id)$/.test(t)) return "item";
-    if(/^(descricao|description|desc)$/.test(t)) return "descricao";
-    if(t.includes("nanddescription") || t.includes("numand")) return "numAndDescription";
-    for(const c of NovoItem.CAMPOS) if(String(c.id).toLowerCase() === t) return c.id;
-    if(t.includes("insptype")) return "inspType";
-    if(t.includes("evidence")) return "evidence";
-    if(t.includes("originaljx")) return "originalJx";
-    if(t.includes("actualjx")) return "actualJx";
-    return "";
-  },
-
-  /* Monta as linhas do catalogo a partir do arquivo e do mapa de colunas.
-     Funcao pura: devolve as linhas e o que ha de errado com elas, sem gravar
-     nada - a janela mostra o relatorio ANTES de a pessoa confirmar.        */
-  preparar(tabela, mapa){
-    const iCod = mapa.indexOf("item");
-    if(iCod < 0) return {erro: LANG==="pt"
-      ? "Escolha qual coluna traz o código do item." : "Pick which column holds the item code."};
-    const linhas=[], vistos=new Map();
-    let semCodigo=0; const repetidos=[];
-    for(const l of tabela.linhas){
-      const cod = String(l[iCod] ?? "").trim();
-      if(!cod){ semCodigo++; continue; }
-      const chave = cod.toLowerCase();
-      if(vistos.has(chave)){ repetidos.push(cod); continue; }
-      const reg = {item:cod};
-      const campos = {};
-      mapa.forEach((destino, k)=>{
-        if(!destino || destino==="item") return;
-        const v = String(l[k] ?? "").trim(); if(!v) return;
-        if(destino==="descricao") reg.descricao = v; else campos[destino] = v;
-      });
-      if(Object.keys(campos).length) reg.campos = campos;
-      /* Sem coluna de descricao, a melhor que houver serve de rotulo: e o que
-         vai aparecer no chip do waiver e na tabela do documento. */
-      reg.descricao ??= campos.description || campos.numAndDescription || campos.evidence || "";
-      vistos.set(chave, reg); linhas.push(reg);
-    }
-    return {linhas, semCodigo, repetidos:[...new Set(repetidos)]};
-  },
-
-  guardar(linhas, info){
-    if(!S.db) return;
-    S.db.catalogo = linhas;
-    S.db.catalogoMeta = {importadoEm:agora(), autor:Usuario.garantir(), linhas:linhas.length, ...info};
-    Pend.registrar({t:"outro", o:"catalogo"});
-    S.sujo = true;
-    Pend.autosave();
-  },
-  /* A janela tem dois momentos: escolher de onde vem e conferir o que vai
-     entrar. O segundo so aparece depois de ler alguma coisa, e mostra o mapa
-     de colunas, a previa e o que esta errado ANTES de gravar. */
-  painel(tabela=null, mapa=null){
-    if(!S.db || !EDITAVEL) return;
-    const meta = this.meta(), tem = this.lista().length;
-    const mapaAtual = tabela ? (mapa || tabela.cols.map(c=>this.adivinhar(c))) : null;
-    const prep = tabela ? this.preparar(tabela, mapaAtual) : null;
-
-    const escolher = `
-      <p class="muted" style="margin-bottom:13px">${LANG==="pt"
-        ? "A <b>tabela geral</b> é a lista de consulta do projeto inteiro: serve para achar o código e a descrição de um item que <b>não está nesta base</b> — na hora de escrever um waiver, por exemplo. Ela não vira item, não entra em indicador e não muda número nenhum dos painéis."
-        : "The <b>general table</b> is the reference list for the whole project: it is there to find the code and description of an item that is <b>not in this database</b> — when writing a waiver, for instance. It does not become an item, does not feed any indicator and changes no panel figure."}</p>
-      ${tem?`<div class="panel pad" style="border-left:3px solid var(--accent);margin-bottom:13px">
-        <b>${tem} ${LANG==="pt"?"linha(s) já importadas":"row(s) already imported"}</b>
-        <span class="muted">${meta?.arquivo?esc(meta.arquivo)+" · ":""}${meta?.importadoEm?fmtDT(meta.importadoEm):""}${
-          meta?.autor?" · "+esc(meta.autor):""}</span>
-        <div class="muted" style="font-size:11.5px;margin-top:4px">${LANG==="pt"
-          ? "Importar de novo substitui a tabela inteira." : "Importing again replaces the whole table."}</div></div>`:""}
-      <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(min(260px,100%),1fr));gap:13px">
-        <label class="fld"><span>${LANG==="pt"?"Arquivo (CSV, TSV ou JSON)":"File (CSV, TSV or JSON)"}</span>
-          <input type="file" id="catArq" accept=".csv,.tsv,.txt,.json"></label>
-        <div>
-          <div class="fld"><span>${LANG==="pt"?"ou cole aqui (copiado do Excel)":"or paste here (copied from Excel)"}</span></div>
-          <textarea id="catCola" rows="5" class="mono" style="font-size:11px"
-            placeholder="${LANG==="pt"?"Item ; Descrição ; InspType — com a linha de cabeçalho":"Item ; Description ; InspType — including the header row"}"></textarea>
-          <button class="btn sm" id="catLer" style="margin-top:7px">${LANG==="pt"?"Ler o que está colado":"Read what is pasted"}</button>
-        </div>
-      </div>
-      <p class="muted" style="font-size:11.5px;margin-top:11px">${LANG==="pt"
-        ? "No Excel: selecione as colunas com o cabeçalho, Ctrl+C, e cole aí — ele copia com TAB entre as colunas. Salvar como CSV também serve."
-        : "In Excel: select the columns including the header, Ctrl+C and paste above — it copies with TABs. Saving as CSV works too."}</p>`;
-
-    const conferir = ()=>{
-      if(prep.erro) return `<div class="panel pad" style="border-left:3px solid var(--bad)">${esc(prep.erro)}</div>`;
-      const dest = this.destinos();
-      const cols = tabela.cols.map((c,k)=>`<tr>
-        <td class="mono" style="font-size:11px">${esc(c)}</td>
-        <td class="muted" style="font-size:11px">${esc(String(tabela.linhas[0]?.[k] ?? "").slice(0,40))}</td>
-        <td><select data-col="${k}">
-          <option value="">${LANG==="pt"?"— ignorar —":"— ignore —"}</option>
-          ${dest.map(d=>`<option value="${esc(d.id)}"${d.id===mapaAtual[k]?" selected":""}>${esc(d.rot)}</option>`).join("")}
-        </select></td></tr>`).join("");
-      const amostra = prep.linhas.slice(0,6).map(r=>`<tr><td class="mono"><b>${esc(r.item)}</b></td>
-        <td>${esc(String(r.descricao||"").slice(0,70))||"<span class=muted>—</span>"}</td>
-        <td class="muted" style="font-size:11px">${esc(Object.entries(r.campos||{}).slice(0,3)
-          .map(([k,v])=>`${k}=${String(v).slice(0,18)}`).join(" · "))}</td></tr>`).join("");
-      const avisos = [
-        prep.semCodigo && (LANG==="pt"? `${prep.semCodigo} linha(s) sem código foram deixadas de fora.`
-                                      : `${prep.semCodigo} row(s) without a code were left out.`),
-        prep.repetidos.length && (LANG==="pt"
-          ? `${prep.repetidos.length} código(s) repetidos — ficou a primeira ocorrência: ${prep.repetidos.slice(0,6).join(", ")}${prep.repetidos.length>6?"…":""}`
-          : `${prep.repetidos.length} duplicate code(s) — the first occurrence was kept.`),
-      ].filter(Boolean);
-      const naBase = prep.linhas.filter(r=>NovoItem.existente(r.item)).length;
-      return `
-      <p class="muted" style="margin-bottom:11px">${LANG==="pt"
-        ? `O arquivo tem <b>${tabela.cols.length}</b> coluna(s) e <b>${tabela.linhas.length}</b> linha(s). Diga o que é cada coluna — o código do item é o único obrigatório.`
-        : `The file has <b>${tabela.cols.length}</b> column(s) and <b>${tabela.linhas.length}</b> row(s). Say what each column is — only the item code is required.`}</p>
-      <div class="tblwrap" style="max-height:230px;margin-bottom:13px"><table>
-        <thead><tr><th>${LANG==="pt"?"Coluna do arquivo":"File column"}</th>
-          <th>${LANG==="pt"?"1ª linha":"First row"}</th><th>${LANG==="pt"?"Vira":"Becomes"}</th></tr></thead>
-        <tbody>${cols}</tbody></table></div>
-      ${avisos.map(a=>`<div class="panel pad" style="border-left:3px solid var(--warn);margin-bottom:9px;font-size:11.5px">${esc(a)}</div>`).join("")}
-      <b>${LANG==="pt"?"Vai entrar assim":"This is what goes in"}</b>
-      <span class="muted">${prep.linhas.length} ${LANG==="pt"?"linha(s)":"row(s)"}${
-        naBase? " · "+(LANG==="pt"? `${naBase} já existem como item da base` : `${naBase} already exist as database items`):""}</span>
-      <div class="tblwrap" style="max-height:200px;margin-top:7px"><table>
-        <thead><tr><th>${LANG==="pt"?"Código":"Code"}</th><th>${LANG==="pt"?"Descrição":"Description"}</th>
-          <th>${LANG==="pt"?"Outros campos":"Other fields"}</th></tr></thead>
-        <tbody>${amostra || `<tr><td colspan="3" class="muted">—</td></tr>`}</tbody></table></div>`;
-    };
-
-    UI.modal(LANG==="pt"?"Tabela geral do projeto":"General project table",
-      tabela ? conferir() : escolher,
-      tabela
-        ? [{txt:LANG==="pt"?"Trocar o arquivo":"Change the file", cls:"btn", fn:()=>this.painel()},
-           {txt:LANG==="pt"?"Importar":"Import", cls:"btn pri", fn:()=>{
-              const m = tabela.cols.map((_,k)=>$(`select[data-col="${k}"]`)?.value || "");
-              const r = this.preparar(tabela, m);
-              if(r.erro) return toast(r.erro,"bad");
-              if(!r.linhas.length) return toast(LANG==="pt"?"Nenhuma linha com código":"No row with a code","bad");
-              if(tem && !confirmar(LANG==="pt"
-                ? `Substituir a tabela geral atual (${tem} linhas) por estas ${r.linhas.length}?`
-                : `Replace the current general table (${tem} rows) with these ${r.linhas.length}?`)) return;
-              this.guardar(r.linhas, {arquivo:this.__arquivo || (LANG==="pt"?"colado":"pasted"),
-                                      colunas:tabela.cols.length});
-              UI.fechar(); Render.atual();
-              toast(LANG==="pt"?`Tabela geral: ${r.linhas.length} linha(s) importada(s)`
-                               :`General table: ${r.linhas.length} row(s) imported`,"ok");
-           }}]
-        : [{txt:T("fechar"), cls:"btn", fn:()=>UI.fechar()},
-           ...(tem?[{txt:LANG==="pt"?"Remover a tabela":"Remove the table", cls:"btn danger",
-                     fn:()=>{ if(this.remover()) UI.fechar(); }}]:[])]);
-
-    if(!tabela){
-      const arq = $("#catArq");
-      if(arq) arq.onchange = async ()=>{
-        const f = arq.files?.[0]; if(!f) return;
-        try{
-          const t = await f.text();
-          const tb = lerTabela(t);
-          if(!tb.cols.length) return toast(LANG==="pt"?"Não consegui ler nenhuma coluna desse arquivo"
-                                                     :"Could not read any column from that file","bad");
-          this.__arquivo = f.name;
-          this.painel(tb);
-        }catch(e){ toast(String(e?.message||e),"bad"); }
-      };
-      const ler = $("#catLer");
-      if(ler) ler.onclick = ()=>{
-        const tb = lerTabela($("#catCola")?.value || "");
-        if(!tb.cols.length) return toast(LANG==="pt"?"Cole a tabela com a linha de cabeçalho"
-                                                   :"Paste the table including the header row","bad");
-        this.__arquivo = LANG==="pt"?"colado do Excel":"pasted from Excel";
-        this.painel(tb);
-      };
-    }
-  },
-
-  remover(){
-    if(!S.db || !this.lista().length) return false;
-    if(!confirmar(LANG==="pt"
-      ? `Remover a tabela geral (${this.lista().length} linhas)?\n\nOs itens da base e os waivers já escritos não são afetados.`
-      : `Remove the general table (${this.lista().length} rows)?\n\nItems in the database and waivers already written are untouched.`)) return false;
-    S.db.catalogo = []; S.db.catalogoMeta = null;
-    Pend.registrar({t:"outro", o:"catalogo"});
-    S.sujo = true;
-    Pend.autosave();
-    Render.atual();
-    return true;
-  },
-};
-
 const Waiver = {
   SITUACOES:[
     {id:"rascunho", pt:"Rascunho",  en:"Draft",     cor:"#8a8f98"},
@@ -3126,31 +2860,6 @@ Render.config = function(){
       ${Caminho.blocoHTML({editavel:true})}
     </div></div>
 
-    <div class="panel"><h3>${LANG==="pt"?"Tabela geral do projeto":"General project table"}
-      <span class="sub">${LANG==="pt"?"lista de consulta, não entra nos indicadores":"reference list, not part of any indicator"}</span></h3>
-      <div class="pad">
-      ${(()=>{ const n=Catalogo.lista().length, m=Catalogo.meta();
-        return n ? `<dl class="kv">
-            <dt>${LANG==="pt"?"Linhas":"Rows"}</dt><dd class="mono">${n}</dd>
-            <dt>${LANG==="pt"?"Importada em":"Imported at"}</dt><dd>${m?.importadoEm?fmtDT(m.importadoEm):"—"}</dd>
-            <dt>${LANG==="pt"?"Por":"By"}</dt><dd>${esc(m?.autor||"—")}</dd>
-            <dt>${LANG==="pt"?"Origem":"Source"}</dt><dd class="mono">${esc(m?.arquivo||"—")}</dd>
-            <dt>${LANG==="pt"?"Também na base":"Also in the database"}</dt>
-            <dd class="mono">${Catalogo.lista().filter(c=>NovoItem.existente(c.item)).length}</dd>
-          </dl>`
-        : `<p class="muted" style="font-size:11.5px;line-height:1.7">${LANG==="pt"
-            ? "Nenhuma tabela importada. Ela serve para escrever waiver de item que <b>não está nesta base</b>: com ela, o código traz a descrição junto em vez de ser digitado no escuro."
-            : "No table imported. It is used to write a waiver for an item that is <b>not in this database</b>."}</p>`; })()}
-      <div class="rowflex" style="margin-top:11px">
-        <button class="btn pri" id="catImportar">${Catalogo.lista().length
-          ? (LANG==="pt"?"Importar de novo":"Import again") : (LANG==="pt"?"Importar tabela":"Import table")}</button>
-        ${Catalogo.lista().length?`<button class="btn" id="catRemover">${LANG==="pt"?"Remover":"Remove"}</button>`:""}
-      </div>
-      <p class="muted" style="font-size:11.5px;line-height:1.7;margin-top:9px">${LANG==="pt"
-        ? "Entra por CSV, TSV, JSON ou colada direto do Excel. Fica dentro do <b>database.json</b>, então vale para todo mundo que abrir a base — e aparece no tamanho dela, em <b>Tamanho e arquivamento</b>."
-        : "Accepts CSV, TSV, JSON or a paste from Excel. It lives inside <b>database.json</b>, so everyone opening the base gets it."}</p>
-    </div></div>
-
     <div class="panel"><h3>${T("backup")}</h3><div class="pad">
       <div class="rowflex" style="margin-bottom:11px">
         <button class="btn pri" id="bFazer">${LANG==="pt"?"Fazer backup agora":"Backup now"}</button>
@@ -3272,8 +2981,6 @@ Render.config = function(){
       Render.atual();
     }catch(e){ toast(mensagemArmazenamento(e),"bad"); }
   };
-  $("#catImportar").onclick=()=>Catalogo.painel();
-  const catR=$("#catRemover"); if(catR) catR.onclick=()=>Catalogo.remover();
   $("#bVerif").onclick=()=>{$("#integ").innerHTML=verificarIntegridade();};
   $("#integ").innerHTML=verificarIntegridade();
 };
@@ -3310,7 +3017,7 @@ function validarBase(db){
     E("O arquivo não contém um objeto de base.","The file does not contain a database object.");
     return {valido:false, erros, avisos};
   }
-  for(const k of ["itens","historico","pendentes","observacoes","conflitos","marcos","waivers","catalogo"])
+  for(const k of ["itens","historico","pendentes","observacoes","conflitos","marcos","waivers"])
     if(k in db && !Array.isArray(db[k]))
       E(`"${k}" existe no arquivo mas não é uma lista.`, `"${k}" exists but is not a list.`);
   for(const k of ["config","meta"])
@@ -3364,16 +3071,6 @@ function validarBase(db){
   const pCampo = pend.filter(x=>!x?.campo || !Pend.campoEditavel.includes(x.campo)).length;
   if(pCampo) A(`${pCampo} pendência(s) em campo que não é editável.`,
                `${pCampo} pending change(s) on a non-editable field.`);
-  /* A tabela geral e consulta, nao dado de indicador: problema nela nunca
-     impede a base de abrir - mas quem importou precisa saber o que entrou. */
-  const cat = Array.isArray(db.catalogo)? db.catalogo : [];
-  const catSem = cat.filter(c=>!c || !String(c.item||"").trim()).length;
-  if(catSem) A(`${catSem} linha(s) da tabela geral sem código.`, `${catSem} general-table row(s) without a code.`);
-  const catVistos = new Set(), catDup = new Set();
-  for(const c of cat){ const k=String(c?.item||"").trim().toLowerCase(); if(!k) continue;
-    if(catVistos.has(k)) catDup.add(k); else catVistos.add(k); }
-  if(catDup.size) A(`${catDup.size} código(s) repetidos na tabela geral.`,
-                    `${catDup.size} duplicate code(s) in the general table.`);
   return {valido: !erros.length, erros, avisos};
 }
 
@@ -4818,8 +4515,6 @@ function normalizar(db){
   /* Base gravada antes dos waivers nao traz a lista; sem isto a tela de
      waivers estouraria ao abrir uma base antiga. */
   db.waivers ??= [];
-  db.catalogo ??= [];                 /* tabela geral do projeto: consulta, nao itens da base */
-  db.catalogoMeta ??= null;
   if(!Array.isArray(db.waivers)) db.waivers = [];
   for(const w of db.waivers){
     if(!w || typeof w!=="object") continue;

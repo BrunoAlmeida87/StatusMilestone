@@ -35,10 +35,8 @@ node testes/unidade.mjs        # 761 verificações: persistência (arquivo inex
                                # rebase de waiver quando outra pessoa grava no
                                # meio e o visualizador, que lê e imprime mas não
                                # pede nem altera), a janela que fechava sozinha
-                               # quando o mouse era solto fora dela, a tabela geral
-                               # do projeto (CSV, TSV, JSON e colagem do Excel, o
-                               # mapa de colunas e o que fica de fora) e o waiver
-                               # de item que não está na base
+                               # quando o mouse era solto fora dela e o waiver de
+                               # item que não está na base
 ```
 
 Não precisa instalar nada e não usa dado nenhum do projeto: `testes/app_em_node.mjs`
