@@ -2703,5 +2703,106 @@ secao("25. WAIVER FORA DA BASE");
   igual("e deixa de ser item de fora", Object.keys(n.externos||{}), []);
 }
 
+
+/* ============ 26. ANEXOS DO WAIVER (TABELA E IMAGEM) =================== */
+secao("26. ANEXOS DO WAIVER");
+{
+  const c = cenario({semPasta:true});
+  const {app} = c;
+  const t = app.Anexo.tabelaDeTexto("Item\tDescrição\tQtd\nP-1\tVálvula de fundo\t2\nP-2\tFlange\t1\n");
+  igual("colado do Excel: cabeçalho vira coluna", t.colunas, ["Item","Descrição","Qtd"]);
+  igual("e as linhas ficam separadas", t.linhas, [["P-1","Válvula de fundo","2"],["P-2","Flange","1"]]);
+  const semCab = app.Anexo.tabelaDeTexto("P-1\tx\nP-2\ty\n", {cabecalho:false});
+  igual("sem cabeçalho, tudo é linha", [semCab.colunas, semCab.linhas.length], [null, 2]);
+  const csv = app.Anexo.tabelaDeTexto('Item;Descrição\nP-1;"Válvula, de fundo"\n');
+  igual("CSV com vírgula dentro de aspas não parte a célula", csv.linhas[0][1], "Válvula, de fundo");
+  const irregular = app.Anexo.tabelaDeTexto("a\tb\tc\nx\ty\n");
+  igual("linha curta é completada para a tabela não desalinhar", irregular.linhas[0], ["x","y",""]);
+  igual("texto vazio não vira anexo", app.Anexo.tabelaDeTexto("   "), null);
+}
+{
+  /* O caminho de verdade: abrir a janela, colar a tabela, salvar. */
+  const c = cenario();
+  const {app} = c, doc = app.ctx.document;
+  app.Pend.autosave = async ()=>{};
+  app.Waiver.painel({itens:["A-001"]});
+  app.$("#wAnexoTab").onclick();
+  chk("a área de colar aparece dentro da própria janela", !!app.$("#wColaTxt"));
+  app.$("#wColaTxt").value = "Item\tEnsaio\nP-1\tvácuo\nP-2\testanqueidade\n";
+  app.$("#wColaTit").value = "Ensaios pendentes";
+  app.$("#wColaOk").onclick();
+  igual("o anexo entra na lista da janela", app.$$("[data-an]").length, 1);
+  chk("e a área de colar some", !app.$("#wColaTxt"));
+  app.$("#wTexto").value = "pedido";
+  app.$("#mb1").onclick();
+  const w = app.S.db.waivers[0];
+  igual("o waiver guarda o anexo", (w.anexos||[]).length, 1);
+  igual("com tipo e título", [w.anexos[0].tipo, w.anexos[0].titulo], ["tabela","Ensaios pendentes"]);
+  igual("e a tabela inteira", w.anexos[0].tabela.linhas.length, 2);
+  chk("com autor e hora", !!w.anexos[0].criadoEm && w.anexos[0].autor==="Teste");
+}
+{
+  /* Editar um waiver que já tem anexo: título muda, ordem muda, remover tira. */
+  const c = cenario();
+  const {app} = c;
+  app.Pend.autosave = async ()=>{};
+  const w = {id:"wa1", numero:"W-2026-040", itens:["A-001"], texto:"t", situacao:"rascunho",
+             criadoEm:app.agora(), autor:"Teste",
+             anexos:[{id:"a1", tipo:"tabela", titulo:"Um", tabela:{colunas:["a"], linhas:[["1"]]}},
+                     {id:"a2", tipo:"imagem", titulo:"Dois", dados:"data:image/png;base64,AAAA",
+                      largura:10, altura:10, bytes:3}]};
+  app.Waiver.guardar(w);
+  app.Waiver.painel({id:"wa1"});
+  igual("os dois anexos aparecem na janela", app.$$("[data-an]").length, 2);
+  app.$$("[data-an]")[0].value = "Primeiro";
+  app.$$("[data-an]")[0].oninput();
+  app.$$("[data-andn]")[0].onclick();                  /* desce o primeiro */
+  app.$("#wTexto").value = "t";
+  app.$("#mb2").onclick();                             /* salvar */
+  const n = app.S.db.waivers.find(x=>x.id==="wa1");
+  igual("a ordem é a da janela", n.anexos.map(a=>a.id), ["a2","a1"]);
+  igual("e o título editado foi junto", n.anexos.find(a=>a.id==="a1").titulo, "Primeiro");
+
+  app.Waiver.painel({id:"wa1"});
+  app.$$("[data-anx]")[0].onclick();                   /* remove o primeiro */
+  app.$("#wTexto").value = "t";
+  app.$("#mb2").onclick();
+  igual("remover na janela tira do waiver", app.S.db.waivers.find(x=>x.id==="wa1").anexos.length, 1);
+}
+{
+  /* O documento: cada anexo em folha nova, depois do waiver. */
+  const c = cenario({semPasta:true});
+  const {app} = c;
+  const w = {id:"wa2", numero:"W-2026-041", itens:["A-001"], texto:"t", situacao:"enviado",
+             criadoEm:app.agora(), autor:"Teste",
+             anexos:[{id:"a1", tipo:"tabela", titulo:"Ensaios", tabela:{colunas:["Item","Ensaio"],
+                      linhas:[["P-1","vácuo"]]}},
+                     {id:"a2", tipo:"imagem", titulo:"Foto do local",
+                      dados:"data:image/jpeg;base64,/9j/AAAA", largura:800, altura:600, bytes:3000}]};
+  app.S.db.waivers = [w];
+  const doc = app.Waiver.docWaiverHTML(w);
+  chk("numera os anexos", doc.includes("Anexo 1 — Ensaios") && doc.includes("Anexo 2 — Foto do local"));
+  chk("a tabela sai como tabela de verdade", /<table class="itens anexotab">/.test(doc));
+  chk("com cabeçalho e célula", doc.includes("<th>Ensaio</th>") && doc.includes("<td>vácuo</td>"));
+  chk("a imagem sai embutida", doc.includes('src="data:image/jpeg;base64,/9j/AAAA"'));
+  chk("e a ficha conta os anexos", /Anexos<\/dt><dd>2/.test(doc.replace(/\s+/g," ")));
+  const css = app.Waiver.cssWaiver();
+  chk("cada anexo começa em folha nova", /\.wanexo \{[^}]*page-break-before:always/.test(css));
+  const semAnexo = app.Waiver.docWaiverHTML({...w, anexos:[]});
+  chk("waiver sem anexo não ganha seção nenhuma", !semAnexo.includes("wanexo"));
+  chk("nem a linha na ficha", !/Anexos<\/dt>/.test(semAnexo));
+}
+{
+  /* Peso: é o que decide se isto pode viver dentro do database.json. */
+  const c = cenario({semPasta:true});
+  const {app} = c;
+  const tab = {id:"t", tipo:"tabela", tabela:{colunas:["a","b"], linhas:[["1","2"],["3","4"]]}};
+  chk("tabela pesa quase nada", app.Anexo.bytes(tab) < 400, String(app.Anexo.bytes(tab)));
+  const img = {id:"i", tipo:"imagem", dados:"data:image/jpeg;base64,"+"A".repeat(40000)};
+  chk("imagem é medida pelo base64", Math.abs(app.Anexo.bytes(img)-30000) < 1200, String(app.Anexo.bytes(img)));
+  igual("o total soma os dois", app.Anexo.total([tab,img]), app.Anexo.bytes(tab)+app.Anexo.bytes(img));
+  igual("e sai legível", app.Anexo.fmtBytes(1572864), "1.5 MB");
+}
+
 console.log(falhas.length ? `\n${falhas.length} FALHA(S):\n  `+falhas.join("\n  ") : "\nTudo certo.");
 process.exit(falhas.length ? 1 : 0);

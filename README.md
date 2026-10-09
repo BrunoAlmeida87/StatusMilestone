@@ -146,6 +146,7 @@ marcados na tabela (a barra de seleção tem o botão). O pedido cobre **um ou m
 | **Status de tramitação (agora)** | para onde os itens vão **neste momento** |
 | **Status final desejado** | onde eles devem parar se o waiver for aceito |
 | Texto do waiver | o que você escreveu (há um **modelo** com as quatro seções de praxe) |
+| **Anexos** | tabelas coladas do Excel e imagens, impressas depois do waiver |
 | Condições / medidas compensatórias | o que fica combinado em troca |
 | Situação | rascunho · enviado · aprovado · recusado · cancelado |
 | Referência e data do documento | número da carta, e-mail ou ata |
@@ -200,6 +201,27 @@ Solicitamos a concessão de waiver para os itens acima, pelas razões a seguir: 
 
 Só quem realmente mudou ganha a observação — item que já estava no status não recebe nota nenhuma.
 Se todos já estiverem lá, a janela diz isso e não oferece caixa alguma.
+
+### Anexos: a tabela e a foto que sustentam o pedido
+
+Um waiver raramente viaja sozinho. O bloco **Anexos**, no fim da janela, recebe duas coisas:
+
+- **Tabela colada do Excel** — `+ Tabela`, selecione as células **com o cabeçalho**, `Ctrl+C` e cole
+  na caixa que abre ali mesmo (a janela do waiver não fecha). Entende o TAB do Excel e também CSV
+  com `;` ou `,`, inclusive vírgula e quebra de linha dentro da célula, entre aspas. A caixa
+  **1ª linha é cabeçalho** diz se a primeira linha vira cabeçalho da tabela impressa;
+- **Imagem** — `Ctrl+V` em qualquer lugar da janela cola o print que está na área de transferência,
+  ou use `+ Imagem` para escolher um arquivo.
+
+Cada anexo ganha um **título** (que sai no documento), pode subir, descer e sair. No papel eles
+viram **Anexo 1, Anexo 2…**, cada um começando em **folha nova**, depois das assinaturas — anexo
+partido no meio de uma assinatura não é anexo, é confusão. A ficha de identificação passa a contar
+quantos são.
+
+**A imagem é reduzida antes de entrar** (maior lado de 1400 px, recomprimida): um print de tela de
+5 MB vira cerca de 20 KB, porque o `database.json` inteiro é reescrito a cada autosave e ninguém
+quer uma gravação de megabytes a cada tecla. O peso dos anexos aparece ao lado do título do bloco e
+fica vermelho se passar de 6 MB no waiver.
 
 ### A resposta do destinatário, que chega depois
 

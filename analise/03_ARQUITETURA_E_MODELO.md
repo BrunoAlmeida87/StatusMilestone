@@ -147,6 +147,17 @@ Chave lógica: **(item, campo)** — é o que garante o agrupamento.
 - **`marcos`**: `id` · `nome` · `data` · `tipo`. São as emissões de relatório (29/07, 09/09, 10/09). É contra eles que se calcula "mudou no ciclo" e as setas ▲▼.
 - **`config`**: status (com `ativo`), famílias/colunas do Kanban, minutos de consolidação, limites de aging, `statusAbertoExcecoes` (a **única** fonte de "em aberto", casada por prefixo), tipos funcionais, `mbAvisoTamanho`, `vistas` (filtros salvos com nome, compartilhados por ficarem na base) e `caminhoPadrao` (onde a base mora na rede — fica aqui, e não no navegador, para valer para todo mundo que abrir aquele `database.json`).
 
+### `waivers[].anexos` — o que é impresso junto
+
+`id` · `tipo` (`tabela` | `imagem`) · `titulo` · `criadoEm` · `autor`, mais o conteúdo:
+a tabela guarda `{colunas, linhas}` (texto, pesa quase nada) e a imagem guarda `dados` como data
+URI, `largura`, `altura` e `bytes`.
+
+A imagem é **reduzida na entrada** — maior lado de 1400 px, recomprimida, fundo branco por baixo
+para PNG transparente não virar mancha preta no papel — porque o `database.json` é reescrito
+inteiro a cada autosave: um print cru de 5 MB custaria isso em cada gravação, e vira ~20 KB. Há
+teto por anexo (2,5 MB) e aviso visível acima de 6 MB somados.
+
 ### Relacionamentos
 
 ```

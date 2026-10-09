@@ -2596,6 +2596,118 @@ const NovoItem = {
 
    Nada aqui grava por um caminho proprio: o status vai por Pend.alterar, como
    qualquer edicao, e o waiver em si e gravado pelo autosave.              */
+/* ======================= anexos do waiver =============================
+   Um waiver raramente viaja sozinho: vai com a tabela que sustenta o pedido e
+   com a foto do que foi encontrado. Ate aqui isso seguia em e-mail separado, e
+   quem recebia o papel assinado nao tinha como conferir. Agora cola aqui e sai
+   impresso junto, numerado como Anexo 1, Anexo 2.
+
+   Tabela: colada do Excel (que poe TAB entre as colunas) ou de um CSV. Vira
+   texto, entao pesa quase nada e imprime como tabela de verdade.
+   Imagem: colada com Ctrl+V ou escolhida em arquivo, SEMPRE reduzida antes de
+   entrar - o database.json inteiro e reescrito a cada autosave, e um print de
+   tela cru transformaria cada gravacao num arquivo de megabytes.          */
+const Anexo = {
+  MAX_LADO: 1400,                      /* px no maior lado: le-se um print, sem foto crua */
+  MAX_BYTES: 2.5*1024*1024,            /* por anexo, ja reduzido */
+  AVISO_TOTAL: 6*1024*1024,            /* soma dos anexos de um waiver */
+
+  tipos(){ return {tabela:(LANG==="pt"?"tabela":"table"), imagem:(LANG==="pt"?"imagem":"image")}; },
+  rotulo(a){ return this.tipos()[a?.tipo] || a?.tipo || ""; },
+  bytes(a){
+    if(!a) return 0;
+    if(a.tipo==="imagem") return a.bytes || Math.round(String(a.dados||"").length*3/4);
+    return new Blob([JSON.stringify(a)]).size;
+  },
+  total(lista){ return (lista||[]).reduce((n,a)=>n+this.bytes(a), 0); },
+  fmtBytes(n){ return n>=1048576 ? (n/1048576).toFixed(1)+" MB" : Math.max(1,Math.round(n/1024))+" KB"; },
+
+  /* Texto colado -> tabela. O Excel usa TAB ao copiar; CSV salvo na maquina de
+     quem usa virgula decimal usa ";". Aspas valem, porque descricao longa tem
+     virgula e ate quebra de linha dentro da celula. */
+  tabelaDeTexto(txt, {cabecalho=true}={}){
+    const t = String(txt ?? "").replace(/^\ufeff/, "").replace(/\s+$/,"");
+    if(!t.trim()) return null;
+    const primeira = t.split(/\r?\n/).find(l=>l.trim()) || "";
+    const q = c => primeira.split(c).length-1;
+    const d = q("\t") ? "\t" : (q(";") >= q(",") ? ";" : ",");
+    const linhas=[]; let campo="", linha=[], aspas=false;
+    for(let k=0; k<t.length; k++){
+      const c = t[k];
+      if(aspas){
+        if(c === '"'){ if(t[k+1] === '"'){ campo+='"'; k++; } else aspas=false; }
+        else campo += c;
+        continue;
+      }
+      if(c === '"'){ aspas=true; continue; }
+      if(c === d){ linha.push(campo); campo=""; continue; }
+      if(c === "\n"){ linha.push(campo); linhas.push(linha); linha=[]; campo=""; continue; }
+      if(c === "\r") continue;
+      campo += c;
+    }
+    if(campo!=="" || linha.length){ linha.push(campo); linhas.push(linha); }
+    const limpas = linhas.map(l=>l.map(x=>String(x).trim())).filter(l=>l.some(x=>x!==""));
+    if(!limpas.length) return null;
+    const largura = Math.max(...limpas.map(l=>l.length));
+    const iguais = limpas.map(l=>{ const c=[...l]; while(c.length<largura) c.push(""); return c; });
+    return cabecalho && iguais.length>1
+      ? {colunas:iguais[0], linhas:iguais.slice(1)}
+      : {colunas:null, linhas:iguais};
+  },
+
+  /* Arquivo -> imagem reduzida. Fundo branco antes de desenhar: PNG com
+     transparencia viraria mancha preta no papel. */
+  async daImagem(file){
+    if(!file || !/^image\//.test(file.type||""))
+      throw new Error(LANG==="pt"?"Isso não é uma imagem.":"That is not an image.");
+    const original = await new Promise((res,rej)=>{
+      const r = new FileReader(); r.onload=()=>res(String(r.result));
+      r.onerror=()=>rej(r.error||new Error("leitura")); r.readAsDataURL(file); });
+    const img = await new Promise((res,rej)=>{
+      const i = new Image(); i.onload=()=>res(i);
+      i.onerror=()=>rej(new Error(LANG==="pt"?"Não consegui abrir essa imagem.":"Could not open that image."));
+      i.src = original; });
+    const k = Math.min(1, this.MAX_LADO / Math.max(img.width, img.height, 1));
+    let dados = original, largura = img.width, altura = img.height;
+    if(k < 1 || original.length > 400000){
+      const c = document.createElement("canvas");
+      c.width = Math.max(1, Math.round(img.width*k));
+      c.height = Math.max(1, Math.round(img.height*k));
+      const cx = c.getContext("2d");
+      cx.fillStyle = "#ffffff"; cx.fillRect(0,0,c.width,c.height);
+      cx.drawImage(img, 0, 0, c.width, c.height);
+      const jpeg = c.toDataURL("image/jpeg", 0.85);
+      if(jpeg.length < original.length){ dados = jpeg; largura = c.width; altura = c.height; }
+      else if(k < 1){ dados = c.toDataURL("image/png"); largura = c.width; altura = c.height; }
+    }
+    const bytes = Math.round(dados.length*3/4);
+    if(bytes > this.MAX_BYTES) throw new Error(LANG==="pt"
+      ? `Imagem grande demais mesmo depois de reduzida (${this.fmtBytes(bytes)}). Recorte o essencial e cole de novo.`
+      : `Image too large even after downscaling (${this.fmtBytes(bytes)}).`);
+    return {id:uid(), tipo:"imagem", titulo:"", dados, largura, altura, bytes,
+            nome:file.name||"", criadoEm:agora(), autor:Usuario.nome()};
+  },
+
+  /* O que o documento imprime. Cada anexo comeca em folha nova: um anexo
+     partido no meio da assinatura nao e anexo, e confusao. */
+  docHTML(a, n){
+    const e = v => esc(limparTexto(v,{quebras:"achatar"}));
+    const pt = LANG==="pt";
+    const titulo = `${pt?"Anexo":"Attachment"} ${n}${a.titulo?" — "+e(a.titulo):""}`;
+    let corpo = "";
+    if(a.tipo === "tabela"){
+      const t = a.tabela || {};
+      corpo = `<table class="itens anexotab">
+        ${t.colunas?`<thead><tr>${t.colunas.map(c=>`<th>${e(c)}</th>`).join("")}</tr></thead>`:""}
+        <tbody>${(t.linhas||[]).map(l=>`<tr>${l.map(c=>`<td>${e(c)}</td>`).join("")}</tr>`).join("")
+          || `<tr><td class="vazio">—</td></tr>`}</tbody></table>`;
+    }else if(a.tipo === "imagem"){
+      corpo = `<div class="anexoimg"><img src="${esc(a.dados||"")}" alt="${e(a.titulo||a.nome||"")}"></div>`;
+    }
+    return `<section class="wanexo"><h2>${titulo}</h2>${corpo}</section>`;
+  },
+};
+
 const Waiver = {
   SITUACOES:[
     {id:"rascunho", pt:"Rascunho",  en:"Draft",     cor:"#8a8f98"},
@@ -2805,6 +2917,7 @@ const Waiver = {
     const w = id ? this.porId(id) : null;
     const sel = new Set(w ? (w.itens||[]) : itens);
     const ext = new Map(Object.entries(w?.externos || {}));
+    const anexos = structuredClone(w?.anexos || []);
     const ativos = R.statusAtivos();
     const opc = (v, marcado) => `<option value="${esc(v)}"${v===marcado?" selected":""}>${esc(v)}</option>`;
     const todos = (S.db.itens||[]).map(i=>i.item);
@@ -2876,6 +2989,25 @@ const Waiver = {
       <label class="fld" style="margin-bottom:11px">
         <span>${LANG==="pt"?"Condições e medidas compensatórias (opcional)":"Conditions and compensating measures (optional)"}</span>
         <textarea id="wCondicao" rows="3">${esc(w?.condicao||"")}</textarea></label>
+
+      <div class="sep"></div>
+      <div class="rowflex" style="margin-bottom:7px">
+        <b>${LANG==="pt"?"Anexos":"Attachments"}</b>
+        <span class="muted" style="font-size:11.5px;flex:1">${LANG==="pt"
+          ? "saem impressos depois do waiver, um por folha"
+          : "printed after the waiver, one per page"}</span>
+        <span class="muted mono" id="wAnexoPeso" style="font-size:11px"></span>
+      </div>
+      <div class="rowflex" style="margin-bottom:9px">
+        <button class="btn sm" id="wAnexoTab">+ ${LANG==="pt"?"Tabela (colar do Excel)":"Table (paste from Excel)"}</button>
+        <button class="btn sm" id="wAnexoImg">+ ${LANG==="pt"?"Imagem (arquivo)":"Image (file)"}</button>
+        <input type="file" id="wAnexoArq" accept="image/*" style="display:none">
+        <span class="muted" style="font-size:11.5px">${LANG==="pt"
+          ? "ou cole uma imagem com Ctrl+V aqui dentro"
+          : "or paste an image with Ctrl+V in this window"}</span>
+      </div>
+      <div id="wAnexoCola" style="margin-bottom:9px"></div>
+      <div id="wAnexos" style="margin-bottom:11px"></div>
       ${w?.decisaoObs?`<div class="panel pad" style="border-left:3px solid var(--ok);padding:9px 12px">
         <b>${LANG==="pt"?"Parecer registrado":"Recorded decision"}</b>
         <span class="muted">${esc(w.decisaoPor||"")}${w.decisaoEm?" · "+esc(fmtD(w.decisaoEm)):""}</span>
@@ -3013,7 +3145,119 @@ const Waiver = {
     if(org) org.onchange = olharOrigem;
     if(dest) dest.onchange = pintarDivergencia;
     olharOrigem();
-    this.__sel = sel; this.__ext = ext;   /* a leitura da janela precisa alcançar isto */
+    /* ------------------------------ anexos ------------------------------
+       Tudo acontece DENTRO desta janela: abrir uma segunda janela fecharia o
+       waiver pela metade (o modal e um so). A area de colar aparece e some
+       aqui mesmo. */
+    const pesoAnexos = ()=>{
+      const el = $("#wAnexoPeso"); if(!el) return;
+      const n = Anexo.total(anexos);
+      el.textContent = anexos.length ? `${anexos.length} · ${Anexo.fmtBytes(n)}` : "";
+      el.style.color = n > Anexo.AVISO_TOTAL ? "var(--bad)" : "";
+      el.title = n > Anexo.AVISO_TOTAL ? (LANG==="pt"
+        ? "Anexos pesados engordam o database.json, que é regravado a cada autosave."
+        : "Heavy attachments inflate database.json, rewritten on every autosave.") : "";
+    };
+    const pintarAnexos = ()=>{
+      const cx = $("#wAnexos"); if(!cx) return;
+      cx.innerHTML = anexos.map((a,i)=>{
+        const prev = a.tipo==="imagem"
+          ? `<img src="${esc(a.dados||"")}" style="max-height:64px;max-width:110px;border-radius:5px;border:1px solid var(--line)">`
+          : `<div class="muted mono" style="font-size:10.5px;line-height:1.5;max-height:64px;overflow:hidden">${
+              [a.tabela?.colunas, ...(a.tabela?.linhas||[]).slice(0,2)].filter(Boolean)
+                .map(l=>esc(l.slice(0,6).join(" | ").slice(0,70))).join("<br>")}</div>`;
+        const info = a.tipo==="imagem"
+          ? `${a.largura}×${a.altura} · ${Anexo.fmtBytes(Anexo.bytes(a))}`
+          : `${(a.tabela?.linhas||[]).length} ${LANG==="pt"?"linha(s)":"row(s)"} × ${
+              (a.tabela?.colunas||a.tabela?.linhas?.[0]||[]).length} ${LANG==="pt"?"coluna(s)":"column(s)"}`;
+        return `<div class="panel pad" style="padding:9px 11px;margin-bottom:7px">
+          <div class="rowflex" style="gap:9px;align-items:flex-start">
+            <span class="tag">${LANG==="pt"?"Anexo":"Attachment"} ${i+1} · ${esc(Anexo.rotulo(a))}</span>
+            <div style="flex:1;min-width:140px">
+              <input type="text" data-an="${esc(a.id)}" value="${esc(a.titulo||"")}" style="width:100%"
+                placeholder="${LANG==="pt"?"título do anexo (sai no documento)":"attachment title (printed)"}">
+              <div class="muted" style="font-size:10.5px;margin-top:3px">${esc(info)}</div>
+            </div>
+            <div style="flex:0 0 118px">${prev}</div>
+            <div class="rowflex" style="gap:4px">
+              <button class="btn sm" data-anup="${esc(a.id)}" title="${LANG==="pt"?"subir":"move up"}"${i?"":" disabled"}>↑</button>
+              <button class="btn sm" data-andn="${esc(a.id)}" title="${LANG==="pt"?"descer":"move down"}"${i===anexos.length-1?" disabled":""}>↓</button>
+              <button class="btn sm danger" data-anx="${esc(a.id)}" title="${LANG==="pt"?"remover":"remove"}">✕</button>
+            </div>
+          </div></div>`;
+      }).join("");
+      $$("[data-an]").forEach(el=>el.oninput=()=>{
+        const a = anexos.find(x=>x.id===el.dataset.an); if(a) a.titulo = el.value; });
+      $$("[data-anx]").forEach(b=>b.onclick=()=>{
+        const k = anexos.findIndex(x=>x.id===b.dataset.anx);
+        if(k>=0) anexos.splice(k,1); pintarAnexos(); pesoAnexos(); });
+      const mover = (id,d)=>{ const k=anexos.findIndex(x=>x.id===id); const j=k+d;
+        if(k<0 || j<0 || j>=anexos.length) return;
+        [anexos[k], anexos[j]] = [anexos[j], anexos[k]]; pintarAnexos(); };
+      $$("[data-anup]").forEach(b=>b.onclick=()=>mover(b.dataset.anup,-1));
+      $$("[data-andn]").forEach(b=>b.onclick=()=>mover(b.dataset.andn,+1));
+      pesoAnexos();
+    };
+    const juntarAnexo = a => {
+      if(Anexo.bytes(a) > Anexo.MAX_BYTES) return toast(LANG==="pt"
+        ? "Anexo grande demais." : "Attachment too large.", "bad");
+      anexos.push(a); pintarAnexos();
+      toast(LANG==="pt"?`Anexo ${anexos.length} adicionado`:`Attachment ${anexos.length} added`,"ok");
+    };
+    const areaCola = $("#wAnexoCola");
+    const fecharCola = ()=>{ if(areaCola) areaCola.innerHTML = ""; };
+    const abrirCola = ()=>{
+      if(!areaCola) return;
+      areaCola.innerHTML = `<div class="panel pad" style="border-left:3px solid var(--accent)">
+        <div class="rowflex" style="margin-bottom:7px">
+          <b>${LANG==="pt"?"Colar tabela":"Paste table"}</b>
+          <span class="muted" style="font-size:11.5px;flex:1">${LANG==="pt"
+            ? "no Excel: selecione as células com o cabeçalho, Ctrl+C, e cole abaixo"
+            : "in Excel: select the cells including the header, Ctrl+C, paste below"}</span>
+        </div>
+        <textarea id="wColaTxt" rows="5" class="mono" style="font-size:11px"></textarea>
+        <div class="rowflex" style="margin-top:7px">
+          <input type="text" id="wColaTit" style="flex:1"
+            placeholder="${LANG==="pt"?"título do anexo (opcional)":"attachment title (optional)"}">
+          <label class="rowflex" style="gap:6px"><input type="checkbox" id="wColaCab" checked>
+            <span>${LANG==="pt"?"1ª linha é cabeçalho":"first row is a header"}</span></label>
+          <button class="btn pri sm" id="wColaOk">${T("adicionar")}</button>
+          <button class="btn sm" id="wColaX">${T("cancelar")}</button>
+        </div></div>`;
+      $("#wColaTxt")?.focus?.();
+      $("#wColaX").onclick = fecharCola;
+      $("#wColaOk").onclick = ()=>{
+        const t = Anexo.tabelaDeTexto($("#wColaTxt")?.value, {cabecalho: !!$("#wColaCab")?.checked});
+        if(!t) return toast(LANG==="pt"?"Nada reconhecido como tabela":"Nothing recognized as a table","bad");
+        juntarAnexo({id:uid(), tipo:"tabela", titulo:String($("#wColaTit")?.value||"").trim(),
+                     tabela:t, criadoEm:agora(), autor:Usuario.nome()});
+        fecharCola();
+      };
+    };
+    const bTab = $("#wAnexoTab"); if(bTab) bTab.onclick = abrirCola;
+    const arq = $("#wAnexoArq");
+    const bImg = $("#wAnexoImg"); if(bImg) bImg.onclick = ()=>arq?.click?.();
+    if(arq) arq.onchange = async ()=>{
+      const f = arq.files?.[0]; arq.value = "";
+      if(!f) return;
+      try{ juntarAnexo(await Anexo.daImagem(f)); }catch(e){ toast(String(e?.message||e),"bad"); }
+    };
+    /* Ctrl+V com uma imagem na area de transferencia, em qualquer lugar da
+       janela: e assim que se cola um print, e e o caminho mais curto. Colar
+       TEXTO continua indo para onde o cursor esta. */
+    const ov = $("#ov");
+    if(ov) ov.addEventListener("paste", async e=>{
+      const itens = [...(e.clipboardData?.items || [])].filter(i=>i.kind==="file" && /^image\//.test(i.type));
+      if(!itens.length) return;
+      e.preventDefault();
+      for(const it of itens){
+        const f = it.getAsFile(); if(!f) continue;
+        try{ juntarAnexo(await Anexo.daImagem(f)); }catch(err){ toast(String(err?.message||err),"bad"); }
+      }
+    });
+    pintarAnexos();
+
+    this.__sel = sel; this.__ext = ext; this.__anexos = anexos;   /* a leitura da janela precisa alcançar isto */
     $("#wAssunto")?.focus?.();
   },
 
@@ -3048,6 +3292,7 @@ const Waiver = {
       dataDocumento: v("Data") || hoje(),
       referencia: v("Ref"),
       condicao: String($("#wCondicao")?.value ?? "").trim(),
+      anexos: (this.__anexos || w?.anexos || []).map(a=>({...a, titulo:String(a.titulo||"").trim()})),
       criadoEm: w?.criadoEm || agora(),
       autor: w?.autor || Usuario.garantir(),
     };
@@ -3433,7 +3678,22 @@ const Waiver = {
   .wassin .lin { border-top:1.2px solid #11243f; padding-top:5px; margin-top:10mm;
                  font-size:9.5px; color:#5d6a7d; }
   .wassin .lin b { display:block; font-size:10.5px; color:#11243f; letter-spacing:.02em; }
-  .wnota { font-size:8.5px; color:#8a97a8; margin-top:6px; padding-top:5px; border-top:1px solid #eef2f7; }`; },
+  .wnota { font-size:8.5px; color:#8a97a8; margin-top:6px; padding-top:5px; border-top:1px solid #eef2f7; }
+  /* ---- anexos ----
+     Cada um comeca em folha nova: anexo partido no meio de uma assinatura nao
+     e anexo, e confusao. A imagem e limitada pela altura util da folha para
+     nao empurrar sozinha uma segunda pagina em branco. */
+  .wanexo { break-before:page; page-break-before:always; }
+  .wanexo h2 { font-size:12px; color:#11243f; margin:0 0 7px; padding-bottom:4px;
+               border-bottom:1.4px solid #11243f; letter-spacing:.01em; }
+  table.anexotab { width:100%; border-collapse:collapse; margin:0; }
+  table.anexotab th { background:#11243f; color:#fff; font-size:8.5px; letter-spacing:.06em;
+                      text-transform:uppercase; padding:4px 6px; border:0.6px solid #11243f; text-align:left; }
+  table.anexotab td { font-size:9.5px; padding:3px 6px; border:0.6px solid #dde4ee;
+                      vertical-align:top; overflow-wrap:break-word; }
+  table.anexotab tbody tr:nth-child(even) td { background:#f7f9fc; }
+  .anexoimg { text-align:center; }
+  .anexoimg img { max-width:100%; max-height:238mm; object-fit:contain; }`; },
 
   docWaiverHTML(w){
     const e = v => esc(limparTexto(v,{quebras:"achatar"}));
@@ -3492,6 +3752,7 @@ const Waiver = {
       ${ficha(pt?"Origem":"Origin", w.origem==="passivo" ? (pt?"Passivo — feito à mão":"Backlog — by hand")
                                                          : (pt?"Emitido pelo sistema":"Issued by the app"))}
       ${ficha(pt?"Revisão da base":"Database revision", String(S.db?.meta?.revisao ?? "—"))}
+      ${(w.anexos||[]).length ? ficha(pt?"Anexos":"Attachments", String(w.anexos.length)) : ""}
       ${ficha(pt?"Emitido em":"Printed", fmtDT(agora()))}
     </dl>
 
@@ -3557,6 +3818,7 @@ const Waiver = {
     <p class="wnota">${e(pt
       ? "Documento gerado pelo StatusMilestone a partir do registro do waiver na base. A situação e os status impressos são os do momento da geração."
       : "Generated by StatusMilestone from the waiver record in the database. The status printed is the one at generation time.")}</p>
+    ${(w.anexos||[]).map((a,i)=>Anexo.docHTML(a, i+1)).join("")}
   </section>`;
   },
 
