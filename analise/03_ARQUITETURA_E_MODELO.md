@@ -139,12 +139,25 @@ aconteceu em 05/09 sem distorcer o gráfico de evolução (decisão I9).
 
 Chave lógica: **(item, campo)** — é o que garante o agrupamento.
 
-### `observacoes` · `conflitos` · `marcos` · `config`
+### `observacoes` · `waivers` · `conflitos` · `marcos` · `config`
 
 - **`observacoes`**: `id` · `item` · `texto` · `criadoEm` · `autor`. Acumulativas, nunca sobrescrevem.
+- **`waivers`**: `id` · `numero` (série anual `W-2026-001`, tirada do **maior número já usado**, não do tamanho da lista — apagar um rascunho não pode devolver ao estoque um número que já circulou por e-mail) · `itens[]` · `assunto` · `para` · `texto` · `condicao` · `statusDestino` (para onde os itens vão **agora**) · `statusFinal` (onde devem parar se o waiver for aceito) · `situacao` (rascunho·enviado·aprovado·recusado·cancelado) · `origem` (`sistema` | `passivo`) · `dataDocumento` · `referencia` · `decisaoPor` (quem respondeu, do lado do destinatário) · `decisaoObs` · `decisaoEm` · `decisaoRef` (por onde a resposta chegou) · `decisaoRegistradaPor` · `decisaoRegistradaEm` (quem transcreveu, e quando) · `aplicado` · `criadoEm` · `atualizadoEm` · `autor`. **O waiver não move status por um caminho próprio**: chama `Pend.alterar` como qualquer tela, com `Waiver <numero>` no motivo — a mudança aparece no histórico do item dizendo de onde veio. `origem:"passivo"` é o waiver que já existia em papel: entra com a data e a referência do documento original e **não** mexe no status, porque o item já está onde o papel o deixou.
 - **`conflitos`**: `id` · `item` · `campo` · `valorArquivo1` · `valorArquivo2` · `valorAplicado` · `resolvido` · `resolvidoPor` · `resolvidoEm` · `justificativa`. Resolver gerava evento no histórico. **Os 40 estão decididos e a tela saiu** (ver Etapa 8); o array permanece na base, intacto, como registro do que cada arquivo dizia.
 - **`marcos`**: `id` · `nome` · `data` · `tipo`. São as emissões de relatório (29/07, 09/09, 10/09). É contra eles que se calcula "mudou no ciclo" e as setas ▲▼.
 - **`config`**: status (com `ativo`), famílias/colunas do Kanban, minutos de consolidação, limites de aging, `statusAbertoExcecoes` (a **única** fonte de "em aberto", casada por prefixo), tipos funcionais, `mbAvisoTamanho`, `vistas` (filtros salvos com nome, compartilhados por ficarem na base) e `caminhoPadrao` (onde a base mora na rede — fica aqui, e não no navegador, para valer para todo mundo que abrir aquele `database.json`).
+
+### `catalogo` — a tabela geral do projeto
+
+Lista de consulta do projeto inteiro, importada de CSV/TSV/JSON ou colada do Excel:
+`item` · `descricao` · `campos` (os demais campos mapeados, com os mesmos nomes de um item, para
+que uma linha possa virar item da base já preenchida). `catalogoMeta` guarda `importadoEm`,
+`autor`, `arquivo`, `linhas` e `colunas`.
+
+**Não é uma coleção de itens**: nada aqui entra em indicador, status, aging ou histórico. Existe
+para dois usos — achar o código e a descrição certos ao escrever um waiver sobre item que não está
+nesta base, e preencher o formulário de item novo quando se decide trazer um para cá. A validação
+trata problema nela sempre como aviso, nunca como impedimento de abrir a base.
 
 ### Relacionamentos
 
@@ -153,6 +166,7 @@ config ──(valida)──► itens.status
 marcos ──(recorte)─► historico ──(N:1)──► itens ◄──(1:N)── observacoes
                                               ◄──(1:N)── pendentes
                                               ◄──(1:N)── conflitos
+                                              ◄──(N:N)── waivers
 ```
 
 ### Validação estrutural antes do uso
@@ -330,11 +344,16 @@ uma cópia mantida à mão — cópia mantida à mão diverge, e em um mês o vi
 Shipyard pelo campo errado enquanto o sistema conta pelo certo. Ele é **gerado** de
 `docs/index.html` por `ferramentas/gerar_visualizador.py`, que:
 
-1. troca `Pend`, `Sync` e `Lote` por cascas inertes e remove `NovoItem` e `Arquivamento`;
+1. troca `Pend`, `Sync` e `Lote` por cascas inertes, remove `NovoItem` e `Arquivamento` e arranca
+   do `Waiver` só os métodos que gravam (`painel`, `guardar`, `aplicar`, `excluir`) — ler e
+   imprimir waiver continua inteiro, porque quem consulta precisa saber que o item está coberto
+   por um pedido de dispensa;
 2. substitui os métodos de escrita do `Store` (`gravar`, `backup`, `travar`, `arquivarHistorico`…)
    por uma recusa `SOMENTE_LEITURA` — o caminho de código até um writer deixa de existir, não é só
    a interface que some — e abre a pasta com `showDirectoryPicker({mode:"read"})`;
-3. tira da interface o que só servia para editar;
+3. põe `EDITAVEL` em `false` — uma constante só, num lugar só, pela qual cada tela sabe se deve
+   oferecer o que altera a base (em vez de uma tela lembrar e outra esquecer) — e tira da
+   interface o resto do que só servia para editar;
 4. troca a abertura pela de `ferramentas/visualizador_shell.js`, que lê o `database.json` ao lado do
    arquivo (por `fetch` quando servido por http, pela pasta autorizada uma vez quando é `file://`).
 
@@ -349,6 +368,72 @@ entra, nem com a caixa trocada) e status inicial forçado a ser um **em aberto**
 mesmo caminho de qualquer edição — pendente, autosave, evento no histórico — e o diário ganha um
 registro `item-novo`, rebasável: se outra pessoa gravar no meio, o item é reposto por cima da
 versão dela. Se os dois criarem o mesmo código, abre a tela de decisão.
+
+### Waiver
+Um waiver é o pedido formal de aceitar um item como está. Cobre **um ou mais itens**, mora na base
+(`waivers`) e sai em documento A4 retrato pronto para assinar. O documento reaproveita a moldura do
+relatório (`Export.moldura`), então herda o CSS próprio de quem exporta e sai também como arquivo
+HTML.
+
+**A pergunta do status.** Escolher um status de tramitação diferente do que os itens têm de fato é
+o momento de decidir se é para mudar — e a janela pergunta ali, com os números na frente (quantos
+itens, em que status cada um está hoje), em vez de trazer uma caixa genérica sempre ligada.
+Confirmando, ao salvar acontecem as duas coisas: `Pend.alterar` move quem está fora, e o texto do
+waiver entra como **observação** no item, com cabeçalho `Waiver <nº> — status alterado de "A" para
+"B"`. Só quem mudou de verdade ganha a observação: uma nota dizendo "alterado de X para X" é ruído.
+A observação segue o caminho de qualquer observação — `{t:"obs"}` no diário, gravação imediata —
+então é rebasável e sobrevive à gravação de outra pessoa no meio.
+
+**A resposta é transcrição, não preenchimento.** O destinatário não tem acesso ao sistema: a
+resposta dele chega por e-mail, carta ou ata e é digitada por quem a recebeu. Por isso o registro
+separa três papéis que seriam facilmente confundidos num campo só — `decisaoPor` (quem respondeu,
+do lado de lá), `decisaoRef` (por onde chegou, que é onde o original está guardado) e
+`decisaoRegistradaPor`/`decisaoRegistradaEm` (quem transcreveu e quando, anotado sozinho a partir
+de `Usuario`). Os três saem impressos sob o parecer: sem eles o papel não diz de onde saiu o que
+está escrito ali, que é exatamente o que alguém vai querer conferir daqui a um ano.
+
+**A resposta é um segundo momento.** O parecer não existe quando o pedido é escrito — chega quando
+o destinatário responde. Por isso saiu do formulário do pedido e ganhou janela própria
+(`Waiver.responder`), alcançável da tela de Waivers e de dentro do item, que é onde a lembrança
+costuma vir. Ela grava resultado, quem respondeu, quando e o parecer, e só então aplica o status
+final. Aprovado sugere o `statusFinal` pedido; recusado não sugere nada — nada se move por conta
+própria —, mas a caixa de registrar o parecer como observação aparece sozinha, porque uma recusa
+sem rastro no item é informação perdida. Vindo do item, `UI.detalhe` reabre no fim: o resultado da
+ação tem de ser visível onde a ação começou. Um waiver já respondido não oferece o botão de novo.
+
+O bloco de pergunta "o status atual é outro" é **um só** (`blocoDivergenciaHTML`), usado pela janela
+do pedido e pela da resposta: duas cópias divergiriam na primeira vez que uma fosse ajustada. As
+observações de ambas passam por `anotar`, que é o único lugar que empurra `{t:"obs"}` para o diário.
+
+**O desenho do documento**, e por quê: faixa cheia no topo em vez de caixa vazada (dá peso e separa
+identificação de conteúdo sem mais uma régua); um fio na cor da **situação** sob a faixa (aprovado
+ou não se lê de longe, com a folha na mesa); pílulas com a **cor real do status na base**, a mesma
+da tela (papel e tela falam a mesma língua); **três** etapas na tramitação — de onde está, para
+onde vai agora, onde deve parar — porque duas escondiam justamente a informação que mais importa,
+que o item não está onde o waiver supõe; barra lateral de cor própria por bloco de texto (quem
+folheia acha a seção sem ler o título); marca d'água **contornada** em rascunho e cancelado, por
+cima do conteúdo — atrás dos painéis brancos ela sumia, e um rascunho saía com cara de documento
+válido. O `@page` do waiver usa margens próprias, menores que as do relatório: um waiver completo
+(justificativa em quatro seções, condições, parecer e quatro itens) cabe em uma folha com folga de
+milímetros, e o parecer viaja junto das assinaturas (`.wfecho`) para nunca deixar uma linha de
+assinatura órfã na folha seguinte.
+
+No diário de sincronização ele entra como `waiver` (upsert) ou `waiver-del`, carregando o
+`atualizadoEm` **de onde se partiu**: é esse campo que distingue "a outra pessoa mexeu neste mesmo
+waiver" (decisão do usuário) de "ela mexeu em outra coisa e este só precisa ser reposto" (junta
+sozinho). Sem ele, a escolha seria entre perder texto em silêncio e perguntar à toa.
+
+### Janelas: o clique que fechava sozinho
+Fechar clicando fora só vale quando o clique **começa e termina no fundo**. O navegador entrega o
+`click` ao ancestral comum do `mousedown` e do `mouseup`: arrastar para selecionar o texto de um
+campo e soltar o botão fora da janela dava um clique no fundo — e a janela fechava levando o que
+estava escrito. A regra ficou isolada em `UI.cliqueFechaFundo(ov, alvo)` para poder ser conferida
+sem navegador; o comportamento com mouse de verdade tem teste em Chromium.
+
+As janelas onde se escreve (`detalhe`, `NovoItem`, `Waiver`) são abertas com `confirmarSaida:true`:
+qualquer `input`/`change` as marca como sujas e a saída **por iniciativa do usuário** (fundo, ✕,
+Esc) pergunta antes de descartar. `UI.fechar()` continua sem perguntar nada, porque quem a chama é
+o próprio sistema — `modal()` a chama ao abrir a janela seguinte.
 
 ### Convenções visuais
 Cor por **severidade do status** (1 verde, 2 azul, 3/7 vermelho, 4 laranja, 5 âmbar, 6/8 cinza),

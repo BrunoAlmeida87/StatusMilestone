@@ -1949,5 +1949,835 @@ secao("22. SOMENTE EM ABERTO E O AJUSTE PARA CABER");
   igual("marcar a caixa fica guardado", app.Export.opcoes().somenteAberto, true);
 }
 
+/* ==================== 23. WAIVER: PEDIDO DE DISPENSA ===================== */
+secao("23. WAIVER");
+{
+  /* Numeracao: uma serie por ano, e apagar um rascunho nao devolve o numero
+     ao estoque - ele ja circulou por e-mail. */
+  const c = cenario();
+  const {app} = c;
+  const ano = app.hoje().slice(0,4);
+  igual("o primeiro waiver do ano é o 001", app.Waiver.proximoNumero(), `W-${ano}-001`);
+  app.S.db.waivers = [{id:"x1", numero:`W-${ano}-001`}, {id:"x2", numero:`W-${ano}-007`}];
+  igual("o próximo continua do maior já usado", app.Waiver.proximoNumero(), `W-${ano}-008`);
+  app.S.db.waivers = [{id:"x1", numero:"W-1999-050"}];
+  igual("série de outro ano não contamina a deste", app.Waiver.proximoNumero(), `W-${ano}-001`);
+}
+{
+  /* Gravar: entra na base, entra no diário e vai para o disco pelo autosave. */
+  const c = cenario();
+  const {app} = c;
+  const w = {id:app.uid(), numero:"W-2026-001", itens:["A-001"], texto:"porque sim",
+             situacao:"enviado", statusDestino:"4 - Under Analysis",
+             statusFinal:"1 - Validated by ICN", criadoEm:app.agora(), autor:"Teste"};
+  app.Waiver.guardar(w);
+  igual("o waiver entra na base", app.S.db.waivers.length, 1);
+  chk("com a hora da última alteração", !!app.S.db.waivers[0].atualizadoEm);
+  chk("e entra no diário, para sobreviver a uma gravação alheia",
+      app.Pend.diario.some(e=>e.t==="waiver" && e.obj.id===w.id));
+  chk("a base fica suja", app.S.sujo===true);
+  await new Promise(r=>setTimeout(r,120));
+  igual("e o autosave levou o waiver ao disco", c.disco().waivers?.length, 1);
+
+  /* Editar o mesmo waiver substitui, não duplica. */
+  w.texto = "texto revisto";
+  app.Waiver.guardar(w, {base:w.atualizadoEm});
+  igual("editar não duplica", app.S.db.waivers.length, 1);
+  igual("e o texto é o novo", app.S.db.waivers[0].texto, "texto revisto");
+}
+{
+  /* Aplicar o status: pelo mesmo caminho de qualquer edição, com o número do
+     waiver como motivo - é isso que faz a mudança aparecer no histórico
+     dizendo de onde veio. */
+  const c = cenario();
+  const {app} = c;
+  app.Pend.autosave = async ()=>{};
+  const w = {id:app.uid(), numero:"W-2026-009", itens:["A-001","A-003","A-002"],
+             texto:"t", situacao:"enviado", statusDestino:"2 - Not Blocking",
+             statusFinal:"1 - Validated by ICN", criadoEm:app.agora(), autor:"Teste"};
+  app.Waiver.guardar(w);
+  app.Waiver.aplicar(w, "destino");
+  const pend = app.S.db.pendentes;
+  igual("um pendente por item que realmente mudou", pend.length, 3);
+  chk("todos foram para o status de tramitação",
+      w.itens.every(id=>app.S.db.itens.find(i=>i.item===id).status==="2 - Not Blocking"));
+  chk("e o motivo diz qual waiver mandou",
+      pend.every(p=>p.motivo==="Waiver W-2026-009"), pend[0]?.motivo);
+  chk("o waiver guarda que já foi aplicado", app.S.db.waivers[0].aplicado?.quantos===3);
+
+  /* Item que já estava no status não vira pendente novo. */
+  const antes = app.S.db.pendentes.length;
+  app.Waiver.aplicar(w, "destino");
+  igual("aplicar de novo não cria pendente à toa", app.S.db.pendentes.length, antes);
+
+  app.Waiver.aplicar(w, "final");
+  chk("o status final vai pelo mesmo caminho",
+      w.itens.every(id=>app.S.db.itens.find(i=>i.item===id).status==="1 - Validated by ICN"));
+}
+{
+  /* Apagar, e apagar só depois de confirmar. */
+  const app = carregarApp({confirmar:()=>false});
+  app.ctx.toast=()=>{}; app.ctx.marcarEstado=()=>{}; app.Render.atual=()=>{};
+  app.S.db = baseDeTeste(); app.normalizar(app.S.db); app.Sync.parar();
+  app.Pend.autosave = async ()=>{};
+  const w = {id:"wz", numero:"W-2026-002", itens:["A-001"], texto:"t"};
+  app.Waiver.guardar(w);
+  igual("responder não à confirmação não apaga", app.Waiver.excluir(w), false);
+  igual("e o waiver continua lá", app.S.db.waivers.length, 1);
+  app.ctx.confirm = ()=>true;
+  igual("confirmando, apaga", app.Waiver.excluir(w), true);
+  igual("a lista fica vazia", app.S.db.waivers.length, 0);
+  chk("e o diário registra a remoção",
+      app.Pend.diario.some(e=>e.t==="waiver-del" && e.id==="wz"));
+}
+{
+  /* O documento. É o que vai para o papel: tem de trazer tudo e não pode
+     deixar passar HTML de dentro do texto. */
+  const c = cenario();
+  const {app} = c;
+  const w = {id:"w1", numero:"W-2026-003", itens:["A-001","A-003"],
+             assunto:"<img src=x onerror=alert(1)>", texto:"linha 1\nlinha 2",
+             condicao:"manter sob inspeção", para:"ICN", autor:"Bruno",
+             situacao:"enviado", statusDestino:"4 - Under Analysis",
+             statusFinal:"1 - Validated by ICN", dataDocumento:"2026-03-04",
+             referencia:"CARTA-123", origem:"sistema", criadoEm:app.agora()};
+  app.S.db.waivers = [w];
+  const d = app.Waiver.documento([w]);
+  chk("o documento é uma página inteira", d.startsWith("<!doctype html"));
+  chk("em retrato, que é como se assina", /@page \{ size: A4 portrait/.test(d));
+  chk("traz o número", d.includes("W-2026-003"));
+  chk("traz os dois itens", d.includes("A-001") && d.includes("A-003"));
+  chk("com o status atual de cada um", d.includes("3 - Blocking"));
+  chk("traz o status de tramitação e o final",
+      d.includes("4 - Under Analysis") && d.includes("1 - Validated by ICN"));
+  chk("traz o texto com as quebras de linha", d.includes("linha 1\nlinha 2"));
+  chk("traz as condições", d.includes("manter sob inspe"));
+  chk("traz a referência do documento", d.includes("CARTA-123"));
+  /* A procedencia do parecer no papel: de onde veio e quem transcreveu. */
+  const resp = app.Waiver.documento([{...w, situacao:"aprovado",
+    decisaoPor:"ICN — J. Marques", decisaoEm:"2026-04-10",
+    decisaoObs:"Concedido.", decisaoRef:"e-mail de 10/04",
+    decisaoRegistradaPor:"Bruno", decisaoRegistradaEm:"2026-04-11T10:00:00.000Z"}]);
+  chk("o parecer sai impresso", resp.includes("Concedido."));
+  chk("com quem decidiu", resp.includes("ICN") && resp.includes("Decidido por"));
+  chk("por onde chegou", resp.includes("e-mail de 10/04") && resp.includes("Recebido via"));
+  chk("e quem transcreveu", resp.includes("Bruno") && resp.includes("Transcrito por"));
+  chk("sem parecer, nada de procedência no papel", !d.includes("Transcrito por"));
+  chk("duas assinaturas: solicitante e aprovação",
+      (d.match(/class="lin"/g)||[]).length === 2 && d.includes("Solicitante") && d.includes("Aprova"));
+  chk("sem o bloco de análise técnica", !/An.lise t.cnica/.test(d));
+  chk("a faixa de tramitação mostra de onde os itens saem HOJE",
+      d.includes("Situa") && d.includes("3 - Blocking") && d.includes("4 - Under Analysis"));
+  chk("as pílulas usam a cor real do status", d.includes(app.R.corDe("3 - Blocking")));
+  chk("rascunho sai com marca d'água", app.Waiver.documento([{...w, situacao:"rascunho"}])
+        .includes('class="wmarca"'));
+  chk("e o enviado não", !d.includes('class="wmarca"'));
+  chk("o HTML de dentro do texto sai escapado",
+      !d.includes("<img src=x") && d.includes("&lt;img src=x"), "");
+  chk("um item que saiu da base é dito, não omitido em silêncio",
+      app.Waiver.documento([{...w, itens:["A-001","SUMIU"]}]).includes("SUMIU"));
+
+  const dois = app.Waiver.documento([w, {...w, id:"w2", numero:"W-2026-004"}]);
+  chk("dois waivers, um por página",
+      (dois.match(/class="waiver"/g)||[]).length === 2 && /break-after:page/.test(dois));
+  chk("e nenhum sai sem o cabeçalho", (dois.match(/class="wtopo"/g)||[]).length === 2);
+
+  const passivo = app.Waiver.documento([{...w, origem:"passivo"}]);
+  chk("o passivo se identifica como tal no papel", /Passivo/.test(passivo));
+}
+{
+  /* A base antiga não tem waivers, e a base estragada não pode derrubar a tela. */
+  const app = carregarApp();
+  app.ctx.toast=()=>{};
+  const velha = baseDeTeste();
+  delete velha.waivers;
+  app.normalizar(velha);
+  igual("base sem waivers ganha a lista vazia", velha.waivers, []);
+  const suja = baseDeTeste();
+  suja.waivers = [{id:"a", itens:"nao e lista"}];
+  app.normalizar(suja);
+  igual("waiver com itens de mentira vira lista", suja.waivers[0].itens, []);
+  igual("e os campos da resposta nascem vazios, não indefinidos",
+        [suja.waivers[0].decisaoRef, suja.waivers[0].decisaoRegistradaPor], ["",""]);
+  igual("e ganha a situação padrão", suja.waivers[0].situacao, "rascunho");
+  chk("waivers que não é lista é erro estrutural",
+      app.avaliar("validarBase")({...baseDeTeste(), waivers:{}}).valido === false);
+}
+{
+  /* O waiver escrito aqui não pode sumir quando outra pessoa grava no meio. */
+  const c = cenario();
+  const {app} = c;
+  app.Pend.autosave = async ()=>{};
+  const w = {id:"wA", numero:"W-2026-010", itens:["A-001"], texto:"meu waiver",
+             situacao:"enviado", criadoEm:app.agora(), autor:"Bruno"};
+  app.Waiver.guardar(w);
+
+  const deles = JSON.parse(JSON.stringify(c.db));
+  deles.meta.revisao = 30; deles.meta.ultimoAutor = "Ana";
+  deles.waivers = [];
+  deles.itens[0].ncr = "NCR-DA-ANA";
+  igual("junta sozinho, sem pedir decisão", app.Sync.receber(deles), "juntado");
+  chk("o waiver sobrevive à gravação da outra pessoa",
+      app.S.db.waivers.some(x=>x.id==="wA"));
+  chk("e o trabalho dela chega",
+      app.S.db.itens.find(i=>i.item==="A-001")?.ncr === "NCR-DA-ANA");
+}
+{
+  /* Os dois mexeram NO MESMO waiver: isso é decisão, não merge silencioso. */
+  const c = cenario();
+  const {app} = c;
+  app.Pend.autosave = async ()=>{};
+  const base = {id:"wB", numero:"W-2026-011", itens:["A-001"], texto:"original",
+                situacao:"enviado", criadoEm:app.agora(), atualizadoEm:"2026-01-01T00:00:00.000Z",
+                autor:"Bruno"};
+  c.db.waivers = [JSON.parse(JSON.stringify(base))];
+  const meu = {...JSON.parse(JSON.stringify(base)), texto:"minha versão"};
+  app.Waiver.guardar(meu, {base:base.atualizadoEm});
+
+  const deles = JSON.parse(JSON.stringify(c.db));
+  deles.meta.revisao = 30; deles.meta.ultimoAutor = "Ana";
+  deles.waivers = [{...JSON.parse(JSON.stringify(base)), texto:"versão da Ana",
+                    atualizadoEm:"2026-02-02T00:00:00.000Z"}];
+  igual("mesmo waiver dos dois lados: pergunta", app.Sync.receber(deles), "decidir");
+  chk("a tela de decisão mostra os dois textos",
+      app.$("#ov")?.innerHTML.includes("minha vers") && app.$("#ov").innerHTML.includes("Ana"));
+  app.UI.fechar();
+
+  /* Ela mexeu em OUTRO waiver: não há o que decidir. */
+  const c2 = cenario();
+  c2.app.Pend.autosave = async ()=>{};
+  c2.db.waivers = [JSON.parse(JSON.stringify(base))];
+  c2.app.Waiver.guardar({...JSON.parse(JSON.stringify(base)), texto:"minha versão"},
+                        {base:base.atualizadoEm});
+  const outros = JSON.parse(JSON.stringify(c2.db));
+  outros.meta.revisao = 31;
+  outros.waivers = [JSON.parse(JSON.stringify(base)),
+                    {id:"wC", numero:"W-2026-012", itens:["A-003"], texto:"dela", atualizadoEm:"x"}];
+  igual("waiver diferente junta sozinho", c2.app.Sync.receber(outros), "juntado");
+  igual("e os dois ficam", c2.app.S.db.waivers.length, 2);
+  igual("com o meu texto preservado",
+        c2.app.S.db.waivers.find(x=>x.id==="wB").texto, "minha versão");
+}
+{
+  /* O caminho de verdade: abrir a janela, preencher e acionar o botão do
+     rodapé - foi um defeito exatamente aqui (defaults lidos por um lado e
+     escritos por outro) que escapou dos testes uma vez. */
+  const c = cenario();
+  const {app} = c;
+  app.Pend.autosave = async ()=>{};
+  app.Waiver.painel({itens:["A-001","A-003"]});
+  chk("a janela abre", !!app.$("#ov"));
+  chk("e pede confirmação para sair com coisa escrita",
+      app.$("#ov").__confirmarSaida === true);
+  chk("os dois itens já vêm marcados", app.$$("[data-wi]").length === 2,
+      String(app.$$("[data-wi]").length));
+  app.$("#wTexto").value = "  o texto do pedido  ";
+  app.$("#wAssunto").value = "dispensa de vácuo";
+  app.$("#wDestino").value = "4 - Under Analysis";
+  app.$("#wFinal").value = "1 - Validated by ICN";
+  app.$("#wSituacao").value = "enviado";
+  app.$("#mb1").onclick();                      /* "Criar waiver" */
+  igual("o waiver foi criado", app.S.db.waivers.length, 1);
+  const w = app.S.db.waivers[0];
+  igual("com os itens da janela", w.itens, ["A-001","A-003"]);
+  igual("o texto sem o espaço sobrando", w.texto, "o texto do pedido");
+  igual("o assunto", w.assunto, "dispensa de vácuo");
+  igual("o status de tramitação", w.statusDestino, "4 - Under Analysis");
+  igual("o status final desejado", w.statusFinal, "1 - Validated by ICN");
+  igual("a situação escolhida", w.situacao, "enviado");
+  chk("e um número da série do ano", /^W-\d{4}-\d{3}$/.test(w.numero), w.numero);
+  chk("a janela fechou", !app.$("#ov"));
+  chk("sem marcar a caixa, o status dos itens não foi tocado",
+      app.S.db.itens.find(i=>i.item==="A-001").status === "3 - Blocking");
+
+  /* Sem texto não cria: o formulário pela metade não vira documento. */
+  app.Waiver.painel({itens:["A-002"]});
+  app.$("#wTexto").value = "   ";
+  app.$("#mb1").onclick();
+  igual("formulário sem texto não cria nada", app.S.db.waivers.length, 1);
+  chk("e a janela continua aberta para consertar", !!app.$("#ov"));
+  app.UI.fechar();
+
+  /* Sem item, idem. */
+  app.Waiver.painel({});
+  app.$("#wTexto").value = "tem texto mas não tem item";
+  app.$("#mb1").onclick();
+  igual("formulário sem item também não cria", app.S.db.waivers.length, 1);
+  app.UI.fechar();
+}
+{
+  /* A pergunta que o status de tramitação faz nascer: escolher um status
+     diferente do que os itens têm DE FATO tem de perguntar se é para mudar. */
+  const c = cenario();
+  const {app} = c;
+  app.Pend.autosave = async ()=>{};
+  app.Waiver.painel({itens:["A-001","A-003"]});      /* Blocking e Under Analysis */
+  chk("sem status de tramitação escolhido, não pergunta nada",
+      !app.$("#wDivergencia")?.innerHTML);
+  app.$("#wDestino").value = "2 - Not Blocking";
+  app.$("#wDestino").onchange();
+  const perg = app.$("#wDivergencia").innerHTML;
+  chk("escolhendo um status diferente do atual, a janela pergunta",
+      /status atual é outro/i.test(perg), perg.slice(0,90));
+  chk("e diz quantos itens não estão lá", perg.includes("2 de 2"), "");
+  chk("mostrando em que status cada um está hoje",
+      perg.includes("3 - Blocking") && perg.includes("4 - Under Analysis"));
+  chk("com a caixa de alterar o status", !!app.$("#wAplicar"));
+  chk("e a de registrar o texto como observação", !!app.$("#wObs"));
+
+  app.UI.fechar();
+
+  /* Um status que os itens já têm não é pergunta nenhuma. */
+  app.Waiver.painel({itens:["A-001"]});            /* já está em 3 - Blocking */
+  app.$("#wDestino").value = "3 - Blocking";
+  app.$("#wDestino").onchange();
+  /* Conferido no HTML do bloco, nao por $("#wAplicar"): o DOM de mentira nao
+     apaga os ids dos filhos quando o pai e reescrito, e o que interessa aqui e
+     o que a janela DESENHOU. O comportamento no DOM de verdade tem teste em
+     Chromium (testes/waiver.py). */
+  const semPergunta = app.$("#wDivergencia").innerHTML;
+  chk("escolhendo o status que o item já tem, não há o que perguntar",
+      !semPergunta.includes('id="wAplicar"') && /j. est/i.test(semPergunta),
+      semPergunta.slice(0,70));
+  app.UI.fechar();
+}
+{
+  /* Confirmando: o status muda E o texto vira observação no item. */
+  const c = cenario();
+  const {app} = c;
+  app.Pend.autosave = async ()=>{};
+  app.Waiver.painel({itens:["A-001","A-002"]});   /* A-002 já está em Validated */
+  app.$("#wTexto").value = "montagem concluída, teste depois do docking";
+  app.$("#wDestino").value = "1 - Validated by ICN";
+  app.$("#wDestino").onchange();
+  app.$("#wAplicar").checked = true;
+  app.$("#wObs").checked = true;
+  app.$("#mb1").onclick();
+
+  igual("o item que estava em outro status foi movido",
+        app.S.db.itens.find(i=>i.item==="A-001").status, "1 - Validated by ICN");
+  igual("como alteração pendente, como qualquer edição", app.S.db.pendentes.length, 1);
+  const obs = app.S.db.observacoes.filter(o=>o.item==="A-001");
+  igual("e o texto virou observação no item", obs.length, 1);
+  chk("a observação diz de qual waiver veio", obs[0].texto.includes("Waiver W-"));
+  chk("e de qual status para qual",
+      obs[0].texto.includes('"3 - Blocking"') && obs[0].texto.includes('"1 - Validated by ICN"'),
+      obs[0].texto.split("\n")[0]);
+  chk("com o texto que foi escrito",
+      obs[0].texto.includes("montagem concluída, teste depois do docking"));
+  chk("assinada por quem pediu", !!obs[0].autor);
+  chk("e entra no diário, como qualquer observação",
+      app.Pend.diario.some(e=>e.t==="obs" && e.obj.item==="A-001"));
+  igual("quem já estava no status não ganha observação de mentira",
+        app.S.db.observacoes.filter(o=>o.item==="A-002").length, 0);
+}
+{
+  /* Recusando a observação: o status muda, o item não ganha nota. */
+  const c = cenario();
+  const {app} = c;
+  app.Pend.autosave = async ()=>{};
+  app.Waiver.painel({itens:["A-001"]});
+  app.$("#wTexto").value = "só o status";
+  app.$("#wDestino").value = "2 - Not Blocking";
+  app.$("#wDestino").onchange();
+  app.$("#wAplicar").checked = true;
+  app.$("#wObs").checked = false;
+  app.$("#mb1").onclick();
+  igual("o status muda", app.S.db.itens.find(i=>i.item==="A-001").status, "2 - Not Blocking");
+  igual("e nenhuma observação é criada", app.S.db.observacoes.length, 0);
+
+  /* Recusando a mudança: nada se move. */
+  const c2 = cenario();
+  c2.app.Pend.autosave = async ()=>{};
+  c2.app.Waiver.painel({itens:["A-001"]});
+  c2.app.$("#wTexto").value = "só registrar o pedido";
+  c2.app.$("#wDestino").value = "2 - Not Blocking";
+  c2.app.$("#wDestino").onchange();
+  c2.app.$("#wAplicar").checked = false;
+  c2.app.$("#mb1").onclick();
+  igual("dizendo não, o waiver é salvo", c2.app.S.db.waivers.length, 1);
+  igual("e o status fica onde estava",
+        c2.app.S.db.itens.find(i=>i.item==="A-001").status, "3 - Blocking");
+  igual("sem pendente nenhum", c2.app.S.db.pendentes.length, 0);
+}
+{
+  /* O passivo NÃO mexe no status por conta própria. */
+  const c2 = cenario();
+  c2.app.Pend.autosave = async ()=>{};
+  c2.app.Waiver.painel({itens:["A-001"]});
+  c2.app.$("#wTexto").value = "waiver que já existia em papel";
+  c2.app.$("#wDestino").value = "2 - Not Blocking";
+  c2.app.$("#wOrigem").value = "passivo";
+  c2.app.$("#wOrigem").onchange();
+  if(c2.app.$("#wAplicar")) c2.app.$("#wAplicar").checked = true;
+  c2.app.$("#mb1").onclick();
+  igual("o passivo entra na base", c2.app.S.db.waivers.length, 1);
+  igual("marcado como passivo", c2.app.S.db.waivers[0].origem, "passivo");
+  igual("e não move o item, que já está onde o papel o deixou",
+        c2.app.S.db.itens.find(i=>i.item==="A-001").status, "3 - Blocking");
+  igual("nem cria pendente", c2.app.S.db.pendentes.length, 0);
+}
+{
+  /* O waiver aparece dentro do item e a tela de waivers lista e filtra. */
+  const c = cenario();
+  const {app} = c;
+  app.Pend.autosave = async ()=>{};
+  app.Waiver.guardar({id:"w1", numero:"W-2026-020", itens:["A-001"], texto:"t1",
+                      situacao:"enviado", criadoEm:app.agora(), dataDocumento:"2026-03-01"});
+  app.Waiver.guardar({id:"w2", numero:"W-2026-021", itens:["A-003"], texto:"t2",
+                      situacao:"aprovado", criadoEm:app.agora(), dataDocumento:"2026-03-02"});
+  /* Da barra de selecao sai o caso mais comum: varios itens, um waiver so. */
+  app.S.selecao.add("A-001"); app.S.selecao.add("A-002");
+  app.Render.itens();
+  chk("a barra de seleção oferece pedir waiver", !!app.$("#loteWaiver"));
+  app.$("#loteWaiver").onclick();
+  chk("e abre a janela com os selecionados dentro", app.$$("[data-wi]").length === 2,
+      String(app.$$("[data-wi]").length));
+  app.UI.fechar(); app.S.selecao.clear();
+
+  igual("doItem acha o waiver do item", app.Waiver.doItem("A-001").map(w=>w.id), ["w1"]);
+  igual("e não os dos outros", app.Waiver.doItem("A-002"), []);
+  const bloco = app.Waiver.blocoItemHTML("A-001");
+  chk("o bloco do item mostra o waiver", bloco.includes("W-2026-020"));
+  chk("e oferece pedir um novo", bloco.includes("wvNovoDoItem"));
+
+  app.Render.waivers();
+  const html = app.$("#view").innerHTML;
+  chk("a tela lista os dois", html.includes("W-2026-020") && html.includes("W-2026-021"));
+  chk("com o botão de novo waiver", !!app.$("#wvNovo"));
+  chk("e o de imprimir", typeof app.$("#wvImp")?.onclick === "function");
+  app.Waiver.filtro = "aprovado";
+  app.Render.waivers();
+  const so = app.$("#view").innerHTML;
+  chk("filtrar por situação esconde os outros",
+      so.includes("W-2026-021") && !so.includes("W-2026-020"));
+  app.Waiver.filtro = "";
+}
+{
+  /* A RESPOSTA, que chega depois. O parecer não existe na hora do pedido: é
+     quando o destinatário responde que o waiver vira decisão. */
+  const c = cenario();
+  const {app} = c;
+  app.Pend.autosave = async ()=>{};
+  const w = {id:"wr1", numero:"W-2026-040", itens:["A-001","A-003"],
+             assunto:"dispensa", texto:"o pedido original", para:"ICN",
+             situacao:"enviado", statusDestino:"4 - Under Analysis",
+             statusFinal:"1 - Validated by ICN", criadoEm:app.agora(), autor:"Bruno"};
+  app.Waiver.guardar(w);
+
+  app.Waiver.responder("wr1");
+  chk("a janela da resposta abre", !!app.$("#ov"));
+  chk("com o destinatário já sugerido como quem respondeu",
+      app.$("#wrPor").value === "ICN", app.$("#wrPor").value);
+  igual("e o status a aplicar já vem do status final pedido",
+        app.$("#wrStatus").value, "1 - Validated by ICN");
+  chk("perguntando sobre os itens que não estão lá",
+      app.$("#wrDiv").innerHTML.includes("status atual é outro"));
+
+  /* Recusado não move nada por conta própria. */
+  app.$("#wrResultado").value = "recusado";
+  app.$("#wrResultado").onchange();
+  igual("recusando, nenhum status é sugerido", app.$("#wrStatus").value, "");
+  chk("e não há o que perguntar sobre status",
+      !app.$("#wrDiv").innerHTML.includes('id="wrAplicar"'));
+  chk("mas a caixa de registrar o parecer no item continua ali",
+      app.$("#wrDiv").innerHTML.includes('id="wrObs"'));
+
+  /* Sem parecer não grava: a resposta É o parecer. */
+  app.$("#mb1").onclick();
+  chk("sem parecer, não registra nada", !app.S.db.waivers[0].decisaoObs);
+  chk("e a janela continua aberta", !!app.$("#ov"));
+  app.UI.fechar();
+}
+{
+  /* Aprovado: entra o parecer E o status final vai para os itens. */
+  const c = cenario();
+  const {app} = c;
+  app.Pend.autosave = async ()=>{};
+  app.Waiver.guardar({id:"wr2", numero:"W-2026-041", itens:["A-001","A-003"],
+    texto:"o pedido original", para:"ICN", situacao:"enviado",
+    statusFinal:"1 - Validated by ICN", criadoEm:app.agora(), autor:"Bruno"});
+  app.Waiver.responder("wr2");
+  app.$("#wrResultado").value = "aprovado";
+  app.$("#wrResultado").onchange();
+  app.$("#wrPor").value = "ICN — J. Marques";
+  app.$("#wrData").value = "2026-04-10";
+  app.$("#wrRef").value = "e-mail de 10/04/2026";
+  app.$("#wrParecer").value = "  Waiver concedido nas condições propostas.  ";
+  app.$("#wrAplicar").checked = true;
+  app.$("#wrObs").checked = true;
+  app.$("#mb1").onclick();
+
+  const w = app.Waiver.porId("wr2");
+  igual("a situação vira o resultado da resposta", w.situacao, "aprovado");
+  igual("com quem respondeu", w.decisaoPor, "ICN — J. Marques");
+  igual("a data da resposta", w.decisaoEm, "2026-04-10");
+  igual("e o parecer, sem o espaço sobrando", w.decisaoObs,
+        "Waiver concedido nas condições propostas.");
+  /* O destinatario nao usa o sistema: quem respondeu e quem transcreveu sao
+     duas pessoas diferentes, e as duas ficam registradas. */
+  igual("por onde a resposta chegou", w.decisaoRef, "e-mail de 10/04/2026");
+  igual("e quem a lançou no sistema", w.decisaoRegistradaPor, "Teste");
+  chk("com a hora do lançamento", !!w.decisaoRegistradaEm);
+  chk("que é diferente de quem respondeu", w.decisaoRegistradaPor !== w.decisaoPor);
+  chk("os itens foram para o status final",
+      ["A-001","A-003"].every(id=>app.S.db.itens.find(i=>i.item===id).status==="1 - Validated by ICN"));
+  igual("como alteração pendente, como qualquer edição", app.S.db.pendentes.length, 2);
+  const obs = app.S.db.observacoes;
+  igual("uma observação por item movido", obs.length, 2);
+  chk("com o PARECER, não com o texto do pedido",
+      obs[0].texto.includes("Waiver concedido") && !obs[0].texto.includes("o pedido original"),
+      obs[0].texto.split("\n")[0]);
+  chk("e o cabeçalho diz de qual status para qual",
+      obs[0].texto.includes('"1 - Validated by ICN"'));
+  chk("a janela fechou", !app.$("#ov"));
+}
+{
+  /* Recusado: nada se move, mas a recusa fica registrada no item. */
+  const c = cenario();
+  const {app} = c;
+  app.Pend.autosave = async ()=>{};
+  app.Waiver.guardar({id:"wr3", numero:"W-2026-042", itens:["A-001","A-003"],
+    texto:"o pedido", para:"ICN", situacao:"enviado",
+    statusFinal:"1 - Validated by ICN", criadoEm:app.agora(), autor:"Bruno"});
+  app.Waiver.responder("wr3");
+  app.$("#wrResultado").value = "recusado";
+  app.$("#wrResultado").onchange();
+  app.$("#wrPor").value = "ICN";
+  app.$("#wrData").value = "2026-04-11";
+  app.$("#wrParecer").value = "Recusado: apresentar o ensaio antes do fechamento.";
+  app.$("#mb1").onclick();
+
+  const w = app.Waiver.porId("wr3");
+  igual("a recusa fica registrada", w.situacao, "recusado");
+  igual("nenhum status se move", app.S.db.pendentes.length, 0);
+  igual("os itens ficam onde estavam",
+        app.S.db.itens.find(i=>i.item==="A-001").status, "3 - Blocking");
+  igual("mas a recusa vira observação nos dois itens", app.S.db.observacoes.length, 2);
+  const o = app.S.db.observacoes[0];
+  chk("com um cabeçalho que não fala de mudança de status",
+      o.texto.includes("recusado") && !o.texto.includes("alterado de"), o.texto.split("\n")[0]);
+  chk("dizendo quem respondeu e quando",
+      o.texto.includes("ICN") && o.texto.includes("11/04/2026"), o.texto.split("\n")[0]);
+  chk("e trazendo o parecer", o.texto.includes("apresentar o ensaio"));
+}
+{
+  /* Editar o pedido depois da resposta não pode apagar o parecer. */
+  const c = cenario();
+  const {app} = c;
+  app.Pend.autosave = async ()=>{};
+  app.Waiver.guardar({id:"wr4", numero:"W-2026-043", itens:["A-001"], texto:"pedido",
+    situacao:"aprovado", decisaoPor:"ICN", decisaoEm:"2026-04-10",
+    decisaoObs:"parecer que não pode sumir", criadoEm:app.agora(), autor:"Bruno"});
+  app.Waiver.painel({id:"wr4"});
+  chk("o formulário do pedido mostra o parecer já registrado",
+      app.$("#ov").innerHTML.includes("parecer que não pode sumir"));
+  chk("mas não como campo editável", !app.$("#ov").innerHTML.includes('id="wDecObs"'));
+  app.$("#wTexto").value = "pedido corrigido";
+  app.$("#mb2").onclick();                       /* fechar · imprimir · salvar */
+  const w = app.Waiver.porId("wr4");
+  igual("o texto do pedido muda", w.texto, "pedido corrigido");
+  igual("e o parecer continua lá", w.decisaoObs, "parecer que não pode sumir");
+  igual("com quem respondeu", w.decisaoPor, "ICN");
+}
+{
+  /* O caminho pelo item: é lá que a pessoa costuma estar quando lembra. */
+  const c = cenario();
+  const {app} = c;
+  app.Pend.autosave = async ()=>{};
+  app.Waiver.guardar({id:"wr5", numero:"W-2026-044", itens:["A-001"], texto:"pedido",
+    para:"ICN", situacao:"enviado", statusFinal:"2 - Not Blocking",
+    criadoEm:app.agora(), autor:"Bruno"});
+  const bloco = app.Waiver.blocoItemHTML("A-001");
+  chk("o bloco do item oferece responder enquanto não há resposta",
+      bloco.includes('data-wvr="wr5"'));
+  app.UI.detalhe("A-001");
+  chk("e o botão está ligado", typeof app.$$("[data-wvr]")[0]?.onclick === "function");
+  app.$$("[data-wvr]")[0].onclick();
+  chk("abre a janela da resposta", app.$("#ov").innerHTML.includes("W-2026-044"));
+  app.$("#wrParecer").value = "aceito";
+  app.$("#wrAplicar").checked = true;
+  app.$("#wrObs").checked = true;
+  app.$("#mb1").onclick();
+  igual("o item vai para o status final",
+        app.S.db.itens.find(i=>i.item==="A-001").status, "2 - Not Blocking");
+  igual("com a observação do parecer", app.S.db.observacoes.length, 1);
+  chk("e a janela do item reabre, para ver o resultado",
+      !!app.$("#ov") && app.$("#ov").innerHTML.includes("A-001"));
+  app.UI.fechar();
+
+  /* Respondido, o botão sai: não se responde duas vezes por engano. */
+  chk("waiver já respondido não oferece responder de novo",
+      !app.Waiver.blocoItemHTML("A-001").includes("data-wvr"));
+}
+{
+  /* No visualizador: o waiver se lê e se imprime, e não se mexe. */
+  const viz = carregarApp({arquivo:VISUALIZADOR});
+  const avisos = [];
+  viz.ctx.toast = (m,k)=>avisos.push([m,k]);
+  viz.ctx.marcarEstado = ()=>{};
+  viz.S.db = baseDeTeste(); viz.normalizar(viz.S.db);
+  viz.S.db.waivers = [{id:"w1", numero:"W-2026-030", itens:["A-001"], texto:"pedido",
+                       situacao:"enviado", criadoEm:"2026-03-01T00:00:00.000Z",
+                       dataDocumento:"2026-03-01", autor:"Bruno"}];
+  igual("o visualizador sabe que não edita", viz.EDITAVEL, false);
+  viz.Waiver.painel({itens:["A-001"]});
+  chk("pedir waiver ali só avisa", avisos.some(([,k])=>k==="warn"));
+  chk("e não abre janela nenhuma", !viz.$("#ov"));
+  viz.Waiver.guardar({id:"zz", numero:"W-2026-031", itens:["A-001"], texto:"t"});
+  igual("guardar não guarda", viz.S.db.waivers.length, 1);
+  viz.Waiver.aplicar(viz.S.db.waivers[0], "destino");
+  igual("aplicar não aplica", viz.S.db.itens.find(i=>i.item==="A-001").status, "3 - Blocking");
+  viz.Waiver.excluir(viz.S.db.waivers[0]);
+  igual("apagar não apaga", viz.S.db.waivers.length, 1);
+  viz.Waiver.responder("w1");
+  chk("registrar resposta ali não abre janela nenhuma", !viz.$("#ov"));
+  viz.Waiver.anotar(["A-001"], "nota de mentira", "x");
+  igual("nem grava observação", viz.S.db.observacoes.length, 0);
+
+  viz.Render.waivers();
+  chk("a tela existe e lista", viz.$("#view").innerHTML.includes("W-2026-030"));
+  chk("mas sem o botão de novo waiver", !viz.$("#wvNovo"));
+  chk("e o bloco do item não oferece pedir",
+      !viz.Waiver.blocoItemHTML("A-001").includes("wvNovoDoItem"));
+  chk("o documento continua saindo inteiro",
+      viz.Waiver.documento(viz.S.db.waivers).includes("W-2026-030"));
+}
+
+/* ============ 24. A JANELA NAO FOGE COM O MOUSE FORA DELA ================ */
+secao("24. JANELAS");
+{
+  /* O defeito: o navegador entrega o clique ao ancestral comum do mousedown e
+     do mouseup. Arrastar para selecionar o texto de um campo e soltar o botao
+     fora da janela dava, portanto, um clique no FUNDO - e a janela fechava
+     levando o que estava escrito. A regra agora exige que o clique comece e
+     termine no fundo. */
+  const c = cenario();
+  const {app} = c;
+  app.UI.modal("T","<p>x</p>",[]);
+  const ov = app.$("#ov");
+  chk("soltar no fundo um arraste que começou DENTRO não fecha",
+      app.UI.cliqueFechaFundo(ov, ov) === false);
+  ov.__comecouNoFundo = true;
+  chk("clicar no fundo, e só no fundo, fecha",
+      app.UI.cliqueFechaFundo(ov, ov) === true);
+  chk("clique num filho nunca fecha",
+      app.UI.cliqueFechaFundo(ov, {}) === false);
+  chk("sem janela não há o que fechar", app.UI.cliqueFechaFundo(null, null) === false);
+  app.UI.fechar();
+}
+{
+  /* Com coisa escrita, sair por fora pergunta antes de descartar. */
+  let perguntas = 0;
+  const app = carregarApp({confirmar:()=>{ perguntas++; return false; }});
+  app.ctx.toast=()=>{}; app.ctx.marcarEstado=()=>{}; app.Render.atual=()=>{};
+  app.S.db = baseDeTeste(); app.normalizar(app.S.db); app.Sync.parar();
+
+  app.UI.modal("Sem guarda","<p>x</p>",[]);
+  app.$("#ov").__sujo = true;
+  app.UI.fecharPeloUsuario();
+  igual("janela comum não pergunta nada", perguntas, 0);
+  chk("e fecha", !app.$("#ov"));
+
+  app.UI.modal("Com guarda","<p>x</p>",[],{confirmarSaida:true});
+  app.UI.fecharPeloUsuario();
+  igual("sem nada escrito, também não pergunta", perguntas, 0);
+
+  app.UI.modal("Com guarda","<p>x</p>",[],{confirmarSaida:true});
+  app.$("#ov").__sujo = true;
+  app.UI.fecharPeloUsuario();
+  igual("com coisa escrita, pergunta", perguntas, 1);
+  chk("e respondendo não, a janela continua aberta", !!app.$("#ov"));
+
+  app.ctx.confirm = ()=>true;
+  app.UI.fecharPeloUsuario();
+  chk("respondendo sim, fecha", !app.$("#ov"));
+
+  /* fechar() direto continua sendo do sistema: não pergunta nada. */
+  app.ctx.confirm = ()=>{ perguntas++; return false; };
+  app.UI.modal("Com guarda","<p>x</p>",[],{confirmarSaida:true});
+  app.$("#ov").__sujo = true;
+  app.UI.fechar();
+  igual("abrir a janela seguinte não pergunta", perguntas, 1);
+  chk("e fecha mesmo", !app.$("#ov"));
+}
+{
+  /* As duas janelas onde se perde trabalho pedem confirmação. */
+  const c = cenario();
+  const {app} = c;
+  app.UI.detalhe("A-001");
+  chk("o detalhe do item tem a guarda", app.$("#ov").__confirmarSaida === true);
+  app.UI.fechar();
+  app.NovoItem.painel();
+  chk("o item novo também", app.$("#ov").__confirmarSaida === true);
+  app.UI.fechar();
+  app.Export.painel(app.S.db.itens, "Itens");
+  chk("a janela de exportação não incomoda com isso",
+      app.$("#ov").__confirmarSaida !== true);
+  app.UI.fechar();
+}
+
+/* ============ 25. TABELA GERAL DO PROJETO (IMPORTACAO) ================= */
+secao("25. TABELA GERAL DO PROJETO");
+{
+  const c = cenario({semPasta:true});
+  const {app} = c;
+  const t1 = app.lerTabela("Item;Descrição;InspType\nP-100;Válvula de fundo;B05\nP-101;Flange;FUN\n");
+  igual("CSV com ponto e vírgula: colunas", t1.cols, ["Item","Descrição","InspType"]);
+  igual("e linhas", t1.linhas.length, 2);
+  igual("separador detectado", t1.separador, ";");
+  const t2 = app.lerTabela("Item\tDescrição\nP-100\tVálvula\n");
+  igual("colado do Excel vem com TAB", t2.separador, "\t");
+  const t3 = app.lerTabela('Item,Descrição\nP-100,"Válvula, de fundo"\n');
+  igual("vírgula dentro de aspas não parte a célula", t3.linhas[0][1], "Válvula, de fundo");
+  const t4 = app.lerTabela('﻿Item;Desc\r\nP-1;x\r\n');
+  igual("BOM e CRLF do Excel não atrapalham", [t4.cols[0], t4.linhas.length], ["Item",1]);
+  const t5 = app.lerTabela('[{"item":"P-9","descricao":"Bomba"}]');
+  igual("JSON de objetos também entra", [t5.formato, t5.cols, t5.linhas[0]],
+        ["json", ["item","descricao"], ["P-9","Bomba"]]);
+  igual("arquivo vazio não inventa coluna", app.lerTabela("  ").cols, []);
+}
+{
+  const c = cenario({semPasta:true});
+  const {app} = c;
+  const tab = app.lerTabela("Item;Descrição;InspType;Evidence\nP-100;Válvula;B05;EV-9\n;sem código;X;Y\nP-100;repetido;Z;W\nP-101;Flange;FUN;EV-8\n");
+  igual("sem dizer onde está o código, não importa", !!app.Catalogo.preparar(tab,["","","",""]).erro, true);
+  const mapa = tab.cols.map(x=>app.Catalogo.adivinhar(x));
+  igual("as colunas de praxe se mapeiam sozinhas", mapa, ["item","descricao","inspType","evidence"]);
+  const prep = app.Catalogo.preparar(tab, mapa);
+  igual("linha sem código fica de fora", prep.semCodigo, 1);
+  igual("código repetido é relatado", prep.repetidos, ["P-100"]);
+  igual("e fica a primeira ocorrência", prep.linhas.map(l=>l.item), ["P-100","P-101"]);
+  igual("descrição vai para o campo certo", prep.linhas[0].descricao, "Válvula");
+  igual("os demais campos ficam prontos para virar item",
+        prep.linhas[0].campos, {inspType:"B05", evidence:"EV-9"});
+}
+{
+  const c = cenario({semPasta:true});
+  const {app} = c;
+  const tab = app.lerTabela("Codigo;Description\nP-100;Válvula de fundo\n");
+  const prep = app.Catalogo.preparar(tab, tab.cols.map(x=>app.Catalogo.adivinhar(x)));
+  igual("sem coluna de descrição, a melhor que houver vira rótulo",
+        prep.linhas[0].descricao, "Válvula de fundo");
+  app.Catalogo.guardar(prep.linhas, {arquivo:"geral.csv", colunas:2});
+  clearTimeout(app.Pend.timerAuto);
+  igual("a tabela entra na base", app.S.db.catalogo.length, 1);
+  igual("com a procedência registrada", app.S.db.catalogoMeta.arquivo, "geral.csv");
+  chk("e por quem", app.S.db.catalogoMeta.autor === "Teste");
+  chk("é mudança estrutural, então entra no diário",
+      app.Pend.diario.some(e=>e.o==="catalogo"));
+  igual("procura pelo código", app.Catalogo.porCodigo("p-100").descricao, "Válvula de fundo");
+  igual("procura pela descrição", app.Catalogo.buscar("fundo").length, 1);
+  igual("item da base não vira linha da tabela", app.S.db.itens.length, 4);
+  app.ctx.confirm = ()=>true;
+  app.Catalogo.remover(); clearTimeout(app.Pend.timerAuto);
+  igual("remover limpa tudo", [app.S.db.catalogo.length, app.S.db.catalogoMeta], [0, null]);
+}
+{
+  const c = cenario({semPasta:true});
+  const val = c.app.avaliar("validarBase");
+  const ruim = {...baseDeTeste(), catalogo:{}};
+  chk("catálogo que não é lista bloqueia a base", val(ruim).valido===false);
+  const dup = {...baseDeTeste(), catalogo:[{item:"P-1"},{item:"p-1"},{item:""}]};
+  const r = val(dup);
+  chk("catálogo com problema não impede de abrir", r.valido===true);
+  chk("repetido vira aviso", r.avisos.some(a=>/repetidos|duplicate/.test(a)), r.avisos.join(" | "));
+  chk("linha sem código também", r.avisos.some(a=>/sem código|without a code/.test(a)));
+}
+
+/* ============ 26. WAIVER PARA ITEM QUE NAO ESTA NA BASE ================ */
+secao("26. WAIVER FORA DA BASE");
+{
+  const c = cenario();
+  const {app} = c;
+  app.Pend.autosave = async ()=>{};
+  app.Catalogo.guardar([{item:"P-500", descricao:"Casco — reforço estrutural",
+                         campos:{inspType:"B05", evidence:"EV-500"}}], {arquivo:"geral.csv"});
+  app.Waiver.painel({itens:["A-001"]});
+  const add = (v)=>{ app.$("#wItemAdd").value = v; app.$("#wItemBtn").onclick(); };
+  add("P-500");
+  igual("item da tabela geral entra no waiver", app.$$("[data-wi]").length, 2);
+  igual("e aparece no bloco de fora da base", app.$$("[data-wx]").length, 1);
+  igual("já com a descrição que a planilha tinha",
+        app.$$("[data-wx]")[0].value, "Casco — reforço estrutural");
+  app.ctx.confirm = ()=>false;
+  add("Z-999");
+  igual("código que não existe em lugar nenhum só entra se confirmado",
+        app.$$("[data-wi]").length, 2);
+  app.ctx.confirm = ()=>true;
+  add("Z-999");
+  igual("confirmando, entra como item fora da base", app.$$("[data-wi]").length, 3);
+  app.$("#wTexto").value = "pedido de dispensa";
+  app.$("#wDestino").value = "4 - Under Analysis";
+  app.$("#mb1").onclick();
+  const w = app.S.db.waivers[0];
+  igual("o waiver cobre os três", w.itens, ["A-001","P-500","Z-999"]);
+  igual("e guarda os dois que não estão na base", Object.keys(w.externos).sort(), ["P-500","Z-999"]);
+  igual("com a procedência de cada um",
+        [w.externos["P-500"].fonte, w.externos["Z-999"].fonte], ["catalogo","manual"]);
+  igual("a descrição da tabela geral viaja com o waiver",
+        w.externos["P-500"].descricao, "Casco — reforço estrutural");
+}
+{
+  /* O status só se move para quem existe: o waiver cobre o item de fora, mas
+     não há item aqui para mover - e a conta precisa dizer isso. */
+  const c = cenario();
+  const {app} = c;
+  app.Pend.autosave = async ()=>{};
+  const w = {id:app.uid(), numero:"W-2026-030", itens:["A-001","P-777"],
+             externos:{"P-777":{descricao:"Tubulação externa", fonte:"manual"}},
+             texto:"t", situacao:"enviado", statusDestino:"2 - Not Blocking",
+             criadoEm:app.agora(), autor:"Teste"};
+  app.Waiver.guardar(w);
+  app.ctx.confirm = ()=>true;
+  app.Waiver.aplicar(w, "destino");
+  igual("só o item da base virou pendente", app.S.db.pendentes.length, 1);
+  igual("e foi o que existe", app.S.db.pendentes[0].item, "A-001");
+  chk("nenhum item foi inventado na base", !app.S.db.itens.some(i=>i.item==="P-777"));
+  igual("o waiver registra que moveu um", app.S.db.waivers[0].aplicado.quantos, 1);
+
+  const bloco = app.Waiver.blocoDivergenciaHTML(["A-001","P-777"], "2 - Not Blocking");
+  chk("o aviso conta os que ficam de fora", /1 item\(ns\) fora da base/.test(bloco), bloco.slice(0,120));
+  const soFora = app.Waiver.blocoDivergenciaHTML(["P-777"], "2 - Not Blocking");
+  chk("waiver só de itens de fora não promete mudança nenhuma",
+      /Nenhum destes itens está na base/.test(soFora), soFora.slice(0,120));
+}
+{
+  /* O documento: quem lê o papel precisa saber de que item se trata, mesmo
+     que ele não exista nesta base. */
+  const c = cenario({semPasta:true});
+  const {app} = c;
+  const w = {id:"wd1", numero:"W-2026-031", itens:["A-001","P-777"],
+             externos:{"P-777":{descricao:"Tubulação externa ao J08", fonte:"manual"}},
+             texto:"t", situacao:"enviado", criadoEm:app.agora(), autor:"Teste"};
+  app.S.db.waivers = [w];
+  const doc = app.Waiver.docWaiverHTML(w);
+  chk("o item de fora aparece na tabela do documento", doc.includes("P-777"));
+  chk("com a descrição escrita no waiver", doc.includes("Tubulação externa ao J08"));
+  chk("e dizendo que não está na base", /não está na base/.test(doc));
+  chk("o item da base continua com a pílula de status", doc.includes("3 - Blocking"));
+}
+{
+  /* Se o item entrar na base depois, o waiver passa a apontar para o item de
+     verdade: o código é o mesmo, então a ligação acontece sozinha. */
+  const c = cenario();
+  const {app} = c;
+  app.Pend.autosave = async ()=>{};
+  const w = {id:"wd2", numero:"W-2026-032", itens:["P-900"],
+             externos:{"P-900":{descricao:"x", fonte:"catalogo"}},
+             texto:"t", situacao:"enviado", criadoEm:app.agora(), autor:"Teste"};
+  app.Waiver.guardar(w);
+  igual("antes, o waiver não acha item nenhum", app.Waiver.doItem("P-900").length, 1);
+  app.S.db.itens.push({item:"P-900", status:"3 - Blocking", inspType:"B05", isB05:true,
+                       criadoEm:app.hoje(), ultimaAlteracaoStatus:app.hoje(), bigram:[]});
+  igual("depois de criado, o waiver aparece dentro do item",
+        app.Waiver.doItem("P-900").map(x=>x.numero), ["W-2026-032"]);
+  app.Waiver.painel({id:"wd2"});
+  app.$("#wTexto").value = "t";
+  app.$("#mb2").onclick();                       /* salvar */
+  const n = app.S.db.waivers.find(x=>x.id==="wd2");
+  igual("e deixa de ser item de fora", Object.keys(n.externos||{}), []);
+}
+
 console.log(falhas.length ? `\n${falhas.length} FALHA(S):\n  `+falhas.join("\n  ") : "\nTudo certo.");
 process.exit(falhas.length ? 1 : 0);

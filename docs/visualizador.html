@@ -306,7 +306,8 @@ const I18N = {
    b05:"B05",naoB05:"Não B05",tipoInsp:"Tipo de inspeção",funcaoVital:"Função vital",
    origem:"Marco de origem",aging:"Aging",semAtualizacao:"Sem atualização",dias:"dias",
    evolucao:"Evolução",distribuicao:"Distribuição",campo:"Campo",anterior:"Anterior",novo:"Novo",
-   data:"Data",autor:"Autor",item:"Item",acoes:"Ações",resolver:"Resolver"},
+   data:"Data",autor:"Autor",item:"Item",acoes:"Ações",resolver:"Resolver",
+   waivers:"Waivers"},
  en:{dashboard:"Dashboard",itens:"Items",kanban:"Kanban",historico:"History",relatorios:"Reports",
    sobre:"About",tema:"Theme",fluxo:"Evidence Flow",salvarAgora:"Save changes now",
    total:"Total items",emAberto:"Open",validados:"Validated",conclusao:"Completion",
@@ -321,10 +322,17 @@ const I18N = {
    b05:"B05",naoB05:"Non-B05",tipoInsp:"Inspection type",funcaoVital:"Vital function",
    origem:"Origin milestone",aging:"Aging",semAtualizacao:"No update for",dias:"days",
    evolucao:"Trend",distribuicao:"Distribution",campo:"Field",anterior:"Previous",novo:"New",
-   data:"Date",autor:"Author",item:"Item",acoes:"Actions",resolver:"Resolve"}
+   data:"Date",autor:"Author",item:"Item",acoes:"Actions",resolver:"Resolve",
+   waivers:"Waivers"}
 };
 let LANG = localStorage.getItem("sm.lang") || "pt";
 const T = k => (I18N[LANG][k] ?? I18N.pt[k] ?? k);
+
+/* O visualizador da pasta de transferencia e gerado DESTE arquivo com esta
+   constante em false (ferramentas/gerar_visualizador.py). E por ela que cada
+   tela sabe se deve oferecer o que altera a base: uma linha so, num lugar so,
+   em vez de uma tela lembrar e outra esquecer. */
+const EDITAVEL = false;
 
 /* ------------------------------ utilitarios ---------------------------- */
 const $  = (s,r=document)=>r.querySelector(s);
@@ -1252,6 +1260,7 @@ const ROTAS = [
   {id:"fluxo",     ic:"⇉", t:"fluxo"},
   {id:"historico", ic:"◴", t:"historico"},
   {id:"relatorios",ic:"◰", t:"relatorios"},
+  {id:"waivers",   ic:"⚖", t:"waivers"},
   {id:"sobre",     ic:"ℹ", t:"sobre"},
 ];
 
@@ -1752,6 +1761,923 @@ const Lote = { barra(){ return ""; }, ligar(){} };
    uma criacao, para sobreviver a uma gravacao de outra pessoa no meio.   */
 /* item novo: nao existe no visualizador */
 
+/* =============================== waivers ==============================
+   Um waiver e um pedido formal de dispensa: "este item nao vai atender o
+   requisito como esta escrito; peco que seja aceito assim mesmo, por estas
+   razoes". Ate aqui isso vivia em e-mail e em papel, e o sistema so via o
+   resultado - o status mudava e ninguem sabia por que. Agora o pedido mora na
+   base, preso aos itens que ele cobre, e sai em documento pronto para assinar.
+
+   Duas portas entram aqui:
+     - o pedido novo, escrito na tela, que ja move os itens para o status de
+       tramitacao escolhido (o "para onde mando agora") e guarda qual e o
+       status que se espera no fim (o "onde isto tem de parar");
+     - o passivo: o waiver que ja foi feito a mao antes de existir esta tela.
+       Entra com a data e a referencia do documento original e NAO mexe no
+       status por conta propria, porque o item ja esta onde o papel o deixou.
+
+   Nada aqui grava por um caminho proprio: o status vai por Pend.alterar, como
+   qualquer edicao, e o waiver em si e gravado pelo autosave.              */
+/* ===================== a tabela geral do projeto ======================
+   A base do J08 tem os 428 itens do marco. O projeto inteiro tem muito mais,
+   e um waiver pode cair sobre um item que nunca entrou aqui. Esta tabela e a
+   LISTA DE CONSULTA desse universo: nao vira item da base nem entra em
+   indicador nenhum - serve para achar o codigo e a descricao certos na hora
+   de escrever um waiver, e para trazer um item para a base quando for o caso.
+
+   Entra por arquivo (CSV, TSV ou JSON) ou colada direto do Excel, que coloca
+   TAB entre as colunas na area de transferencia - e o caminho mais curto para
+   quem tem a planilha aberta e nao quer salvar um CSV antes.               */
+function lerTabela(texto){
+  const t = String(texto ?? "").replace(/^\ufeff/, "");
+  if(!t.trim()) return {cols:[], linhas:[], formato:null};
+  /* JSON: uma lista de objetos (o que o proprio sistema exporta) */
+  if(/^\s*\[/.test(t)){
+    let j; try{ j = JSON.parse(t); }catch{ j = null; }
+    if(Array.isArray(j)){
+      const objs = j.filter(x=>x && typeof x==="object" && !Array.isArray(x));
+      const cols = [...new Set(objs.flatMap(o=>Object.keys(o)))];
+      return {cols, linhas:objs.map(o=>cols.map(c=>o[c]==null? "" : String(o[c]))), formato:"json"};
+    }
+  }
+  /* Separador: o que mais aparece na primeira linha de verdade. O Excel usa
+     TAB ao copiar e ";" ao salvar CSV em maquina com virgula decimal. */
+  const primeira = t.split(/\r?\n/).find(l=>l.trim()) || "";
+  const sep = [["\t",(primeira.match(/\t/g)||[]).length],
+               [";", (primeira.match(/;/g)||[]).length],
+               [",", (primeira.match(/,/g)||[]).length]]
+              .sort((a,b)=>b[1]-a[1])[0];
+  const d = sep[1] ? sep[0] : ";";
+  /* Parser com aspas: uma celula entre aspas pode conter o separador e ate
+     quebra de linha - e exatamente o caso das descricoes longas. */
+  const linhas=[]; let campo="", linha=[], aspas=false;
+  for(let k=0; k<t.length; k++){
+    const c = t[k];
+    if(aspas){
+      if(c === '"'){ if(t[k+1] === '"'){ campo+='"'; k++; } else aspas=false; }
+      else campo += c;
+      continue;
+    }
+    if(c === '"'){ aspas=true; continue; }
+    if(c === d){ linha.push(campo); campo=""; continue; }
+    if(c === "\n"){ linha.push(campo); linhas.push(linha); linha=[]; campo=""; continue; }
+    if(c === "\r") continue;
+    campo += c;
+  }
+  if(campo!=="" || linha.length){ linha.push(campo); linhas.push(linha); }
+  const limpas = linhas.map(l=>l.map(x=>String(x).trim())).filter(l=>l.some(x=>x!==""));
+  if(!limpas.length) return {cols:[], linhas:[], formato:null};
+  const cols = limpas[0].map((c,i)=>c || `coluna ${i+1}`);
+  return {cols, linhas:limpas.slice(1), formato:"texto", separador:d};
+}
+
+const Catalogo = {
+  lista(){ return S.db?.catalogo ?? []; },
+  meta(){ return S.db?.catalogoMeta ?? null; },
+  porCodigo(cod){
+    const chave = String(cod||"").trim().toLowerCase();
+    return this.lista().find(c=>String(c.item).trim().toLowerCase()===chave) || null;
+  },
+  /* Busca por codigo ou descricao, para o campo de item do waiver. */
+  buscar(q, n=30){
+    const t = String(q||"").trim().toLowerCase();
+    if(!t) return this.lista().slice(0,n);
+    return this.lista().filter(c=>
+      String(c.item).toLowerCase().includes(t) ||
+      String(c.descricao||"").toLowerCase().includes(t)).slice(0,n);
+  },
+
+  /* Os destinos possiveis de uma coluna do arquivo. Alem do codigo e da
+     descricao, qualquer campo de item - assim a linha do catalogo serve para
+     criar o item na base depois, ja preenchido. */
+  destinos(){
+    return [{id:"item", rot:(LANG==="pt"?"Código do item *":"Item code *")},
+            {id:"descricao", rot:(LANG==="pt"?"Descrição":"Description")},
+            ...NovoItem.CAMPOS.map(c=>({id:c.id, rot:NovoItem.rotulo(c)}))];
+  },
+  /* Chute do destino pelo nome da coluna - acerta a planilha de praxe sem
+     ninguem mexer em nada, e o que errar esta a um clique de ser corrigido. */
+  adivinhar(col){
+    /* Sem tirar o acento, "Descrição" virava "descrio" e nao casava com nada -
+       e a coluna mais comum da planilha ficava sem destino. */
+    const t = String(col||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"")
+                .toLowerCase().replace(/[^a-z0-9]/g,"");
+    if(/^(item|codigo|code|tag|id)$/.test(t)) return "item";
+    if(/^(descricao|description|desc)$/.test(t)) return "descricao";
+    if(t.includes("nanddescription") || t.includes("numand")) return "numAndDescription";
+    for(const c of NovoItem.CAMPOS) if(String(c.id).toLowerCase() === t) return c.id;
+    if(t.includes("insptype")) return "inspType";
+    if(t.includes("evidence")) return "evidence";
+    if(t.includes("originaljx")) return "originalJx";
+    if(t.includes("actualjx")) return "actualJx";
+    return "";
+  },
+
+  /* Monta as linhas do catalogo a partir do arquivo e do mapa de colunas.
+     Funcao pura: devolve as linhas e o que ha de errado com elas, sem gravar
+     nada - a janela mostra o relatorio ANTES de a pessoa confirmar.        */
+  preparar(tabela, mapa){
+    const iCod = mapa.indexOf("item");
+    if(iCod < 0) return {erro: LANG==="pt"
+      ? "Escolha qual coluna traz o código do item." : "Pick which column holds the item code."};
+    const linhas=[], vistos=new Map();
+    let semCodigo=0; const repetidos=[];
+    for(const l of tabela.linhas){
+      const cod = String(l[iCod] ?? "").trim();
+      if(!cod){ semCodigo++; continue; }
+      const chave = cod.toLowerCase();
+      if(vistos.has(chave)){ repetidos.push(cod); continue; }
+      const reg = {item:cod};
+      const campos = {};
+      mapa.forEach((destino, k)=>{
+        if(!destino || destino==="item") return;
+        const v = String(l[k] ?? "").trim(); if(!v) return;
+        if(destino==="descricao") reg.descricao = v; else campos[destino] = v;
+      });
+      if(Object.keys(campos).length) reg.campos = campos;
+      /* Sem coluna de descricao, a melhor que houver serve de rotulo: e o que
+         vai aparecer no chip do waiver e na tabela do documento. */
+      reg.descricao ??= campos.description || campos.numAndDescription || campos.evidence || "";
+      vistos.set(chave, reg); linhas.push(reg);
+    }
+    return {linhas, semCodigo, repetidos:[...new Set(repetidos)]};
+  },
+
+  guardar(linhas, info){
+    if(!S.db) return;
+    S.db.catalogo = linhas;
+    S.db.catalogoMeta = {importadoEm:agora(), autor:Usuario.garantir(), linhas:linhas.length, ...info};
+    Pend.registrar({t:"outro", o:"catalogo"});
+    S.sujo = true;
+    Pend.autosave();
+  },
+  /* A janela tem dois momentos: escolher de onde vem e conferir o que vai
+     entrar. O segundo so aparece depois de ler alguma coisa, e mostra o mapa
+     de colunas, a previa e o que esta errado ANTES de gravar. */
+  painel(tabela=null, mapa=null){
+    if(!S.db || !EDITAVEL) return;
+    const meta = this.meta(), tem = this.lista().length;
+    const mapaAtual = tabela ? (mapa || tabela.cols.map(c=>this.adivinhar(c))) : null;
+    const prep = tabela ? this.preparar(tabela, mapaAtual) : null;
+
+    const escolher = `
+      <p class="muted" style="margin-bottom:13px">${LANG==="pt"
+        ? "A <b>tabela geral</b> é a lista de consulta do projeto inteiro: serve para achar o código e a descrição de um item que <b>não está nesta base</b> — na hora de escrever um waiver, por exemplo. Ela não vira item, não entra em indicador e não muda número nenhum dos painéis."
+        : "The <b>general table</b> is the reference list for the whole project: it is there to find the code and description of an item that is <b>not in this database</b> — when writing a waiver, for instance. It does not become an item, does not feed any indicator and changes no panel figure."}</p>
+      ${tem?`<div class="panel pad" style="border-left:3px solid var(--accent);margin-bottom:13px">
+        <b>${tem} ${LANG==="pt"?"linha(s) já importadas":"row(s) already imported"}</b>
+        <span class="muted">${meta?.arquivo?esc(meta.arquivo)+" · ":""}${meta?.importadoEm?fmtDT(meta.importadoEm):""}${
+          meta?.autor?" · "+esc(meta.autor):""}</span>
+        <div class="muted" style="font-size:11.5px;margin-top:4px">${LANG==="pt"
+          ? "Importar de novo substitui a tabela inteira." : "Importing again replaces the whole table."}</div></div>`:""}
+      <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(min(260px,100%),1fr));gap:13px">
+        <label class="fld"><span>${LANG==="pt"?"Arquivo (CSV, TSV ou JSON)":"File (CSV, TSV or JSON)"}</span>
+          <input type="file" id="catArq" accept=".csv,.tsv,.txt,.json"></label>
+        <div>
+          <div class="fld"><span>${LANG==="pt"?"ou cole aqui (copiado do Excel)":"or paste here (copied from Excel)"}</span></div>
+          <textarea id="catCola" rows="5" class="mono" style="font-size:11px"
+            placeholder="${LANG==="pt"?"Item ; Descrição ; InspType — com a linha de cabeçalho":"Item ; Description ; InspType — including the header row"}"></textarea>
+          <button class="btn sm" id="catLer" style="margin-top:7px">${LANG==="pt"?"Ler o que está colado":"Read what is pasted"}</button>
+        </div>
+      </div>
+      <p class="muted" style="font-size:11.5px;margin-top:11px">${LANG==="pt"
+        ? "No Excel: selecione as colunas com o cabeçalho, Ctrl+C, e cole aí — ele copia com TAB entre as colunas. Salvar como CSV também serve."
+        : "In Excel: select the columns including the header, Ctrl+C and paste above — it copies with TABs. Saving as CSV works too."}</p>`;
+
+    const conferir = ()=>{
+      if(prep.erro) return `<div class="panel pad" style="border-left:3px solid var(--bad)">${esc(prep.erro)}</div>`;
+      const dest = this.destinos();
+      const cols = tabela.cols.map((c,k)=>`<tr>
+        <td class="mono" style="font-size:11px">${esc(c)}</td>
+        <td class="muted" style="font-size:11px">${esc(String(tabela.linhas[0]?.[k] ?? "").slice(0,40))}</td>
+        <td><select data-col="${k}">
+          <option value="">${LANG==="pt"?"— ignorar —":"— ignore —"}</option>
+          ${dest.map(d=>`<option value="${esc(d.id)}"${d.id===mapaAtual[k]?" selected":""}>${esc(d.rot)}</option>`).join("")}
+        </select></td></tr>`).join("");
+      const amostra = prep.linhas.slice(0,6).map(r=>`<tr><td class="mono"><b>${esc(r.item)}</b></td>
+        <td>${esc(String(r.descricao||"").slice(0,70))||"<span class=muted>—</span>"}</td>
+        <td class="muted" style="font-size:11px">${esc(Object.entries(r.campos||{}).slice(0,3)
+          .map(([k,v])=>`${k}=${String(v).slice(0,18)}`).join(" · "))}</td></tr>`).join("");
+      const avisos = [
+        prep.semCodigo && (LANG==="pt"? `${prep.semCodigo} linha(s) sem código foram deixadas de fora.`
+                                      : `${prep.semCodigo} row(s) without a code were left out.`),
+        prep.repetidos.length && (LANG==="pt"
+          ? `${prep.repetidos.length} código(s) repetidos — ficou a primeira ocorrência: ${prep.repetidos.slice(0,6).join(", ")}${prep.repetidos.length>6?"…":""}`
+          : `${prep.repetidos.length} duplicate code(s) — the first occurrence was kept.`),
+      ].filter(Boolean);
+      const naBase = prep.linhas.filter(r=>NovoItem.existente(r.item)).length;
+      return `
+      <p class="muted" style="margin-bottom:11px">${LANG==="pt"
+        ? `O arquivo tem <b>${tabela.cols.length}</b> coluna(s) e <b>${tabela.linhas.length}</b> linha(s). Diga o que é cada coluna — o código do item é o único obrigatório.`
+        : `The file has <b>${tabela.cols.length}</b> column(s) and <b>${tabela.linhas.length}</b> row(s). Say what each column is — only the item code is required.`}</p>
+      <div class="tblwrap" style="max-height:230px;margin-bottom:13px"><table>
+        <thead><tr><th>${LANG==="pt"?"Coluna do arquivo":"File column"}</th>
+          <th>${LANG==="pt"?"1ª linha":"First row"}</th><th>${LANG==="pt"?"Vira":"Becomes"}</th></tr></thead>
+        <tbody>${cols}</tbody></table></div>
+      ${avisos.map(a=>`<div class="panel pad" style="border-left:3px solid var(--warn);margin-bottom:9px;font-size:11.5px">${esc(a)}</div>`).join("")}
+      <b>${LANG==="pt"?"Vai entrar assim":"This is what goes in"}</b>
+      <span class="muted">${prep.linhas.length} ${LANG==="pt"?"linha(s)":"row(s)"}${
+        naBase? " · "+(LANG==="pt"? `${naBase} já existem como item da base` : `${naBase} already exist as database items`):""}</span>
+      <div class="tblwrap" style="max-height:200px;margin-top:7px"><table>
+        <thead><tr><th>${LANG==="pt"?"Código":"Code"}</th><th>${LANG==="pt"?"Descrição":"Description"}</th>
+          <th>${LANG==="pt"?"Outros campos":"Other fields"}</th></tr></thead>
+        <tbody>${amostra || `<tr><td colspan="3" class="muted">—</td></tr>`}</tbody></table></div>`;
+    };
+
+    UI.modal(LANG==="pt"?"Tabela geral do projeto":"General project table",
+      tabela ? conferir() : escolher,
+      tabela
+        ? [{txt:LANG==="pt"?"Trocar o arquivo":"Change the file", cls:"btn", fn:()=>this.painel()},
+           {txt:LANG==="pt"?"Importar":"Import", cls:"btn pri", fn:()=>{
+              const m = tabela.cols.map((_,k)=>$(`select[data-col="${k}"]`)?.value || "");
+              const r = this.preparar(tabela, m);
+              if(r.erro) return toast(r.erro,"bad");
+              if(!r.linhas.length) return toast(LANG==="pt"?"Nenhuma linha com código":"No row with a code","bad");
+              if(tem && !confirmar(LANG==="pt"
+                ? `Substituir a tabela geral atual (${tem} linhas) por estas ${r.linhas.length}?`
+                : `Replace the current general table (${tem} rows) with these ${r.linhas.length}?`)) return;
+              this.guardar(r.linhas, {arquivo:this.__arquivo || (LANG==="pt"?"colado":"pasted"),
+                                      colunas:tabela.cols.length});
+              UI.fechar(); Render.atual();
+              toast(LANG==="pt"?`Tabela geral: ${r.linhas.length} linha(s) importada(s)`
+                               :`General table: ${r.linhas.length} row(s) imported`,"ok");
+           }}]
+        : [{txt:T("fechar"), cls:"btn", fn:()=>UI.fechar()},
+           ...(tem?[{txt:LANG==="pt"?"Remover a tabela":"Remove the table", cls:"btn danger",
+                     fn:()=>{ if(this.remover()) UI.fechar(); }}]:[])]);
+
+    if(!tabela){
+      const arq = $("#catArq");
+      if(arq) arq.onchange = async ()=>{
+        const f = arq.files?.[0]; if(!f) return;
+        try{
+          const t = await f.text();
+          const tb = lerTabela(t);
+          if(!tb.cols.length) return toast(LANG==="pt"?"Não consegui ler nenhuma coluna desse arquivo"
+                                                     :"Could not read any column from that file","bad");
+          this.__arquivo = f.name;
+          this.painel(tb);
+        }catch(e){ toast(String(e?.message||e),"bad"); }
+      };
+      const ler = $("#catLer");
+      if(ler) ler.onclick = ()=>{
+        const tb = lerTabela($("#catCola")?.value || "");
+        if(!tb.cols.length) return toast(LANG==="pt"?"Cole a tabela com a linha de cabeçalho"
+                                                   :"Paste the table including the header row","bad");
+        this.__arquivo = LANG==="pt"?"colado do Excel":"pasted from Excel";
+        this.painel(tb);
+      };
+    }
+  },
+
+  remover(){
+    if(!S.db || !this.lista().length) return false;
+    if(!confirmar(LANG==="pt"
+      ? `Remover a tabela geral (${this.lista().length} linhas)?\n\nOs itens da base e os waivers já escritos não são afetados.`
+      : `Remove the general table (${this.lista().length} rows)?\n\nItems in the database and waivers already written are untouched.`)) return false;
+    S.db.catalogo = []; S.db.catalogoMeta = null;
+    Pend.registrar({t:"outro", o:"catalogo"});
+    S.sujo = true;
+    Pend.autosave();
+    Render.atual();
+    return true;
+  },
+};
+
+const Waiver = {
+  SITUACOES:[
+    {id:"rascunho", pt:"Rascunho",  en:"Draft",     cor:"#8a8f98"},
+    {id:"enviado",  pt:"Enviado",   en:"Submitted", cor:"#b8860b"},
+    {id:"aprovado", pt:"Aprovado",  en:"Approved",  cor:"#2f7a4f"},
+    {id:"recusado", pt:"Recusado",  en:"Rejected",  cor:"#b3403a"},
+    {id:"cancelado",pt:"Cancelado", en:"Canceled",  cor:"#5c5f66"},
+  ],
+  situacao(id){ return this.SITUACOES.find(s=>s.id===id) ?? this.SITUACOES[0]; },
+  rotuloSituacao(id){ const s=this.situacao(id); return LANG==="pt"? s.pt : s.en; },
+  corSituacao(id){ return corSegura(this.situacao(id).cor); },
+
+  lista(){ return S.db?.waivers ?? []; },
+  /* Um waiver pode cobrir item que nao esta na base: o pedido de dispensa
+     existe no projeto inteiro, nao so no recorte do J08 que vive aqui. Esses
+     ficam em w.externos = {codigo:{descricao, fonte}} - o codigo continua em
+     w.itens, entao se o item entrar na base depois o waiver se liga a ele
+     sozinho, sem ninguem reescrever nada. */
+  externo(w, id){ return w?.externos?.[id] || null; },
+  foraDaBase(w){ return (w?.itens||[]).filter(id=>!(S.db?.itens||[]).some(i=>i.item===id)); },
+  porId(id){ return this.lista().find(w=>w.id===id) || null; },
+  doItem(itemId){ return this.lista().filter(w=>(w.itens||[]).includes(itemId)); },
+
+  /* Numero legivel, uma serie por ano: W-2026-001. A contagem olha o MAIOR
+     numero ja usado, nao o tamanho da lista - apagar um rascunho nao pode
+     fazer o waiver seguinte nascer com um numero que ja circulou por e-mail. */
+  proximoNumero(){
+    const pre = `W-${hoje().slice(0,4)}-`;
+    const maior = this.lista().map(w=>String(w.numero||""))
+      .filter(x=>x.startsWith(pre))
+      .map(x=>parseInt(x.slice(pre.length),10))
+      .filter(Number.isFinite)
+      .reduce((a,b)=>Math.max(a,b), 0);
+    return pre + String(maior+1).padStart(3,"0");
+  },
+
+  MODELO(){ return LANG==="pt"
+    ? "Solicitamos a concessão de waiver para o(s) item(ns) acima, pelas razões a seguir:\n\n"
+    + "1. Situação encontrada:\n   \n\n"
+    + "2. Razão pela qual o requisito não pode ser atendido como previsto:\n   \n\n"
+    + "3. Impacto em segurança, operação e integridade:\n   \n\n"
+    + "4. Evidências e documentos de apoio:\n   \n"
+    : "We request a waiver for the item(s) above, for the following reasons:\n\n"
+    + "1. Condition found:\n   \n\n"
+    + "2. Why the requirement cannot be met as written:\n   \n\n"
+    + "3. Impact on safety, operation and integrity:\n   \n\n"
+    + "4. Supporting evidence and documents:\n   \n"; },
+
+  /* ------------------------------ persistencia ------------------------ */
+  /* Um waiver nao passa pela janela de consolidacao: nao e um valor que possa
+     ir e voltar, e um documento. Grava na hora, como a observacao, e entra no
+     diario para sobreviver a uma gravacao de outra pessoa no meio. O `base`
+     guarda de qual versao partimos: e o que permite ao Sync saber se a outra
+     pessoa mexeu NESTE waiver ou em outro. */
+  guardar(){ toast(LANG==="pt"?"Esta é a tela de consulta — o waiver é pedido no sistema"
+                        :"Read-only viewer — waivers are requested in the app","warn"); },
+  excluir(){ toast(LANG==="pt"?"Esta é a tela de consulta — o waiver é pedido no sistema"
+                        :"Read-only viewer — waivers are requested in the app","warn"); },
+
+  /* O waiver nao escreve status por um caminho proprio: chama a mesma edicao
+     de qualquer outra tela, com o numero do waiver como motivo. A mudanca
+     entra no historico do item dizendo de onde veio, vira pendente e e gravada
+     como todas as outras. */
+  /* Quem nao esta no status alvo. E o que a janela pergunta e o que o
+     documento mostra: nao adianta dizer "3 itens" quando um deles ja esta la. */
+  divergentes(itens, alvo){
+    if(!alvo) return [];
+    return (itens||[]).map(id=>S.db?.itens.find(i=>i.item===id))
+      .filter(i=>i && String(i.status)!==String(alvo));
+  },
+
+  /* O texto que fica no item por causa de um waiver. Cabecalho com o numero e
+     a transicao, e embaixo o que foi escrito: quem abrir o item daqui a tres
+     meses le POR QUE ele mudou, nao so que mudou. Sem transicao (o waiver foi
+     recusado e nada se moveu) o cabecalho diz o resultado - a resposta do
+     destinatario e informacao do item mesmo sem mudanca de status. */
+  textoObservacao(w, de, para, qual){
+    const corpo = qual==="final" ? (w.decisaoObs || w.texto) : w.texto;
+    const quem = w.decisaoPor? (LANG==="pt"?` por ${w.decisaoPor}`:` by ${w.decisaoPor}`) : "";
+    const quando = w.decisaoEm? ` (${fmtD(w.decisaoEm)})` : "";
+    const cab = para
+      ? (LANG==="pt" ? `Waiver ${w.numero} — status alterado de "${de}" para "${para}".`
+                     : `Waiver ${w.numero} — status changed from "${de}" to "${para}".`)
+      : (LANG==="pt" ? `Waiver ${w.numero} — ${this.rotuloSituacao(w.situacao).toLowerCase()}${quem}${quando}.`
+                     : `Waiver ${w.numero} — ${this.rotuloSituacao(w.situacao).toLowerCase()}${quem}${quando}.`);
+    return cab + (corpo ? `\n\n${corpo}` : "");
+  },
+
+  /* Uma observacao por item, pelo caminho de qualquer observacao: entra no
+     diario como {t:"obs"} e e gravada na hora. Um lugar so, usado pela
+     aplicacao de status e pela resposta que nao move nada. */
+  anotar(){ toast(LANG==="pt"?"Esta é a tela de consulta — o waiver é pedido no sistema"
+                        :"Read-only viewer — waivers are requested in the app","warn"); },
+
+  /* O bloco de pergunta "o status atual e outro". Uma implementacao so, usada
+     pela janela do pedido e pela janela da resposta - duas copias divergiriam
+     na primeira vez que uma das duas fosse ajustada. */
+  blocoDivergenciaHTML(lista, alvo, o={}){
+    const idApl = o.idApl || "wAplicar", idObs = o.idObs || "wObs";
+    if(!alvo || !lista.length) return "";
+    const fora = this.divergentes(lista, alvo);
+    /* Item fora da base entra na conta do waiver, mas nunca na de status:
+       dizer "3 itens vao mudar" quando um deles nem existe aqui e mentira. */
+    const externos = lista.filter(id=>!(S.db?.itens||[]).some(i=>i.item===id)).length;
+    const notaExterna = externos ? `<div class="muted" style="font-size:11.5px;margin-top:5px">${LANG==="pt"
+      ? `${externos} item(ns) fora da base não mudam de status — o waiver cobre, mas não há item aqui para mover.`
+      : `${externos} item(s) outside the database keep no status — the waiver covers them, but there is nothing here to move.`}</div>` : "";
+    if(!fora.length) return `<div class="muted" style="font-size:11.5px">${
+      externos===lista.length
+        ? (LANG==="pt" ? "Nenhum destes itens está na base — nada a mudar por aqui. O waiver cobre e o documento imprime."
+                       : "None of these items is in the database — nothing to change here.")
+        : "✓ " + (LANG==="pt"
+          ? `Os ${lista.length-externos} item(ns) da base já estão em "${esc(alvo)}" — nada a mudar.`
+          : `The ${lista.length-externos} item(s) in the database are already at "${esc(alvo)}" — nothing to change.`)
+      }</div>${notaExterna}`;
+    const porSt = new Map();
+    for(const i of fora) porSt.set(i.status, (porSt.get(i.status)||0)+1);
+    const de = [...porSt.entries()].sort((a,b)=>b[1]-a[1])
+      .map(([st,q])=>`<span class="pill" style="background:${R.corDe(st)}18;color:${R.corDe(st)};
+        border-color:${R.corDe(st)}55">${q}× ${esc(st)}</span>`).join(" ");
+    const trava = o.desabilitado? " disabled" : "";
+    return `<div class="panel pad" style="border-left:3px solid var(--warn);padding:9px 12px">
+      <div class="rowflex" style="gap:7px;margin-bottom:7px">
+        <b style="color:var(--warn)">${LANG==="pt"?"O status atual é outro":"The current status is different"}</b>
+        <span class="muted">${LANG==="pt"
+          ? `${fora.length} de ${lista.length} item(ns) não estão em "${esc(alvo)}":`
+          : `${fora.length} of ${lista.length} item(s) are not at "${esc(alvo)}":`}</span>
+      </div>
+      <div class="rowflex" style="gap:5px;margin-bottom:9px">${de}
+        <span style="opacity:.6">→</span>
+        <span class="pill" style="background:${R.corDe(alvo)}18;color:${R.corDe(alvo)};
+          border-color:${R.corDe(alvo)}55"><b>${esc(alvo)}</b></span></div>
+      <label class="rowflex" style="gap:7px"><input type="checkbox" id="${idApl}"${
+        o.aplMarcado && !o.desabilitado?" checked":""}${trava}>
+        <span>${esc(o.rotuloApl || (LANG==="pt"
+          ? `Alterar o status desses ${fora.length} item(ns)`
+          : `Change the status of these ${fora.length} item(s)`))}</span></label>
+      <label class="rowflex" style="gap:7px;margin-top:5px;margin-left:19px">
+        <input type="checkbox" id="${idObs}"${o.obsMarcado?" checked":""}${trava}>
+        <span>${esc(o.rotuloObs || (LANG==="pt"
+          ? "e registrar o texto do waiver como observação no item, junto dessa mudança"
+          : "and record the waiver text as a note on the item, alongside that change"))}</span></label>
+      ${notaExterna}
+    </div>`;
+  },
+
+  aplicar(){ toast(LANG==="pt"?"Esta é a tela de consulta — o waiver é pedido no sistema"
+                        :"Read-only viewer — waivers are requested in the app","warn"); },
+
+  /* ------------------------------- a janela --------------------------- */
+  painel(){ toast(LANG==="pt"?"Esta é a tela de consulta — o waiver é pedido no sistema"
+                        :"Read-only viewer — waivers are requested in the app","warn"); },
+
+  /* Le a janela. Devolve {w} ou {erro}: nada e gravado com o formulario pela
+     metade, e a mensagem diz o que falta em vez de falhar calado. */
+  ler(w){
+    const v = id => String($("#w"+id)?.value ?? "").trim();
+    const itens = [...(this.__sel || new Set())];
+    if(!itens.length) return {erro: LANG==="pt"?"Escolha pelo menos um item." : "Pick at least one item."};
+    const texto = String($("#wTexto")?.value ?? "").trim();
+    if(!texto) return {erro: LANG==="pt"?"Escreva o texto do waiver." : "Write the waiver text."};
+    /* So continua "externo" quem de fato nao esta na base AGORA: se o item foi
+       criado no meio do caminho, o waiver passa a apontar para o item de
+       verdade e a descricao avulsa deixa de existir. */
+    const externos = {};
+    const escritos = {};
+    for(const el of $$("[data-wx]")) escritos[el.dataset.wx] = el.value;
+    for(const id of itens){
+      if((S.db?.itens||[]).some(i=>i.item===id)) continue;
+      const a = (this.__ext?.get(id)) || w?.externos?.[id] || {};
+      externos[id] = {descricao: String(escritos[id] ?? a.descricao ?? "").trim(),
+                      fonte: a.fonte || "manual"};
+    }
+    const novo = {
+      ...(w || {}),
+      id: w?.id || uid(),
+      numero: w?.numero || this.proximoNumero(),
+      itens, texto, externos,
+      assunto: v("Assunto"), para: v("Para"), situacao: v("Situacao") || "rascunho",
+      statusDestino: v("Destino"), statusFinal: v("Final"),
+      origem: v("Origem") || "sistema",
+      dataDocumento: v("Data") || hoje(),
+      referencia: v("Ref"),
+      condicao: String($("#wCondicao")?.value ?? "").trim(),
+      criadoEm: w?.criadoEm || agora(),
+      autor: w?.autor || Usuario.garantir(),
+    };
+    /* O parecer NAO e lido daqui: ele so existe depois que o destinatario
+       responde e tem janela propria (responder). O spread acima preserva o que
+       ja estiver gravado - editar o pedido nao pode apagar a resposta. */
+    return {w:novo};
+  },
+
+  salvarDaJanela(){ toast(LANG==="pt"?"Esta é a tela de consulta — o waiver é pedido no sistema"
+                        :"Read-only viewer — waivers are requested in the app","warn"); },
+
+  /* ------------------------ a resposta, depois --------------------------
+     O parecer nao existe na hora do pedido: ele chega quando o destinatario
+     responde, dias ou semanas depois. Este e o momento em que o waiver deixa
+     de ser pedido e vira decisao - entra quem respondeu, quando, o que disse,
+     e SO AGORA o status final e aplicado.
+
+     Alcancavel dos dois lados, porque a lembranca vem dos dois lados: da tela
+     de Waivers (o waiver na mao) e de dentro do item (o item na mao). Vindo do
+     item, a janela do item reabre depois, para a pessoa ver o status novo e a
+     observacao que acabou de nascer.
+
+     A resposta vale para o waiver INTEIRO - todos os itens que ele cobre -
+     porque foi para o waiver inteiro que o destinatario respondeu.            */
+  responder(){ toast(LANG==="pt"?"Esta é a tela de consulta — o waiver é pedido no sistema"
+                        :"Read-only viewer — waivers are requested in the app","warn"); },
+
+  gravarResposta(){ toast(LANG==="pt"?"Esta é a tela de consulta — o waiver é pedido no sistema"
+                        :"Read-only viewer — waivers are requested in the app","warn"); },
+
+  /* ---------------------------- so olhar ------------------------------ */
+  ver(id){
+    const w = this.porId(id); if(!w) return;
+    const cor = this.corSituacao(w.situacao);
+    const linha = (k,v)=>v?`<dt>${esc(k)}</dt><dd>${v}</dd>`:"";
+    UI.modal(`Waiver ${w.numero}`, `
+      <div class="rowflex" style="margin-bottom:12px">
+        <span class="pill" style="background:${cor}18;color:${cor};border-color:${cor}55;font-size:13px">
+          <i class="dot" style="background:${cor}"></i>${esc(this.rotuloSituacao(w.situacao))}</span>
+        ${w.origem==="passivo"?`<span class="tag">${LANG==="pt"?"passivo (feito à mão)":"backlog (by hand)"}</span>`:""}
+        ${w.aplicado?`<span class="tag" title="${esc(fmtDT(w.aplicado.em))}">${LANG==="pt"?"status aplicado":"status applied"}: ${esc(w.aplicado.status)}</span>`:""}
+        ${!w.decisaoObs && ["rascunho","enviado"].includes(w.situacao)
+          ? `<span class="tag" style="color:var(--warn);border-color:var(--warn)">${LANG==="pt"
+              ? "aguardando a resposta do destinatário" : "waiting for the addressee's answer"}</span>` : ""}
+      </div>
+      <dl class="kv">
+        ${linha(LANG==="pt"?"Assunto":"Subject", esc(w.assunto))}
+        ${linha(LANG==="pt"?"Destinatário":"Addressed to", esc(w.para))}
+        ${linha(LANG==="pt"?"Data do documento":"Document date", esc(fmtD(w.dataDocumento)))}
+        ${linha(LANG==="pt"?"Referência":"Reference", esc(w.referencia))}
+        ${linha(LANG==="pt"?"Status de tramitação":"Routing status", esc(w.statusDestino))}
+        ${linha(LANG==="pt"?"Status final desejado":"Desired final status", esc(w.statusFinal))}
+        ${linha(LANG==="pt"?"Itens":"Items", (w.itens||[]).map(x=>
+            `<span class="tag" data-wvi="${esc(x)}" style="cursor:pointer">${esc(x)}</span>`).join(" "))}
+        ${linha(LANG==="pt"?"Aberto por":"Opened by", esc(w.autor)+" &middot; "+esc(fmtDT(w.criadoEm)))}
+        ${linha(LANG==="pt"?"Respondido por":"Answered by",
+                esc(w.decisaoPor)+(w.decisaoEm?" &middot; "+esc(fmtD(w.decisaoEm)):""))}
+        ${linha(LANG==="pt"?"Resposta chegou por":"Answer arrived via", esc(w.decisaoRef))}
+        ${linha(LANG==="pt"?"Lançado no sistema por":"Entered in the app by",
+                esc(w.decisaoRegistradaPor)
+                + (w.decisaoRegistradaEm?" &middot; "+esc(fmtDT(w.decisaoRegistradaEm)):""))}
+      </dl>
+      <div class="sep"></div>
+      <h3 style="border:0;padding:0;font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--fg-3)">
+        ${LANG==="pt"?"Texto do waiver":"Waiver text"}</h3>
+      <div style="white-space:pre-wrap;margin-top:6px;line-height:1.55">${esc(w.texto)}</div>
+      ${w.condicao?`<div class="sep"></div>
+        <h3 style="border:0;padding:0;font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--fg-3)">
+          ${LANG==="pt"?"Condições":"Conditions"}</h3>
+        <div style="white-space:pre-wrap;margin-top:6px">${esc(w.condicao)}</div>`:""}
+      ${w.decisaoObs?`<div class="sep"></div>
+        <h3 style="border:0;padding:0;font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--fg-3)">
+          ${LANG==="pt"?"Parecer do destinatário":"Addressee's answer"}</h3>
+        <div class="panel pad" style="border-left:3px solid ${cor};margin-top:6px;padding:9px 12px">
+          <div style="white-space:pre-wrap;line-height:1.55">${esc(w.decisaoObs)}</div></div>`:""}`,
+      [{txt:T("fechar"), cls:"btn", fn:()=>UI.fechar()},
+       ...(EDITAVEL ? [
+         {txt:LANG==="pt"?"Apagar":"Delete", cls:"btn danger",
+          fn:()=>{ if(this.excluir(w)){ UI.fechar(); Render.atual(); } }},
+         {txt:LANG==="pt"?"Editar pedido":"Edit request", cls:"btn", fn:()=>this.painel({id:w.id})},
+         {txt:w.decisaoObs ? (LANG==="pt"?"Rever resposta":"Revise the answer")
+                           : (LANG==="pt"?"Registrar resposta":"Record the answer"),
+          cls:"btn", fn:()=>this.responder(w.id)}] : []),
+       {txt:T("imprimir"), cls:"btn pri", fn:()=>this.imprimir([w])}]);
+    $$("[data-wvi]").forEach(t=>t.onclick=()=>UI.detalhe(t.dataset.wvi));
+  },
+
+  /* ------------------- o bloco que aparece dentro do item -------------- */
+  blocoItemHTML(itemId){
+    const l = this.doItem(itemId);
+    if(!l.length && !EDITAVEL) return "";
+    return `<div class="panel pad" style="border-left:3px solid var(--accent);margin-bottom:12px">
+      <div class="rowflex" style="justify-content:space-between">
+        <b>${LANG==="pt"?"Waivers":"Waivers"}</b>
+        ${EDITAVEL?`<button class="btn sm" id="wvNovoDoItem">+ ${LANG==="pt"?"Pedir waiver":"Request waiver"}</button>`:""}
+      </div>
+      ${l.length? l.map(w=>{ const c=this.corSituacao(w.situacao); return `
+        <div class="rowflex" style="font-size:11.5px;margin-top:6px">
+          <span class="pill" style="background:${c}18;color:${c};border-color:${c}55">${esc(this.rotuloSituacao(w.situacao))}</span>
+          <b>${esc(w.numero)}</b>
+          <span class="muted" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(w.assunto||w.texto)}</span>
+          ${EDITAVEL && !w.decisaoObs && ["rascunho","enviado"].includes(w.situacao)
+            ? `<button class="btn sm pri" data-wvr="${esc(w.id)}" title="${LANG==="pt"
+                 ? "O destinatário respondeu: registrar o parecer e aplicar o status final"
+                 : "The addressee answered: record the decision and apply the final status"}">${
+                 LANG==="pt"?"Registrar resposta":"Record answer"}</button>` : ""}
+          <button class="btn sm" data-wvv="${esc(w.id)}">${LANG==="pt"?"Abrir":"Open"}</button>
+        </div>`; }).join("")
+        : `<div class="muted" style="font-size:11.5px;margin-top:5px">${LANG==="pt"
+             ? "Nenhum waiver para este item." : "No waiver for this item."}</div>`}
+    </div>`;
+  },
+  ligarBloco(itemId){
+    const b = $("#wvNovoDoItem");
+    if(b) b.onclick = ()=>this.painel({itens:[itemId]});
+    $$("[data-wvv]").forEach(x=>x.onclick=()=>this.ver(x.dataset.wvv));
+    /* Vindo do item, a janela do item reabre depois: e la que a pessoa vai
+       conferir o status novo e a observacao que acabou de nascer. */
+    $$("[data-wvr]").forEach(x=>x.onclick=()=>this.responder(x.dataset.wvr, {voltarAoItem:itemId}));
+  },
+
+  /* --------------------------- o documento ---------------------------
+     Folha de estilo propria: um waiver e um documento formal, nao um relatorio
+     de dados. Herda do relatorio o corpo, a tabela e o rodape (Export.moldura)
+     e acrescenta o que faz um oficio parecer um oficio.
+
+     As decisoes de desenho, em uma linha cada:
+       - faixa cheia no topo em vez de caixa vazada: da peso ao documento e
+         separa a identificacao do conteudo sem uma regua a mais;
+       - o fio colorido sob a faixa e a cor da SITUACAO - da para saber se um
+         waiver foi aprovado de longe, com a folha na mesa;
+       - as pilulas de status usam a cor real do status na base, a mesma da
+         tela: o papel e a tela falam a mesma lingua;
+       - tres etapas na tramitacao (de onde esta -> para onde vai agora -> onde
+         deve parar), porque duas escondiam a informacao que mais importa: o
+         item nao esta onde o waiver supoe;
+       - cada bloco de texto tem uma barra lateral de cor propria (azul para o
+         pedido, verde para as condicoes, ambar para o parecer): quem folheia
+         acha a secao sem ler o titulo;
+       - marca d'agua so em rascunho e cancelado - um papel que nao vale nao
+         pode parecer que vale. */
+  cssWaiver(){ return `
+  /* A moldura do relatorio afasta o conteudo das bordas para ficar bonito na
+     TELA; no papel quem afasta e a margem da @page, entao esse respiro extra e
+     so folha desperdicada - e sao 28px, que e o que faz um waiver bem escrito
+     caber ou nao caber. */
+  @media print { .folha { padding:0; } }
+  /* Margem propria, menor que a do relatorio: aqui a folha e um documento
+     unico e cada milimetro de sobra decide se o waiver bem escrito cabe numa
+     folha ou deixa as assinaturas orfas na seguinte. 10mm continua dentro da
+     area imprimivel de qualquer impressora de escritorio. */
+  @page { size: A4 portrait; margin: 10mm 10mm 12mm; }
+  .waiver { break-after:page; page-break-after:always; position:relative; }
+  .waiver:last-of-type { break-after:auto; page-break-after:auto; }
+  .waiver > * { position:relative; z-index:1; }
+
+  /* ---- marca d'agua: so no que ainda nao vale ----
+     POR CIMA do conteudo, nao atras: atras dos paineis brancos ela sumia e o
+     rascunho saia com cara de documento valido. Contornada em vez de
+     preenchida - le-se de longe sem cobrir uma linha sequer do texto. */
+  .wmarca { position:absolute; inset:0; z-index:2; display:flex; align-items:center;
+            justify-content:center; pointer-events:none; }
+  .wmarca span { font-size:80px; font-weight:800; letter-spacing:.22em; text-transform:uppercase;
+                 color:transparent; -webkit-text-stroke:2px rgba(17,36,63,.17);
+                 transform:rotate(-24deg); white-space:nowrap; }
+
+  /* ---- cabecalho ---- */
+  .wtopo { display:flex; justify-content:space-between; align-items:stretch; gap:16px;
+           background:linear-gradient(100deg,#11243f 0%,#22467a 58%,#2f5fa8 100%);
+           color:#fff; border-radius:7px 7px 0 0; padding:11px 17px; }
+  .wtopo .esq { min-width:0; }
+  .wtopo .esq .marca { font-size:8px; letter-spacing:.18em; text-transform:uppercase;
+                       color:#9cc0ee; font-weight:700; }
+  .wtopo .esq h1 { font-size:18.5px; margin:3px 0 0; font-weight:650; letter-spacing:.005em; color:#fff; }
+  .wtopo .esq .ass { font-size:11px; color:#cddff5; margin-top:3px; overflow-wrap:anywhere; }
+  .wtopo .dir { flex:none; text-align:right; display:flex; flex-direction:column;
+                justify-content:space-between; align-items:flex-end; }
+  .wtopo .dir .rot { font-size:7.5px; letter-spacing:.16em; text-transform:uppercase; color:#9cc0ee; }
+  .wtopo .dir .num { font-size:18px; font-weight:750; font-variant-numeric:tabular-nums; letter-spacing:.02em; }
+  .wtopo .dir .sit { margin-top:6px; padding:2px 11px; border-radius:20px; background:#fff;
+                     font-size:8.5px; font-weight:800; text-transform:uppercase; letter-spacing:.1em; }
+  .wfio { height:4px; border-radius:0 0 3px 3px; margin-bottom:11px; }
+
+  /* ---- ficha de identificacao ---- */
+  .wficha { display:grid; grid-template-columns:repeat(4,1fr); border:1px solid #dbe3ef;
+            border-radius:6px; overflow:hidden; margin:0 0 4px; background:#fff; }
+  .wficha > div { padding:4px 11px; border-right:1px solid #e9eef6; border-bottom:1px solid #e9eef6; }
+  .wficha > div:nth-child(4n) { border-right:0; }
+  .wficha > div:nth-last-child(-n+4) { border-bottom:0; background:#f7f9fc; }
+  .wficha dt { font-size:7.5px; text-transform:uppercase; letter-spacing:.11em; color:#8a97a8; font-weight:700; }
+  .wficha dd { margin:2px 0 0; font-size:11px; font-weight:600; color:#16181d; overflow-wrap:anywhere; }
+
+  /* ---- secoes numeradas ---- */
+  .wsec { margin-top:9px; break-inside:avoid; }
+  .wsec > h2 { display:flex; align-items:center; gap:8px; margin:0 0 6px; padding:0 0 4px;
+               font-size:10px; text-transform:uppercase; letter-spacing:.11em; color:#11243f;
+               font-weight:700; border-bottom:1.5px solid #dbe3ef; }
+  .wsec > h2 .n { display:inline-flex; align-items:center; justify-content:center; flex:none;
+                  width:17px; height:17px; border-radius:50%; background:#2f5fa8; color:#fff;
+                  font-size:9px; font-weight:700; letter-spacing:0; }
+  .wsec > h2 .aux { margin-left:auto; font-weight:500; letter-spacing:.02em; text-transform:none;
+                    color:#8a97a8; font-size:9.5px; }
+
+  /* ---- tramitacao: de onde esta, para onde vai agora, onde deve parar ---- */
+  .wtram { display:flex; align-items:stretch; }
+  .wtram .cx { flex:1; min-width:0; border:1px solid #dbe3ef; border-top:3px solid #9db1cc;
+               border-radius:6px; padding:8px 10px; background:#fff; text-align:center; }
+  /* A do meio e a ACAO que se pede - as duas vizinhas sao contexto. */
+  .wtram .cx.agora { background:#f4f8fd; border-color:#c3d4ea; border-top-width:4px; }
+  .wtram .cx .lab { display:block; font-size:7.5px; text-transform:uppercase; letter-spacing:.11em;
+                    color:#8a97a8; font-weight:700; margin-bottom:5px; }
+  .wtram .cx .val { display:flex; flex-direction:column; gap:3px; align-items:center; }
+  .wtram .seta { display:flex; align-items:center; padding:0 9px; color:#b3c4da; font-size:17px; font-weight:700; }
+
+  /* ---- pilula de status, com a cor real do status na base ---- */
+  .stp { display:inline-block; padding:1px 8px; border-radius:20px; font-size:9.5px; font-weight:700;
+         border:1px solid currentColor; white-space:nowrap; max-width:100%; overflow-wrap:break-word; }
+
+  /* ---- tabela dos itens ---- */
+  table.witens th { background:#11243f; border-color:#11243f; font-size:8.5px; letter-spacing:.09em; }
+  table.witens td { font-size:10px; border-color:#e4eaf3; overflow-wrap:break-word; padding:3px 6px; }
+  table.witens tbody tr:nth-child(even) td { background:#f7f9fc; }
+  table.witens td.cod b { font-size:10.5px; }
+
+  /* ---- blocos de texto, cada um com a sua cor ---- */
+  .wtexto { white-space:pre-wrap; font-size:11px; line-height:1.55; text-align:justify; color:#16181d;
+            border:1px solid #e4eaf3; border-left:3px solid #2f5fa8; border-radius:0 6px 6px 0;
+            padding:8px 13px; background:#fbfcfe; min-height:24mm; }
+  .wtexto.cond { border-left-color:#2f7a4f; background:#f9fdfa; min-height:0; }
+  .wtexto.parecer { border-left-color:#b8860b; background:#fffdf6; min-height:13mm; }
+  .wtexto .vazio { color:#aab3c0; font-style:italic; }
+  /* De onde veio o parecer e quem o transcreveu. O destinatario nao usa o
+     sistema: sem esta linha, o papel nao diz de onde saiu o que esta escrito
+     ali - e e isso que alguem vai querer conferir daqui a um ano. */
+  .wproc { font-size:9px; color:#6b7280; margin:4px 0 0; padding-left:3px; overflow-wrap:break-word; }
+  .wproc b { color:#3a4150; font-weight:700; }
+
+  /* ---- assinaturas: o espaco de assinar fica ACIMA da linha ---- */
+  /* O parecer e as assinaturas viajam juntos: um waiver que quebre deixando
+     so a linha de assinatura na folha seguinte parece documento truncado. */
+  .wfecho { break-inside:avoid; page-break-inside:avoid; }
+  .wassin { display:grid; grid-template-columns:repeat(2,1fr); gap:30px; margin-top:4px; break-inside:avoid; }
+  .wassin .lin { border-top:1.2px solid #11243f; padding-top:5px; margin-top:10mm;
+                 font-size:9.5px; color:#5d6a7d; }
+  .wassin .lin b { display:block; font-size:10.5px; color:#11243f; letter-spacing:.02em; }
+  .wnota { font-size:8.5px; color:#8a97a8; margin-top:6px; padding-top:5px; border-top:1px solid #eef2f7; }`; },
+
+  docWaiverHTML(w){
+    const e = v => esc(limparTexto(v,{quebras:"achatar"}));
+    const p = v => esc(limparTexto(v,{quebras:"manter"}));
+    const pt = LANG==="pt";
+    const sit = this.situacao(w.situacao);
+    /* Item fora da base nao tem linha na base para consultar: a descricao que
+       o documento imprime e a que foi escrita no waiver (ou veio da tabela
+       geral do projeto). Sem isso o papel sairia com o codigo e mais nada. */
+    const itens = (w.itens||[]).map(id => {
+      const i = (S.db?.itens||[]).find(x=>x.item===id);
+      if(i) return i;
+      const x = w.externos?.[id] || {};
+      return {item:id, description:x.descricao||"", fora:true};
+    });
+    const cor = st => corSegura(R.corDe(st));
+    const pilula = st => st
+      ? `<span class="stp" style="color:${cor(st)};background:${cor(st)}14">${e(st)}</span>`
+      : `<span class="stp" style="color:#9aa3b0;background:#f2f4f7">—</span>`;
+
+    /* De onde os itens saem HOJE. Sem isto o documento dizia para onde vai sem
+       dizer de onde - e quem le nao consegue conferir se a premissa vale. */
+    const atuais = [...new Set(itens.map(i=>i.status).filter(Boolean))];
+    const fora = w.statusDestino ? itens.filter(i=>i.status && i.status!==w.statusDestino).length : 0;
+
+    let k = 0;
+    const sec = (titulo, corpo, aux="") => `<section class="wsec">
+      <h2><span class="n">${++k}</span>${e(titulo)}${aux?`<span class="aux">${e(aux)}</span>`:""}</h2>
+      ${corpo}</section>`;
+    const ficha = (rot, v) => `<div><dt>${e(rot)}</dt><dd>${e(v)||"—"}</dd></div>`;
+    const marca = ["rascunho","cancelado"].includes(w.situacao)
+      ? `<div class="wmarca"><span>${e(this.rotuloSituacao(w.situacao))}</span></div>` : "";
+
+    return `<section class="waiver">
+    ${marca}
+    <div class="wtopo">
+      <div class="esq">
+        <div class="marca">StatusMilestone &middot; J08 &middot; ${e(pt?"Fluxo de Evidências":"Evidence Flow")}</div>
+        <h1>${e(pt?"Solicitação de Waiver":"Waiver Request")}</h1>
+        ${w.assunto?`<div class="ass">${e(w.assunto)}</div>`:""}
+      </div>
+      <div class="dir">
+        <div><div class="rot">${e(pt?"Documento nº":"Document no.")}</div>
+             <div class="num">${e(w.numero)}</div></div>
+        <span class="sit" style="color:${corSegura(sit.cor)}">${e(this.rotuloSituacao(w.situacao))}</span>
+      </div>
+    </div>
+    <div class="wfio" style="background:${corSegura(sit.cor)}"></div>
+
+    <dl class="wficha">
+      ${ficha(pt?"Data do documento":"Document date", fmtD(w.dataDocumento))}
+      ${ficha(pt?"Destinatário":"Addressed to", w.para)}
+      ${ficha(pt?"Solicitante":"Requested by", w.autor)}
+      ${ficha(pt?"Referência":"Reference", w.referencia)}
+      ${ficha(pt?"Itens abrangidos":"Items covered", String(itens.length))}
+      ${ficha(pt?"Origem":"Origin", w.origem==="passivo" ? (pt?"Passivo — feito à mão":"Backlog — by hand")
+                                                         : (pt?"Emitido pelo sistema":"Issued by the app"))}
+      ${ficha(pt?"Revisão da base":"Database revision", String(S.db?.meta?.revisao ?? "—"))}
+      ${ficha(pt?"Emitido em":"Printed", fmtDT(agora()))}
+    </dl>
+
+    ${sec(pt?"Tramitação solicitada":"Requested routing", `
+      <div class="wtram">
+        <div class="cx"><span class="lab">${e(pt?"Situação atual dos itens":"Items' current status")}</span>
+          <div class="val">${atuais.length? atuais.slice(0,4).map(pilula).join("")
+            + (atuais.length>4?`<span class="stp" style="color:#9aa3b0;background:#f2f4f7">+${atuais.length-4}</span>`:"")
+            : pilula("")}</div></div>
+        <div class="seta">&rarr;</div>
+        <div class="cx agora" style="border-top-color:${w.statusDestino?cor(w.statusDestino):"#9db1cc"}">
+          <span class="lab">${e(pt?"Tramitação (agora)":"Routing (now)")}</span>
+          <div class="val">${pilula(w.statusDestino)}</div></div>
+        <div class="seta">&rarr;</div>
+        <div class="cx" style="border-top-color:${w.statusFinal?cor(w.statusFinal):"#9db1cc"}">
+          <span class="lab">${e(pt?"Status final desejado":"Desired final status")}</span>
+          <div class="val">${pilula(w.statusFinal)}</div></div>
+      </div>`,
+      w.statusDestino ? (fora ? (pt?`${fora} item(ns) ainda não estão na tramitação`
+                                  : `${fora} item(s) not yet at the routing status`)
+                              : (pt?"todos já na tramitação":"all already at the routing status")) : "")}
+
+    ${sec(pt?"Itens abrangidos":"Items covered", `
+      <table class="itens witens">
+        <colgroup><col style="width:24px"><col style="width:86px"><col style="width:92px"><col style="width:72px">
+          <col><col style="width:126px"></colgroup>
+        <thead><tr><th class="n">#</th><th>${e(pt?"Item":"Item")}</th><th>InspType</th><th>Evidence</th>
+          <th>${e(pt?"Descrição":"Description")}</th><th>${e(pt?"Status atual":"Current status")}</th></tr></thead>
+        <tbody>${itens.map((i,j)=>`<tr>
+          <td class="n">${j+1}</td><td class="cod"><b>${e(i.item)}</b></td><td>${e(i.inspType)}</td>
+          <td>${e(i.evidence)}</td><td>${e(i.numAndDescription || i.description)}</td>
+          <td>${i.status? pilula(i.status)
+                        : `<span class="vazio">${e(pt?"não está na base":"not in the database")}</span>`}</td>
+        </tr>`).join("") || `<tr><td colspan="6" class="vazio">—</td></tr>`}</tbody>
+      </table>`, `${itens.length} ${pt?"item(ns)":"item(s)"}`)}
+
+    ${sec(pt?"Texto do waiver":"Waiver text",
+      `<div class="wtexto">${p(w.texto) || `<span class="vazio">${e(pt?"(sem texto)":"(no text)")}</span>`}</div>`)}
+
+    ${w.condicao ? sec(pt?"Condições e medidas compensatórias":"Conditions and compensating measures",
+      `<div class="wtexto cond">${p(w.condicao)}</div>`) : ""}
+
+    <div class="wfecho">
+    ${sec(pt?"Parecer e decisão":"Decision",
+      `<div class="wtexto parecer">${
+        p(w.decisaoObs) || `<span class="vazio">${e(pt?"a preencher":"to be filled in")}</span>`
+      }</div>${w.decisaoPor||w.decisaoRef||w.decisaoRegistradaPor ? `
+      <p class="wproc">${[
+        w.decisaoPor && `<b>${e(pt?"Decidido por":"Decided by")}:</b> ${e(w.decisaoPor)}${
+          w.decisaoEm?` (${e(fmtD(w.decisaoEm))})`:""}`,
+        w.decisaoRef && `<b>${e(pt?"Recebido via":"Received via")}:</b> ${e(w.decisaoRef)}`,
+        w.decisaoRegistradaPor && `<b>${e(pt?"Transcrito por":"Transcribed by")}:</b> ${
+          e(w.decisaoRegistradaPor)}${w.decisaoRegistradaEm?` (${e(fmtD(w.decisaoRegistradaEm))})`:""}`,
+      ].filter(Boolean).join(" &nbsp;·&nbsp; ")}</p>` : ""}`)}
+
+    <div class="wassin">
+      <div class="lin"><b>${e(pt?"Solicitante":"Requested by")}</b>
+        <span>${e(w.autor)||"&nbsp;"} &middot; ${e(pt?"data":"date")} ___/___/______</span></div>
+      <div class="lin"><b>${e(pt?"Aprovação":"Approval")}</b>
+        <span>${e(w.para)||e(pt?"nome e visto":"name and initials")} &middot; ___/___/______</span></div>
+    </div>
+    </div>
+    <p class="wnota">${e(pt
+      ? "Documento gerado pelo StatusMilestone a partir do registro do waiver na base. A situação e os status impressos são os do momento da geração."
+      : "Generated by StatusMilestone from the waiver record in the database. The status printed is the one at generation time.")}</p>
+  </section>`;
+  },
+
+  documento(lista){
+    const l = (lista||[]).filter(Boolean);
+    const o = {...Export.opcoes(), resumo:false, somenteAberto:false};
+    const titulo = l.length===1 ? `Waiver ${l[0].numero}`
+                                : (LANG==="pt"?`Waivers (${l.length})`:`Waivers (${l.length})`);
+    const corpo = l.length ? l.map(w=>this.docWaiverHTML(w)).join("\n")
+      : `<div class="nada">${LANG==="pt"?"Nenhum waiver para imprimir":"No waiver to print"}</div>`;
+    return Export.moldura(titulo, o, false, this.cssWaiver(), corpo);
+  },
+  imprimir(lista){ Export.imprimirHTML(this.documento(lista)); },
+  filtro:"",
+  htmlArquivo(lista){
+    const l = (lista||[]).filter(Boolean);
+    dl(nomeArquivo(l.length===1 ? `waiver-${l[0].numero}` : `waivers-${hoje()}`, "html"),
+       this.documento(l), "text/html;charset=utf-8");
+  },
+};
+
+/* ---------------------------- a tela de waivers ----------------------- */
+Render.waivers = function(){
+  $("#pageTitle").textContent = T("waivers");
+  const todos = Waiver.lista().slice()
+    .sort((a,b)=>String(b.dataDocumento||"").localeCompare(String(a.dataDocumento||""))
+                 || String(b.numero||"").localeCompare(String(a.numero||"")));
+  const filtro = Waiver.filtro || "";
+  const lista = filtro ? todos.filter(w=>w.situacao===filtro) : todos;
+  const conta = id => todos.filter(w=>w.situacao===id).length;
+
+  $("#headerExtra").innerHTML =
+    (EDITAVEL?`<button class="btn pri" id="wvNovo">+ ${LANG==="pt"?"Novo waiver":"New waiver"}</button>`:"")+
+    `<button class="btn" id="wvImp" ${lista.length?"":"disabled"}>⎙ ${LANG==="pt"?"Imprimir":"Print"}</button>`+
+    `<button class="btn" id="wvHtml" ${lista.length?"":"disabled"}>↓ HTML</button>`;
+
+  const cor = w => Waiver.corSituacao(w.situacao);
+  $("#view").innerHTML = `
+    <div class="chips" style="margin-bottom:14px">
+      <span class="chip ${filtro?"":"on"}" data-wf="">${T("todos")} <b>${todos.length}</b></span>
+      ${Waiver.SITUACOES.map(x=>`<span class="chip ${filtro===x.id?"on":""}" data-wf="${x.id}">${
+        esc(LANG==="pt"?x.pt:x.en)} <b>${conta(x.id)}</b></span>`).join("")}
+    </div>
+    ${lista.length? `<div class="panel"><div class="corpo" style="overflow:auto">
+      <table><thead><tr>
+        <th style="width:118px">${LANG==="pt"?"Número":"Number"}</th>
+        <th style="width:84px">${T("data")}</th>
+        <th style="width:96px">${LANG==="pt"?"Situação":"Status"}</th>
+        <th style="width:54px" class="num">${LANG==="pt"?"Itens":"Items"}</th>
+        <th>${LANG==="pt"?"Assunto":"Subject"}</th>
+        <th style="width:270px">${LANG==="pt"?"Tramitação":"Routing"}</th>
+        <th style="width:120px">${T("autor")}</th>
+      </tr></thead><tbody>
+      ${lista.map(w=>`<tr data-wv="${esc(w.id)}" style="cursor:pointer">
+        <td class="num"><b>${esc(w.numero)}</b>${w.origem==="passivo"
+            ? ` <span class="tag" title="${LANG==="pt"?"feito à mão, registrado depois":"written by hand, recorded later"}">${
+                LANG==="pt"?"passivo":"backlog"}</span>` : ""}</td>
+        <td class="num">${esc(fmtD(w.dataDocumento))}</td>
+        <td><span class="pill" style="background:${cor(w)}18;color:${cor(w)};border-color:${cor(w)}55">${
+          esc(Waiver.rotuloSituacao(w.situacao))}</span></td>
+        <td class="num">${(w.itens||[]).length}</td>
+        <td>${esc(w.assunto || limparTexto(w.texto,{quebras:"achatar"}).slice(0,90))}</td>
+        <td class="muted" style="font-size:11px">${esc(w.statusDestino||"—")} → ${esc(w.statusFinal||"—")}</td>
+        <td>${esc(w.autor||"")}</td>
+      </tr>`).join("")}
+      </tbody></table></div></div>`
+    : `<div class="empty"><h3>${LANG==="pt"?"Nenhum waiver":"No waiver"}</h3>
+        <p>${LANG==="pt"
+          ? (EDITAVEL ? "Um waiver pode ser pedido aqui, na janela de um item ou com vários itens selecionados na tabela. Waiver que já foi feito à mão entra pelo mesmo caminho, marcado como <b>passivo</b>."
+                      : "Nenhum waiver registrado nesta base.")
+          : (EDITAVEL ? "A waiver can be requested here, from an item window, or with several items selected in the table."
+                      : "No waiver recorded in this database.")}</p></div>`}`;
+
+  $$("[data-wf]").forEach(c=>c.onclick=()=>{ Waiver.filtro = c.dataset.wf; Render.waivers(); });
+  $$("tr[data-wv]").forEach(r=>r.onclick=()=>Waiver.ver(r.dataset.wv));
+  const bn=$("#wvNovo");  if(bn) bn.onclick=()=>Waiver.painel({});
+  const bi=$("#wvImp");   if(bi) bi.onclick=()=>Waiver.imprimir(lista);
+  const bh=$("#wvHtml");  if(bh) bh.onclick=()=>Waiver.htmlArquivo(lista);
+};
+
 Render.itens = function(){
   $("#pageTitle").textContent=T("itens");
   $("#headerExtra").innerHTML = Filtros.resumoHTML()+
@@ -2200,6 +3126,31 @@ Render.config = function(){
       ${Caminho.blocoHTML({editavel:true})}
     </div></div>
 
+    <div class="panel"><h3>${LANG==="pt"?"Tabela geral do projeto":"General project table"}
+      <span class="sub">${LANG==="pt"?"lista de consulta, não entra nos indicadores":"reference list, not part of any indicator"}</span></h3>
+      <div class="pad">
+      ${(()=>{ const n=Catalogo.lista().length, m=Catalogo.meta();
+        return n ? `<dl class="kv">
+            <dt>${LANG==="pt"?"Linhas":"Rows"}</dt><dd class="mono">${n}</dd>
+            <dt>${LANG==="pt"?"Importada em":"Imported at"}</dt><dd>${m?.importadoEm?fmtDT(m.importadoEm):"—"}</dd>
+            <dt>${LANG==="pt"?"Por":"By"}</dt><dd>${esc(m?.autor||"—")}</dd>
+            <dt>${LANG==="pt"?"Origem":"Source"}</dt><dd class="mono">${esc(m?.arquivo||"—")}</dd>
+            <dt>${LANG==="pt"?"Também na base":"Also in the database"}</dt>
+            <dd class="mono">${Catalogo.lista().filter(c=>NovoItem.existente(c.item)).length}</dd>
+          </dl>`
+        : `<p class="muted" style="font-size:11.5px;line-height:1.7">${LANG==="pt"
+            ? "Nenhuma tabela importada. Ela serve para escrever waiver de item que <b>não está nesta base</b>: com ela, o código traz a descrição junto em vez de ser digitado no escuro."
+            : "No table imported. It is used to write a waiver for an item that is <b>not in this database</b>."}</p>`; })()}
+      <div class="rowflex" style="margin-top:11px">
+        <button class="btn pri" id="catImportar">${Catalogo.lista().length
+          ? (LANG==="pt"?"Importar de novo":"Import again") : (LANG==="pt"?"Importar tabela":"Import table")}</button>
+        ${Catalogo.lista().length?`<button class="btn" id="catRemover">${LANG==="pt"?"Remover":"Remove"}</button>`:""}
+      </div>
+      <p class="muted" style="font-size:11.5px;line-height:1.7;margin-top:9px">${LANG==="pt"
+        ? "Entra por CSV, TSV, JSON ou colada direto do Excel. Fica dentro do <b>database.json</b>, então vale para todo mundo que abrir a base — e aparece no tamanho dela, em <b>Tamanho e arquivamento</b>."
+        : "Accepts CSV, TSV, JSON or a paste from Excel. It lives inside <b>database.json</b>, so everyone opening the base gets it."}</p>
+    </div></div>
+
     <div class="panel"><h3>${T("backup")}</h3><div class="pad">
       <div class="rowflex" style="margin-bottom:11px">
         <button class="btn pri" id="bFazer">${LANG==="pt"?"Fazer backup agora":"Backup now"}</button>
@@ -2321,6 +3272,8 @@ Render.config = function(){
       Render.atual();
     }catch(e){ toast(mensagemArmazenamento(e),"bad"); }
   };
+  $("#catImportar").onclick=()=>Catalogo.painel();
+  const catR=$("#catRemover"); if(catR) catR.onclick=()=>Catalogo.remover();
   $("#bVerif").onclick=()=>{$("#integ").innerHTML=verificarIntegridade();};
   $("#integ").innerHTML=verificarIntegridade();
 };
@@ -2357,7 +3310,7 @@ function validarBase(db){
     E("O arquivo não contém um objeto de base.","The file does not contain a database object.");
     return {valido:false, erros, avisos};
   }
-  for(const k of ["itens","historico","pendentes","observacoes","conflitos","marcos"])
+  for(const k of ["itens","historico","pendentes","observacoes","conflitos","marcos","waivers","catalogo"])
     if(k in db && !Array.isArray(db[k]))
       E(`"${k}" existe no arquivo mas não é uma lista.`, `"${k}" exists but is not a list.`);
   for(const k of ["config","meta"])
@@ -2411,6 +3364,16 @@ function validarBase(db){
   const pCampo = pend.filter(x=>!x?.campo || !Pend.campoEditavel.includes(x.campo)).length;
   if(pCampo) A(`${pCampo} pendência(s) em campo que não é editável.`,
                `${pCampo} pending change(s) on a non-editable field.`);
+  /* A tabela geral e consulta, nao dado de indicador: problema nela nunca
+     impede a base de abrir - mas quem importou precisa saber o que entrou. */
+  const cat = Array.isArray(db.catalogo)? db.catalogo : [];
+  const catSem = cat.filter(c=>!c || !String(c.item||"").trim()).length;
+  if(catSem) A(`${catSem} linha(s) da tabela geral sem código.`, `${catSem} general-table row(s) without a code.`);
+  const catVistos = new Set(), catDup = new Set();
+  for(const c of cat){ const k=String(c?.item||"").trim().toLowerCase(); if(!k) continue;
+    if(catVistos.has(k)) catDup.add(k); else catVistos.add(k); }
+  if(catDup.size) A(`${catDup.size} código(s) repetidos na tabela geral.`,
+                    `${catDup.size} duplicate code(s) in the general table.`);
   return {valido: !erros.length, erros, avisos};
 }
 
@@ -2443,7 +3406,7 @@ function verificarIntegridade(){
 "use strict";
 /* ================================ UI =================================== */
 const UI = {
-  modal(titulo, corpo, botoes=[], {aoFechar=null}={}){
+  modal(titulo, corpo, botoes=[], {aoFechar=null, confirmarSaida=false}={}){
     this.fechar();
     const ov=document.createElement("div"); ov.className="ov"; ov.id="ov";
     ov.__aoFechar = aoFechar;
@@ -2452,13 +3415,41 @@ const UI = {
       <div class="body">${corpo}</div>
       ${botoes.length?`<footer>${botoes.map((b,k)=>`<button class="${b.cls||"btn"}" data-b="${k}" id="mb${k}">${esc(b.txt)}</button>`).join("")}</footer>`:""}</div>`;
     document.body.append(ov);
-    ov.onclick=e=>{if(e.target===ov) this.fechar();};
-    $("#mX").onclick=()=>this.fechar();
+    ov.__confirmarSaida = confirmarSaida;
+    /* Fechar clicando fora so vale quando o clique COMECA e TERMINA no fundo.
+       Antes bastava terminar nele - e o navegador entrega o clique ao ancestral
+       comum do mousedown e do mouseup. Arrastar para selecionar o texto de um
+       campo e soltar o botao um pouco fora da janela dava, portanto, um clique
+       no fundo: a janela fechava sozinha e o que estava escrito ia junto. Era
+       exatamente o que acontecia ao mexer num item. */
+    ov.__comecouNoFundo = false;
+    ov.addEventListener("pointerdown", e=>{ ov.__comecouNoFundo = (e.target===ov); });
+    ov.onclick = e => { if(this.cliqueFechaFundo(ov, e.target)) this.fecharPeloUsuario(); };
+    /* Digitou algo? A partir daqui sair por fora pergunta antes de descartar.
+       Vale so nas janelas que pedem (o detalhe do item, o item novo, o waiver):
+       uma janela de filtro nao tem nada a perder. */
+    const sujar = ()=>{ ov.__sujo = true; };
+    ov.addEventListener("input", sujar); ov.addEventListener("change", sujar);
+    $("#mX").onclick=()=>this.fecharPeloUsuario();
     /* Ligados pelo id, nao pelo seletor de atributo: e o que permite acionar o
        botao de uma janela nos testes em Node, onde so os ids existem. */
     botoes.forEach((b,k)=>{ const el=$("#mb"+k); if(el) el.onclick=()=>b.fn(); });
     return ov;
   },
+  /* A regra do clique no fundo, isolada para poder ser conferida sem navegador. */
+  cliqueFechaFundo(ov, alvo){ return !!ov && alvo===ov && ov.__comecouNoFundo===true; },
+
+  /* Saida por iniciativa de quem esta usando: o fundo, o X ou o Esc. E diferente
+     de fechar(), que tambem e chamada pelo proprio sistema - por modal(), ao
+     abrir a janela seguinte - quando nao ha nada que perguntar. */
+  fecharPeloUsuario(){
+    const ov=$("#ov"); if(!ov) return;
+    if(ov.__confirmarSaida && ov.__sujo && !confirmar(LANG==="pt"
+      ? "Esta janela tem alterações que ainda não foram salvas.\n\nFechar e descartar?"
+      : "This window has unsaved changes.\n\nClose and discard them?")) return;
+    this.fechar();
+  },
+
   /* aoFechar corre SEMPRE que a janela sai - pelo X, pelo clique fora ou porque
      outra janela tomou o lugar dela. E o que garante que uma tela que suspendeu
      algo (a de decisao do Sync suspende o polling) sempre o devolva. */
@@ -2677,6 +3668,7 @@ const UI = {
                 ? "está com este item aberto agora. Se os dois mudarem o mesmo campo, o sistema vai pedir uma decisão."
                 : "has this item open right now. If you both change the same field, the app will ask for a decision."}</div>`
           : ""; })()}
+        ${Waiver.blocoItemHTML(itemId)}
         ${pend.length?`<div class="panel pad" style="border-left:3px solid var(--chg-line);margin-bottom:12px">
           <b>${pend.length} ${LANG==="pt"?"alteração(ões) pendente(s) de consolidação":"change(s) pending consolidation"}</b>
           ${pend.map(p=>`<div class="rowflex muted" style="font-size:11.5px;margin-top:4px">
@@ -2743,8 +3735,10 @@ const UI = {
        {txt:LANG==="pt"?"Salvar e próximo":"Save and next",cls:"btn",
         fn:()=>{ this.salvarDetalhe(itemId); this.irrItem(1, {semSalvar:true}); }},
        {txt:T("salvar"),cls:"btn pri",fn:()=>{
-          this.salvarDetalhe(itemId); this.fechar(); Render.atual();}}]);
+          this.salvarDetalhe(itemId); this.fechar(); Render.atual();}}],
+      {confirmarSaida:true});
 
+    Waiver.ligarBloco(itemId);
     $$("[data-pd]").forEach(b=>b.onclick=()=>{
       const x=S.db.pendentes.find(y=>y.id===b.dataset.pd);
       if(x && Pend.descartarUma(x)) this.detalhe(itemId);
@@ -3524,7 +4518,12 @@ ${this.rodapeHTML()}
      nao mexe na tela que a pessoa esta usando. */
   pdf(lista, titulo, opc={}){
     const o = Object.assign(this.opcoes(), opc);
-    const html = this.documento(lista, titulo, o);
+    this.imprimirHTML(this.documento(lista, titulo, o));
+  },
+  /* A impressao separada do que se imprime: o waiver e um documento de outra
+     forma, mas passa pelo mesmo quadro escondido - e por ele que se escapa do
+     bloqueador de pop-up das instalacoes corporativas. */
+  imprimirHTML(html){
     try{
       $("#quadroImpressao")?.remove();
       const f = document.createElement("iframe");
@@ -3809,13 +4808,31 @@ function baseVazia(){
       caminhoPadrao:Caminho.FABRICA,
       status:[], familias:[], statusAbertoExcecoes:["1 - Validated by ICN","2 - Not Blocking","2 - Not Available Jx"],
       inspTypesFuncionais:[]},
-    marcos:[], itens:[], historico:[], pendentes:[], observacoes:[], conflitos:[]};
+    marcos:[], itens:[], historico:[], pendentes:[], observacoes:[], conflitos:[], waivers:[]};
 }
 function normalizar(db){
   db.schemaVersion ??= 1;
   db.meta ??= {revisao:0}; db.config ??= {}; db.marcos ??= [];
   db.itens ??= []; db.historico ??= []; db.pendentes ??= [];
   db.observacoes ??= []; db.conflitos ??= [];
+  /* Base gravada antes dos waivers nao traz a lista; sem isto a tela de
+     waivers estouraria ao abrir uma base antiga. */
+  db.waivers ??= [];
+  db.catalogo ??= [];                 /* tabela geral do projeto: consulta, nao itens da base */
+  db.catalogoMeta ??= null;
+  if(!Array.isArray(db.waivers)) db.waivers = [];
+  for(const w of db.waivers){
+    if(!w || typeof w!=="object") continue;
+    w.itens = Array.isArray(w.itens) ? w.itens.filter(x=>typeof x==="string") : [];
+    w.situacao ??= "rascunho"; w.origem ??= "sistema";
+    for(const k of ["numero","assunto","texto","condicao","para","referencia",
+                    "statusDestino","statusFinal","decisaoPor","decisaoObs",
+                    /* o destinatario nao usa o sistema: a resposta e transcrita aqui,
+                       entao por onde ela chegou e quem a lancou fazem parte do registro */
+                    "decisaoRef","decisaoRegistradaPor"]) w[k] ??= "";
+    w.dataDocumento ??= (w.criadoEm||"").slice(0,10) || hoje();
+    w.criadoEm ??= agora(); w.atualizadoEm ??= w.criadoEm; w.autor ??= "";
+  }
   const c=db.config;
   c.minutosConsolidacao ??= 10; c.diasSemAtualizacao ??= 30; c.diasAlertaAging ??= 60;
   c.segundosSync ??= 7;
@@ -3918,7 +4935,7 @@ $("#btnLang").onclick=()=>{ LANG = LANG==="pt"?"en":"pt"; localStorage.setItem("
 })();
 
 addEventListener("keydown",e=>{
-  if(e.key==="Escape") UI.fechar();
+  if(e.key==="Escape") UI.fecharPeloUsuario();
   if(!S.db) return;
   /* no detalhe: Alt+setas pula de item, Ctrl+Enter salva e avanca */
   if($("#ov") && S.selecionado){
@@ -3978,6 +4995,7 @@ UI.detalhe = function(itemId){
     + (pos>=0 && vizinhos.length>1? `  (${pos+1}/${vizinhos.length})` : ""), `
     <div class="tabs">${aba("d",T("detalhes"))}${aba("h",T("historico"))}${aba("o",T("observacoes"))}</div>
     <div id="tp-d">
+      ${Waiver.blocoItemHTML(itemId)}
       <div class="rowflex" style="gap:10px;margin-bottom:12px">
         <span class="pill" style="background:${cor}18;color:${cor};border-color:${cor}55;font-size:13px">
           <i class="dot" style="background:${cor}"></i>${esc(i.status)}</span>
@@ -4015,6 +5033,10 @@ UI.detalhe = function(itemId){
       {txt:(LANG==="pt"?"Próximo":"Next")+" ›",cls:"btn",fn:()=>UI.irrItem(1)}] : []),
      {txt:T("fechar"),cls:"btn pri",fn:()=>UI.fechar()}]);
 
+  /* Os waivers do item aparecem aqui tambem: quem consulta precisa saber que
+     o item esta coberto por um pedido de dispensa - e poder imprimi-lo. O que
+     nao aparece e o botao de pedir um novo (EDITAVEL e false). */
+  Waiver.ligarBloco(itemId);
   $$(".tabs button").forEach((b,k)=>{ if(!k) b.classList.add("on");
     b.onclick=()=>{ $$(".tabs button").forEach(x=>x.classList.remove("on")); b.classList.add("on");
       ["d","h","o"].forEach(t=>{ const el=$("#tp-"+t); if(el) el.hidden = t!==b.dataset.t; }); };});

@@ -6,7 +6,7 @@ comportamento em Chromium real, via Playwright.
 ## Unidade (Node, sem navegador e sem base real)
 
 ```bash
-node testes/unidade.mjs        # 532 verificações: persistência (arquivo inexistente,
+node testes/unidade.mjs        # 761 verificações: persistência (arquivo inexistente,
                                # conflito de revisão, JSON corrompido, permissão negada,
                                # falha em createWritable/write/close), fila de gravação,
                                # edição durante a escrita, descarte de pendentes (tudo e
@@ -28,7 +28,17 @@ node testes/unidade.mjs        # 532 verificações: persistência (arquivo inex
                                # "somente em aberto" nos cinco formatos e a escada
                                # do "ajustar para caber" (a medição de verdade
                                # exige navegador, então aqui a régua é trocada por
-                               # uma de mentira e o que se testa é a decisão)
+                               # uma de mentira e o que se testa é a decisão), o
+                               # waiver inteiro (numeração, gravação, o status
+                               # aplicado pelo mesmo motor de qualquer edição, o
+                               # passivo que NÃO mexe no status, o documento, o
+                               # rebase de waiver quando outra pessoa grava no
+                               # meio e o visualizador, que lê e imprime mas não
+                               # pede nem altera), a janela que fechava sozinha
+                               # quando o mouse era solto fora dela, a tabela geral
+                               # do projeto (CSV, TSV, JSON e colagem do Excel, o
+                               # mapa de colunas e o que fica de fora) e o waiver
+                               # de item que não está na base
 ```
 
 Não precisa instalar nada e não usa dado nenhum do projeto: `testes/app_em_node.mjs`
@@ -43,8 +53,12 @@ elementos com `id` que estão no texto, e `#ov` só existe enquanto há um modal
 aberto. É isso que permite testar a ligação dos botões de uma tela recém-desenhada
 (a barra de lote, por exemplo) sem abrir navegador.
 
-Ele também indexa os elementos por atributo `data-*` e guarda o `class="..."` num
-`classList` com estado, então `$$('.chip[data-xc="item"]')` responde. Sem isso, os
+Ele também indexa os elementos por atributo `data-*`, guarda o `class="..."` num
+`classList` com estado e lê o estado inicial do próprio texto — `value="…"`, o
+atributo `checked` e a `<option selected>` de um `<select>` —, então
+`$$('.chip[data-xc="item"]')` responde e uma caixa desenhada já marcada aparece
+marcada. Sem isso, o padrão que a tela oferece ficava invisível aqui e só um
+teste em navegador pegava a diferença. Sem isso, os
 controles que não têm `id` — as colunas da exportação são chips com `data-xc` —
 ficavam invisíveis, e um defeito no caminho "ler a janela e guardar" só aparecia
 no navegador. Os botões do rodapé de um modal têm `id` (`#mb0`, `#mb1`, …)
@@ -74,7 +88,19 @@ python3 testes/exportacao.py           # 53: janela de exportação, CSV conferi
                                        # de CSV de verdade, relatório PDF aberto num navegador
                                        # limpo, formulário de item novo, Shipyard por ActualJx
                                        # e caminho padrão
-python3 testes/sincronizacao.py        # 31: duas pessoas na mesma base — junção automática,
+python3 testes/waiver.py               # 101: o waiver do começo ao fim — pedir pela tela, a
+                                       # pergunta que a janela faz quando o status escolhido
+                                       # não é o que os itens têm, o texto virando observação
+                                       # no item, a resposta do destinatário registrada pelos
+                                       # dois caminhos (tela de waivers e de dentro do item),
+                                       # a recusa que não move nada mas fica no item, a
+                                       # procedência da transcrição (quem respondeu, por
+                                       # onde chegou, quem lançou) impressa no papel, o
+                                       # passivo feito à mão e o documento MEDIDO em folhas A4
+                                       # de verdade; e a janela que fechava sozinha quando o
+                                       # mouse era solto fora dela, reproduzida com arraste
+                                       # de mouse real
+python3 testes/sincronizacao.py        # 32: duas pessoas na mesma base — junção automática,
                                        # decisão campo a campo, gravação concorrente, presença
 python3 testes/visualizador.py         # 35: o visualizador servido de uma pasta com o
                                        # database.json ao lado — abre sozinho, não oferece
@@ -82,7 +108,7 @@ python3 testes/visualizador.py         # 35: o visualizador servido de uma pasta
                                        # da pasta byte a byte como estava
 ```
 
-Os cinco scripts leem o caminho da base em `SM_DATABASE` e, se quiser apontar um
+Os seis scripts leem o caminho da base em `SM_DATABASE` e, se quiser apontar um
 executável específico, `SM_CHROMIUM` — nenhum caminho absoluto fica no repositório.
 Sem `SM_DATABASE` o script para com uma mensagem explicando o que falta.
 
